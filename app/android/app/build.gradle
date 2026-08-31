@@ -1,0 +1,217 @@
+apply plugin: "com.android.application"
+apply plugin: "org.jetbrains.kotlin.android"
+apply plugin: "com.facebook.react"
+
+/**
+ * Release signing credentials, or null when none are configured.
+ *
+ * Read from a gitignored android/keystore.properties, or from the
+ * environment for CI. Nothing here is ever committed: a keystore in version
+ * control is a signing key anyone who clones the repository can use.
+ */
+def remotlyReleaseSigning = {
+    def props = new Properties()
+    def propsFile = rootProject.file("keystore.properties")
+    if (propsFile.exists()) {
+        propsFile.withInputStream { props.load(it) }
+    }
+    def storePath = props.getProperty("storeFile") ?: System.getenv("REMOTLY_KEYSTORE")
+    def storePassword = props.getProperty("storePassword") ?: System.getenv("REMOTLY_KEYSTORE_PASSWORD")
+    def keyAlias = props.getProperty("keyAlias") ?: System.getenv("REMOTLY_KEY_ALIAS")
+    def keyPassword = props.getProperty("keyPassword") ?: System.getenv("REMOTLY_KEY_PASSWORD")
+    if (!storePath || !storePassword || !keyAlias || !keyPassword) return null
+    def resolved = file(storePath).isAbsolute() ? file(storePath) : rootProject.file(storePath)
+    if (!resolved.exists()) {
+        throw new GradleException("release keystore not found: ${resolved}")
+    }
+    return [
+        storeFile    : resolved,
+        storePassword: storePassword,
+        keyAlias     : keyAlias,
+        keyPassword  : keyPassword,
+    ]
+}()
+
+/**
+ * This is the configuration block to customize your React Native Android app.
+ * By default you don't need to apply any configuration, just uncomment the lines you need.
+ */
+react {
+    /* Folders */
+    //   The root of your project, i.e. where "package.json" lives. Default is '../..'
+    // root = file("../../")
+    //   The folder where the react-native NPM package is. Default is ../../node_modules/react-native
+    // reactNativeDir = file("../../node_modules/react-native")
+    //   The folder where the react-native Codegen package is. Default is ../../node_modules/@react-native/codegen
+    // codegenDir = file("../../node_modules/@react-native/codegen")
+    //   The cli.js file which is the React Native CLI entrypoint. Default is ../../node_modules/react-native/cli.js
+    // cliFile = file("../../node_modules/react-native/cli.js")
+
+    /* Variants */
+    //   The list of variants to that are debuggable. For those we're going to
+    //   skip the bundling of the JS bundle and the assets. Default is "debug", "debugOptimized".
+    //   If you add flavors like lite, prod, etc. you'll have to list your debuggableVariants.
+    // debuggableVariants = ["liteDebug", "liteDebugOptimized", "prodDebug", "prodDebugOptimized"]
+
+    /* Bundling */
+    //   A list containing the node command and its flags. Default is just 'node'.
+    // nodeExecutableAndArgs = ["node"]
+    //
+    //   The command to run when bundling. By default is 'bundle'
+    // bundleCommand = "ram-bundle"
+    //
+    //   The path to the CLI configuration file. Default is empty.
+    // bundleConfig = file(../rn-cli.config.js)
+    //
+    //   The name of the generated asset file containing your JS bundle
+    // bundleAssetName = "MyApplication.android.bundle"
+    //
+    //   The entry file for bundle generation. Default is 'index.android.js' or 'index.js'
+    // entryFile = file("../js/MyApplication.android.js")
+    //
+    //   A list of extra flags to pass to the 'bundle' commands.
+    //   See https://github.com/react-native-community/cli/blob/main/docs/commands.md#bundle
+    // extraPackagerArgs = []
+
+    /* Hermes Commands */
+    //   The hermes compiler command to run. By default it is 'hermesc'
+    // hermesCommand = "$rootDir/my-custom-hermesc/bin/hermesc"
+    //
+    //   The list of flags to pass to the Hermes compiler. By default is "-O", "-output-source-map"
+    // hermesFlags = ["-O", "-output-source-map"]
+
+    /* Autolinking */
+    autolinkLibrariesWithApp()
+}
+
+/**
+ * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
+ */
+def enableProguardInReleaseBuilds = true
+
+/**
+ * The preferred build flavor of JavaScriptCore (JSC)
+ *
+ * For example, to use the international variant, you can use:
+ * `def jscFlavor = io.github.react-native-community:jsc-android-intl:2026004.+`
+ *
+ * The international variant includes ICU i18n library and necessary data
+ * allowing to use e.g. `Date.toLocaleString` and `String.localeCompare` that
+ * give correct results when using with locales other than en-US. Note that
+ * this variant is about 6MiB larger per architecture than default.
+ */
+def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
+
+android {
+    ndkVersion rootProject.ext.ndkVersion
+    buildToolsVersion rootProject.ext.buildToolsVersion
+    compileSdk rootProject.ext.compileSdkVersion
+
+    namespace "com.remotly.app"
+    defaultConfig {
+        applicationId "com.remotly.app"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        // One version source: app/package.json. CI overrides both through
+        // -PremotlyVersionName and -PremotlyVersionCode. Reading the package
+        // file keeps the Android metadata from drifting away from the JS
+        // package, which is how the tree ended up shipping 1.0 against a
+        // package that still said 0.0.1.
+        versionCode project.hasProperty('remotlyVersionCode')
+                ? project.property('remotlyVersionCode').toInteger()
+                : rootProject.ext.remotlyVersionCode
+        versionName project.hasProperty('remotlyVersionName')
+                ? project.property('remotlyVersionName')
+                : rootProject.ext.remotlyVersionName
+        ndk {
+            // The terminal .so set (libremotly_terminal) ships for these ABIs.
+            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64'
+        }
+    }
+    signingConfigs {
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+        // Release credentials come from the environment or a local
+        // keystore.properties, never from version control. A build without
+        // them still succeeds and produces an unsigned release APK, which
+        // fails to install rather than shipping under the debug key.
+        if (remotlyReleaseSigning != null) {
+            release {
+                storeFile remotlyReleaseSigning.storeFile
+                storePassword remotlyReleaseSigning.storePassword
+                keyAlias remotlyReleaseSigning.keyAlias
+                keyPassword remotlyReleaseSigning.keyPassword
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
+        release {
+            signingConfig remotlyReleaseSigning != null ? signingConfigs.release : null
+            minifyEnabled enableProguardInReleaseBuilds
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+        }
+    }
+
+    // The JVM unit tests link the unmocked android.jar, where android.util.Log
+    // throws "not mocked". Return default values so crash-path logging is a
+    // harmless no-op there; on device the real Log applies.
+    testOptions {
+        unitTests {
+            returnDefaultValues = true
+        }
+    }
+
+    // React loads custom fonts from assets/fonts/. The vector icon fonts are
+    // copied there by copyVectorIconsFonts (see below).
+}
+
+// Local AAR repository: the Go sshcore engine (RN-05) is built by
+// scripts/build-sshcore.sh into app/libs and consumed as a plain AAR.
+repositories {
+    flatDir { dirs 'libs' }
+}
+
+dependencies {
+    // The version of react-native is set by the React Native Gradle Plugin
+    implementation("com.facebook.react:react-android")
+
+    if (hermesEnabled.toBoolean()) {
+        implementation("com.facebook.react:hermes-android")
+    } else {
+        implementation jscFlavor
+    }
+
+    // Moved Kotlin core (RN-02). Versions come from gradle/libs.versions.toml
+    // (catalog "remotly") and are pinned identical to the Lynx app's catalog.
+    implementation remotly.androidx.core.ktx
+    implementation remotly.androidx.fragment
+    implementation remotly.okhttp
+    implementation remotly.bouncycastle
+    implementation remotly.gson
+    implementation remotly.androidx.camera.camera2
+    implementation remotly.androidx.camera.lifecycle
+    // The scanner view is its own LifecycleOwner: a Fabric-hosted view has no
+    // lifecycle in its tree, and the activity's outlives the view.
+    implementation remotly.androidx.lifecycle.runtime
+    implementation remotly.androidx.camera.view
+    implementation remotly.mlkit.barcode.scanning
+    // Google's own scanner activity: it owns the camera, the preview, and the
+    // camera permission. Hosting a preview inside a Fabric view meant owning a
+    // surface and a lifecycle that React's tree does not provide, and that is
+    // what never worked.
+    implementation remotly.gms.code.scanner
+
+    // Go sshcore engine (RN-05): SSH/SFTP via golang.org/x/crypto + pkg/sftp,
+    // bound with gomobile. Shipped as a local AAR (scripts/build-sshcore.sh).
+    implementation(name: 'sshcore', ext: 'aar')
+    testImplementation remotly.junit
+    testImplementation remotly.bouncycastle
+    testImplementation remotly.gson
+}

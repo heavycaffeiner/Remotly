@@ -1,0 +1,20 @@
+[
+  {
+    "pattern": "XX",
+    "init_static_pub": "75bb00515e2c088bdcf2fe685dac8ba87a7b44800a41845d2e5cee62eef2e44d",
+    "resp_static_pub": "d69a45e3371cf573f5067bbbb5fe0d8f0a53bd8991e301f9a463d3341816ee46",
+    "init_send_key": "682b3e8a3c927d5d28f9a463fdd49e55f8e59a41e428e3090248b84ad4911e60",
+    "init_recv_key": "2e422c6aa2181336bbf9cb3bb029e45528f53de7cb6e7c0ed646e6862cd8279e",
+    "resp_send_key": "2e422c6aa2181336bbf9cb3bb029e45528f53de7cb6e7c0ed646e6862cd8279e",
+    "resp_recv_key": "682b3e8a3c927d5d28f9a463fdd49e55f8e59a41e428e3090248b84ad4911e60"
+  },
+  {
+    "pattern": "IK",
+    "init_static_pub": "b5789b977eac06c057b55881c97621afa516a641fb8c11593a9483398a72b43d",
+    "resp_static_pub": "231995a7a967757f1ec2b6b0bbdee434c7308e49d77a33b26ece4e3575c8086c",
+    "init_send_key": "6b34d4304c888c875da0c4596ca9f85cad37e20fca0ae764777e9941b10ae4c3",
+    "init_recv_key": "b0a7bb483d4f7aa1535a5885205462517df6d5d14f23a35c80a57b932e850cc8",
+    "resp_send_key": "b0a7bb483d4f7aa1535a5885205462517df6d5d14f23a35c80a57b932e850cc8",
+    "resp_recv_key": "6b34d4304c888c875da0c4596ca9f85cad37e20fca0ae764777e9941b10ae4c3"
+  }
+]

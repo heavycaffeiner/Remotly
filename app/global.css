@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Theme tokens. The only place in the app where a raw color is written.
+ *
+ * Values are unwrapped HSL channels so Tailwind can compose them with an
+ * alpha, as in `bg-primary/10`.
+ */
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 204 100% 31%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 42%;
+
+    --accent: 210 40% 94%;
+    --accent-foreground: 222 47% 11%;
+
+    --destructive: 0 72% 45%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 32% 88%;
+    --input: 214 32% 88%;
+    --ring: 204 100% 31%;
+
+    --terminal: 222 47% 8%;
+    --terminal-foreground: 210 40% 92%;
+
+    --radius: 10px;
+  }
+
+  .dark:root {
+    --background: 222 47% 7%;
+    --foreground: 210 40% 92%;
+
+    --card: 222 40% 10%;
+    --card-foreground: 210 40% 92%;
+
+    --popover: 222 40% 10%;
+    --popover-foreground: 210 40% 92%;
+
+    --primary: 209 100% 76%;
+    --primary-foreground: 210 100% 14%;
+
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 92%;
+
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 217 33% 20%;
+    --accent-foreground: 210 40% 92%;
+
+    --destructive: 0 63% 60%;
+    --destructive-foreground: 222 47% 11%;
+
+    --border: 217 33% 20%;
+    --input: 217 33% 22%;
+    --ring: 209 100% 76%;
+
+    --terminal: 222 47% 6%;
+    --terminal-foreground: 210 40% 92%;
+  }
+}

@@ -1,0 +1,8 @@
+libghostty-vt is built from this pinned commit of ghostty-org/ghostty.
+The C API is untagged and in flux (see ADR 0001), so the pin is the
+source of truth. Rebuild the native libs after changing the pin.
+
+repo:   https://github.com/ghostty-org/ghostty
+commit: 0ba6250388641f52135414b38c4259aa682c489b
+date:   2026-08-16
+license: MIT

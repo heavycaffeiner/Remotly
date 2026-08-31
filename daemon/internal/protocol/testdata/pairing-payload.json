@@ -1,0 +1,32 @@
+[
+  {
+    "token_id": "000102030405060708090a0b0c0d0e0f",
+    "secret": "11161f040d323b20292e575c454a737861666f949d828bb0b9bea7acd5dac3c8",
+    "expires": 1787200000,
+    "ephemeral_pub": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+    "daemon_pub": "303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f",
+    "hints": [ { "kind": 0, "addr": "192.168.1.10", "port": 8788 } ],
+    "daemon_name": "dev-host",
+    "uri": "remotly://pair?d=AQABAgMEBQYHCAkKCwwNDg8RFh8EDTI7ICkuV1xFSnN4YWZvlJ2Ci7C5vqes1drDyGqGggAgISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0-PzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PAQAMMTkyLjE2OC4xLjEwIlQIZGV2LWhvc3Q"
+  },
+  {
+    "token_id": "101112131415161718191a1b1c1d1e1f",
+    "secret": "22252c373e0108131a1d646f7679404b52555ca7aeb1b8838a8d949fe6e9f0fb",
+    "expires": 1787300000,
+    "ephemeral_pub": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+    "daemon_pub": "505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f",
+    "hints": [ { "kind": 0, "addr": "10.0.0.5", "port": 8788 }, { "kind": 3, "addr": "relay.example.com", "port": 443 } ],
+    "daemon_name": "workspace daemon",
+    "uri": "remotly://pair?d=ARAREhMUFRYXGBkaGxwdHh8iJSw3PgEIExodZG92eUBLUlVcp66xuIOKjZSf5unw-2qICKBAQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX1BRUlNUVVZXWFlaW1xdXl9gYWJjZGVmZ2hpamtsbW5vAgAIMTAuMC4wLjUiVAMRcmVsYXkuZXhhbXBsZS5jb20BuxB3b3Jrc3BhY2UgZGFlbW9u"
+  },
+  {
+    "token_id": "202122232425262728292a2b2c2d2e2f",
+    "secret": "33343d262f1019020b0c757e6768515a43444db6bfa0a9929b9c858ef7f8e1ea",
+    "expires": 1787400000,
+    "ephemeral_pub": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+    "daemon_pub": "707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f",
+    "hints": [],
+    "daemon_name": "n",
+    "uri": "remotly://pair?d=ASAhIiMkJSYnKCkqKywtLi8zND0mLxAZAgsMdX5naFFaQ0RNtr-gqZKbnIWO9_jh6mqJj0BgYWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1-f3BxcnN0dXZ3eHl6e3x9fn-AgYKDhIWGh4iJiouMjY6PAAFu"
+  }
+]

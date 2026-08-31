@@ -1,0 +1,6 @@
+ASCII and Hangul: 안녕하세요 world
+kana: こんにちは
+han: 你好世界
+box: ┌──┐
+emoji: 😀 👍 end
+mixed line: abc한あ中─😀xyz

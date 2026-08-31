@@ -1,0 +1,12 @@
+[
+  { "value": 0, "bytes": "00" },
+  { "value": 1, "bytes": "01" },
+  { "value": 127, "bytes": "7f" },
+  { "value": 128, "bytes": "8001" },
+  { "value": 300, "bytes": "ac02" },
+  { "value": 16383, "bytes": "ff7f" },
+  { "value": 16384, "bytes": "808001" },
+  { "value": 65535, "bytes": "ffff03" },
+  { "value": 65536, "bytes": "808004" },
+  { "value": 4294967295, "bytes": "ffffffff0f" }
+]

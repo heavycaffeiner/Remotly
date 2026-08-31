@@ -1,0 +1,5 @@
+[
+  { "offset": 0, "chunk": "68656c6c6f", "payload": "000000000000000068656c6c6f" },
+  { "offset": 4096, "chunk": "deadbeef", "payload": "0000000000001000deadbeef" },
+  { "offset": 1099511627776, "chunk": "", "payload": "0000010000000000" }
+]

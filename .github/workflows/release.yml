@@ -1,0 +1,156 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    name: Signed release APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install
+        working-directory: app
+        run: pnpm install --frozen-lockfile
+
+      # The keystore is a repository secret, base64 encoded so it survives the
+      # environment intact. It is written outside the working tree, so it is
+      # never picked up by a build step or an upload glob, and it goes away
+      # with the runner.
+      #
+      # The value is passed through env rather than interpolated into the
+      # script: an expression expanded into the command line would appear in
+      # the run log before masking applies.
+      - name: Restore signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.REMOTLY_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "REMOTLY_KEYSTORE_BASE64 is not set; a release cannot be signed" >&2
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Build
+        working-directory: app/android
+        env:
+          REMOTLY_KEYSTORE: ${{ runner.temp }}/release.jks
+          REMOTLY_KEYSTORE_PASSWORD: ${{ secrets.REMOTLY_KEYSTORE_PASSWORD }}
+          REMOTLY_KEY_ALIAS: ${{ secrets.REMOTLY_KEY_ALIAS }}
+          REMOTLY_KEY_PASSWORD: ${{ secrets.REMOTLY_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease
+
+      # An unsigned APK means the credentials did not reach Gradle. Failing
+      # here is the point: an unsigned build must never be published.
+      #
+      # The certificate is verified, not printed: --print-certs writes the
+      # signing identity into a public build log.
+      - name: Verify signature
+        run: |
+          apk=app/android/app/build/outputs/apk/release/app-release.apk
+          if [ ! -f "$apk" ]; then
+            echo "release APK is unsigned; signing credentials did not apply" >&2
+            ls -la app/android/app/build/outputs/apk/release/ >&2
+            exit 1
+          fi
+          # The runner ships several build-tools versions; a glob would pass the
+          # extra paths to apksigner as arguments. Take the newest one.
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)"
+          "$apksigner" verify "$apk"
+
+      - name: Remove signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remotly-release-apk
+          path: app/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/android/app/build/outputs/apk/release/app-release.apk
+
+  # Serialized behind the APK job: two jobs attaching to the same tag at once
+  # can create duplicate releases. The APK is the slower build, so waiting for
+  # it costs no wall time.
+  binaries:
+    name: Daemon and relay binaries
+    needs: apk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: daemon/go.sum
+
+      # The tag is the version users see in `remotly version`. Without -X the
+      # binary reports the 0.1.0-dev default and misnames what is installed.
+      - name: Build
+        run: |
+          # On a tag run GITHUB_REF_NAME is "v1.2.3"; on workflow_dispatch it is
+          # the branch, which is not a version. Fall back to the manifest.
+          case "$GITHUB_REF_NAME" in
+            v[0-9]*) version="${GITHUB_REF_NAME#v}" ;;
+            *) version="$(sed -n 's/.*"version": "\(.*\)".*/\1/p' app/package.json | head -1)" ;;
+          esac
+          mkdir -p dist/bin
+          for arch in amd64 arm64; do
+            (cd daemon && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
+              go build -trimpath -ldflags "-s -w -X main.version=$version" \
+              -o "../dist/bin/remotly-linux-$arch" ./cmd/remotly)
+            (cd relay && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
+              go build -trimpath -ldflags "-s -w -X main.version=$version" \
+              -o "../dist/bin/remotly-relay-linux-$arch" ./cmd/remotly-relay)
+          done
+          ( cd dist/bin && sha256sum * > SHA256SUMS )
+          ls -la dist/bin
+
+      # A cross-compiled binary that is not the architecture it claims would
+      # fail only on a user's machine, so the type is checked here.
+      - name: Verify
+        run: |
+          file dist/bin/remotly-linux-amd64 | grep -q 'x86-64'
+          file dist/bin/remotly-linux-arm64 | grep -q 'aarch64'
+          ./dist/bin/remotly-linux-amd64 version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remotly-linux-binaries
+          path: dist/bin/
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/bin/*

@@ -1,0 +1,34 @@
+**/node_modules/
+**/build/
+**/.gradle/
+**/.cxx/
+**/Pods/
+**/DerivedData/
+**/coverage/
+**/.kotlin/
+*.apk
+*.aab
+*.aar
+*.keystore
+*.jks
+dist/
+app/android/terminal-native/build/
+app/android/terminal-native/stage/
+
+# Checked-in build outputs the release currently depends on. Removing these
+# from version control requires updating scripts/release.sh in the same change.
+!app/android/app/libs/sshcore.aar
+!app/android/app/debug.keystore
+dist.backup-*/
+
+# Release signing material. The debug keystore above is deliberately shared so
+# a debug build is reproducible; a release key never is.
+app/android/keystore.properties
+
+# Local tooling config, not project code.
+WATCHDOG.yml
+
+# Working context: plans, phase records, ADRs, handoffs, and bug-fix logs kept
+# on disk for continuity but not published. docs/ itself stays tracked for the
+# README's prose and images.
+docs/internal/

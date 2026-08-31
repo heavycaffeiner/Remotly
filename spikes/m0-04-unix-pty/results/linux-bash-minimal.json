@@ -1,0 +1,85 @@
+{
+  "shell_resolution": {
+    "requested": "",
+    "resolved": "/bin/bash",
+    "source": "$SHELL"
+  },
+  "parent_env": {
+    "COLORTERM": "truecolor",
+    "HOME": "/home/heavycaffeiner",
+    "LANG": "en_US.UTF-8",
+    "LOGNAME": "heavycaffeiner",
+    "PATH": "/usr/local/bin:/usr/bin:/bin",
+    "REMOTLY_SESSION": "m0-04-spike",
+    "SHELL": "/bin/bash",
+    "TERM": "xterm-256color",
+    "USER": "heavycaffeiner"
+  },
+  "probe_path": "/Tokyo/Projects/Remotly/spikes/m0-04-unix-pty/envprobe.sh",
+  "probe": {
+    "alias_gs": "no",
+    "alias_la": "no",
+    "alias_ll": "yes",
+    "colorterm": "truecolor",
+    "cwd": "/home/heavycaffeiner",
+    "env_EDITOR": "",
+    "env_LANG": "en_US.UTF-8",
+    "env_LC_ALL": "",
+    "env_PAGER": "",
+    "env_SHELL": "/bin/bash",
+    "env_SSH_AUTH_SOCK": "",
+    "env_VISUAL": "",
+    "func_gco": "no",
+    "func_gd": "no",
+    "func_gs": "no",
+    "func_la": "no",
+    "func_ll": "no",
+    "home": "/home/heavycaffeiner",
+    "interactive": "yes",
+    "login": "yes",
+    "path": "/home/heavycaffeiner/.local/go-sdk/bin:/home/heavycaffeiner/.local/share/pnpm/bin:/home/heavycaffeiner/.nvm/versions/node/v24.19.0/bin:/home/heavycaffeiner/.local/bin:/home/heavycaffeiner/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin",
+    "remotly_session": "m0-04-spike",
+    "shell_env": "/bin/bash",
+    "shell_name": "bash",
+    "shell_path": "/usr/bin/bash",
+    "stderr_is_tty": "yes",
+    "stdin_is_tty": "yes",
+    "stdout_is_tty": "yes",
+    "stty_size": "40x120",
+    "term": "xterm-256color",
+    "tty": "/dev/pts/2",
+    "uid": "1000",
+    "umask": "0022",
+    "vm_asdf": "no",
+    "vm_conda": "no",
+    "vm_fnm": "no",
+    "vm_mise": "no",
+    "vm_nvm": "nvm",
+    "vm_pyenv": "no",
+    "vm_rbenv": "no"
+  },
+  "resize": {
+    "before": "40 120",
+    "after": "50 140",
+    "set": "140x50"
+  },
+  "interrupt": {
+    "alive_after_interrupt": "alive-after-interrupt"
+  },
+  "exit": {
+    "exit_status": "exit 0",
+    "code": 0
+  },
+  "error_cases": [
+    {
+      "case": "invalid-shell",
+      "expected": "error",
+      "actual": "stat /nonexistent/shell: no such file or directory"
+    },
+    {
+      "case": "invalid-cwd",
+      "expected": "error",
+      "actual": "stat /tmp/remotly-no-such-dir: no such file or directory"
+    }
+  ]
+}

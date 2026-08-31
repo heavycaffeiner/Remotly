@@ -1,0 +1,49 @@
+buildscript {
+    ext {
+        buildToolsVersion = "37.0.0"
+        minSdkVersion = 24
+        compileSdkVersion = 37
+        targetSdkVersion = 36
+        ndkVersion = "28.2.13676358"
+        kotlinVersion = "2.2.0"
+
+        // The single version source. package.json carries the version name;
+        // the code is derived from it so it always moves with the name and
+        // cannot be forgotten. CI may override either with -PremotlyVersionName
+        // or -PremotlyVersionCode.
+        def packageJson = new groovy.json.JsonSlurper()
+                .parseText(file("../package.json").text)
+        remotlyVersionName = packageJson.version
+
+        // major.minor.patch to a monotonic integer: 1.2.3 becomes 10203. The
+        // minor and patch fields are bounded at 99 so the mapping stays
+        // ordered; exceeding that would produce a lower code than the previous
+        // release.
+        def parts = (remotlyVersionName =~ /^(\d+)\.(\d+)\.(\d+)/)
+        if (!parts.find()) {
+            throw new GradleException(
+                    "app/package.json version '" + remotlyVersionName +
+                    "' is not major.minor.patch")
+        }
+        def vMajor = parts.group(1).toInteger()
+        def vMinor = parts.group(2).toInteger()
+        def vPatch = parts.group(3).toInteger()
+        if (vMinor > 99 || vPatch > 99) {
+            throw new GradleException(
+                    "version " + remotlyVersionName +
+                    " exceeds the two-digit minor and patch bound")
+        }
+        remotlyVersionCode = vMajor * 10000 + vMinor * 100 + vPatch
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle")
+        classpath("com.facebook.react:react-native-gradle-plugin")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+    }
+}
+
+apply plugin: "com.facebook.react.rootproject"

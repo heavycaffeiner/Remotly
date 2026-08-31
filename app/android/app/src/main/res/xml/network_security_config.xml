@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext is permitted because the daemon is reached over a plain WebSocket
+  on the local network, and the payload inside it is already sealed end to end.
+  The transport runs a Noise handshake against the daemon's pinned static key
+  and encrypts every frame, so the outer socket carries no secret and no
+  identity claim: TLS on top would add a second, weaker check against a device
+  that has no public hostname and no CA-issued certificate.
+
+  This cannot be narrowed to the private ranges. Android matches <domain>
+  entries as hostnames or IP literals only, with no CIDR support, and a
+  daemon's address is discovered at pairing time rather than known here.
+
+  Certificate pinning is deliberately absent for the same reason: nothing in
+  this app trusts the transport layer for authentication.
+-->
+<network-security-config>
+  <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

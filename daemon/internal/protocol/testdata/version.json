@@ -1,0 +1,6 @@
+[
+  { "version": 1, "accepted": true },
+  { "version": 0, "accepted": false, "close": 4000, "reason": "unsupported protocol version 0" },
+  { "version": 2, "accepted": false, "close": 4000, "reason": "unsupported protocol version 2" },
+  { "version": 255, "accepted": false, "close": 4000, "reason": "unsupported protocol version 255" }
+]

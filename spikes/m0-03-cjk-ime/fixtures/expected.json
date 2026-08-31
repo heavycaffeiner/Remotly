@@ -1,0 +1,13 @@
+{
+  "description": "Expected terminal cell width per line for the M0-03 fixtures. Width is in display cells, not code points. East Asian Width W and F are 2 cells; box drawing is 1 cell (terminal convention); combining marks and combining jamo are 0 cells; emoji are 2 cells.",
+  "mixed-scripts.txt": {
+    "lines": [
+      { "text": "ASCII and Hangul: 안녕하세요 world", "cells": 34 },
+      { "text": "kana: こんにちは", "cells": 16 },
+      { "text": "han: 你好世界", "cells": 13 },
+      { "text": "box: ┌──┐", "cells": 9 },
+      { "text": "emoji: 😀 👍 end", "cells": 16 },
+      { "text": "mixed line: abc한あ中─😀xyz", "cells": 27 }
+    ]
+  }
+}

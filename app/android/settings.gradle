@@ -1,0 +1,15 @@
+pluginManagement { includeBuild("../node_modules/@react-native/gradle-plugin") }
+plugins { id("com.facebook.react.settings") }
+dependencyResolutionManagement {
+    versionCatalogs {
+        // The RN settings plugin already owns the "libs" catalog, so the
+        // moved-core dependencies live under their own catalog name.
+        create("remotly") {
+            from(files("./gradle/libs.versions.toml"))
+        }
+    }
+}
+extensions.configure(com.facebook.react.ReactSettingsExtension){ ex -> ex.autolinkLibrariesFromCommand() }
+rootProject.name = 'Remotly'
+include ':app'
+includeBuild('../node_modules/@react-native/gradle-plugin')

@@ -1,0 +1,13 @@
+[
+  { "bytes": "", "encoded": "" },
+  { "bytes": "00", "encoded": "AA" },
+  { "bytes": "ff", "encoded": "_w" },
+  { "bytes": "0001", "encoded": "AAE" },
+  { "bytes": "ffff", "encoded": "__8" },
+  { "bytes": "000102", "encoded": "AAEC" },
+  { "bytes": "ffffff", "encoded": "____" },
+  { "bytes": "62617365", "encoded": "YmFzZQ" },
+  { "bytes": "fbff3f", "encoded": "-_8_" },
+  { "bytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "encoded": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8" },
+  { "bytes": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf", "encoded": "oKGio6SlpqeoqaqrrK2urw" }
+]

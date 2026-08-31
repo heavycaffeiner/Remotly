@@ -1,0 +1,35 @@
+[Unit]
+Description=Remotly relay (opaque transport router for daemon and app)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=remotly-relay
+ExecStart=/usr/local/bin/remotly-relay -config /etc/remotly-relay/relay.json
+Restart=on-failure
+RestartSec=2
+
+# The relay holds no persistent state, so a clean exit is a no-op for data.
+TimeoutStopSec=10
+
+# Hardening. The relay needs network access in both directions and nothing
+# else.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

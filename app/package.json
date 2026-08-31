@@ -1,0 +1,74 @@
+{
+  "name": "com.remotly.app",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "android": "react-native run-android",
+    "test": "jest --passWithNoTests",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint --max-warnings 0 src",
+    "format": "prettier --write src",
+    "format:check": "prettier --check src",
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test"
+  },
+  "codegenConfig": {
+    "name": "RemotlySpecs",
+    "type": "all",
+    "jsSrcsDir": "src/specs",
+    "android": {
+      "javaPackageName": "com.remotly.app.specs"
+    }
+  },
+  "dependencies": {
+    "@react-navigation/native": "^7.3.16",
+    "@react-navigation/native-stack": "^7.18.8",
+    "@rn-primitives/portal": "^1.5.3",
+    "@rn-primitives/slot": "^1.5.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react-native": "^1.33.0",
+    "nativewind": "^4.2.6",
+    "react": "19.2.3",
+    "react-native": "0.87.0",
+    "react-native-css-interop": "0.2.6",
+    "react-native-safe-area-context": "^5.9.1",
+    "react-native-screens": "^4.27.0",
+    "react-native-svg": "^15.15.5",
+    "react-native-worklets": "^0.12.1",
+    "tailwind-merge": "^3.6.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@babel/plugin-transform-react-jsx": "^7.29.7",
+    "@babel/preset-env": "^7.25.3",
+    "@babel/runtime": "^7.25.0",
+    "@jest/globals": "^29.7.0",
+    "@react-native-community/cli": "20.2.0",
+    "@react-native-community/cli-platform-android": "20.2.0",
+    "@react-native-community/cli-platform-ios": "20.2.0",
+    "@react-native/babel-preset": "0.87.0",
+    "@react-native/codegen": "0.87.0",
+    "@react-native/eslint-config": "0.87.0",
+    "@react-native/gradle-plugin": "0.87.0",
+    "@react-native/jest-preset": "0.87.0",
+    "@react-native/metro-config": "0.87.0",
+    "@react-native/typescript-config": "0.87.0",
+    "@testing-library/jest-native": "^5.4.3",
+    "@testing-library/react-native": "^14.0.1",
+    "@types/jest": "^29.5.13",
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-test-renderer": "^19.1.0",
+    "eslint": "^8.57.1",
+    "hermes-compiler": "250829098.0.16",
+    "jest": "^29.7.0",
+    "prettier": "^2.8.8",
+    "react-test-renderer": "19.2.3",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.67.0"
+  },
+  "engines": {
+    "node": ">= 22.11.0"
+  }
+}

@@ -1,0 +1,8 @@
+[
+  { "msg": "join", "role": "daemon", "relay_id": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf", "bytes": "010100a0a1a2a3a4a5a6a7a8a9aaabacadaeaf" },
+  { "msg": "join", "role": "app", "relay_id": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf", "bytes": "010101a0a1a2a3a4a5a6a7a8a9aaabacadaeaf" },
+  { "msg": "end", "code": 3001, "reason": "no_daemon", "bytes": "050bb9096e6f5f6461656d6f6e" },
+  { "msg": "end", "code": 1006, "reason": "", "bytes": "0503ee00" },
+  { "msg": "stream_open", "stream_id": 1, "bytes": "0600000001" },
+  { "msg": "stream_open", "stream_id": 3735928559, "bytes": "06deadbeef" }
+]
