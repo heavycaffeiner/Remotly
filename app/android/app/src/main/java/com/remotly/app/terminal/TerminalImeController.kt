@@ -27,13 +27,23 @@ class TerminalImeController(private val sink: TerminalSink) {
     private var flushedText: String? = null
 
     /**
-     * The leading Hangul this controller already released from the preedit.
+     * How many leading clusters of the preedit the terminal already has.
      *
-     * A Korean IME reports the whole word on every keystroke, so without this
-     * a growing preedit would resend the syllables it already delivered.
-     * Cleared whenever the composition ends or stops being Hangul.
+     * A Korean IME reports the whole word on every keystroke, so this marks
+     * where the new text starts. Reset whenever the preedit empties or the
+     * composition ends.
      */
-    private var sentPrefix: String = ""
+    private var committedClusters: Int = 0
+
+    /**
+     * The text those clusters were, so a commit can be checked against it.
+     *
+     * The count alone cannot tell the IME committing the word it was showing
+     * from the user committing something else: after 한 was flushed, a commit
+     * of 글 is new input and must go out whole. Only a commit that actually
+     * begins with this text has its head skipped.
+     */
+    private var releasedText: String = ""
 
     // Nothing about committed text is tracked here, and the IME is never asked
     // to restart. It cannot see committed text (getTextBeforeCursor reports the
@@ -92,57 +102,77 @@ class TerminalImeController(private val sink: TerminalSink) {
         // the previous one is no longer coming.
         flushedText = null
         val next = CompositionState.of(text, newCursorPosition)
-        // What this preedit still owes the terminal. The IME reports the whole
-        // word on every keystroke, so anything already released is dropped
-        // here rather than reconsidered.
-        val carried = if (sentPrefix.isNotEmpty() && next.text.startsWith(sentPrefix)) {
-            sentPrefix.length
+        val clusters = PreeditLayout.clusters(next.text)
+        // A composition opening with no preedit behind it may be the IME
+        // restarting the word it was already showing, or a new word after the
+        // last one was flushed or committed. It continues the old word only if
+        // it still carries the text that was released from it; otherwise the
+        // record describes something the terminal has moved past. Carrying it
+        // into a new word read the shorter preedit as a backspace and sent
+        // retraction keys into the shell, deleting text the user had typed.
+        if (!isComposing && !next.text.startsWith(releasedText)) {
+            committedClusters = 0
+            releasedText = ""
+        }
+        // Everything before the trailing cluster is finished and goes to the
+        // terminal; the trailing one can still change, so it stays composing.
+        // A half-typed syllable at the end (안녕ㅎ) is a cluster like any
+        // other: the ones before it are still settled, and treating the whole
+        // word as unreleasable there reset the count and resent them.
+        val settled = (clusters.size - 1).coerceAtLeast(0)
+        // Latin is held whole: autocorrect and candidate selection must be
+        // able to rewrite what they showed, so nothing goes out until commit.
+        val releasable = clusters.take(settled).all { CompositionState.isCompleteHangul(it.text) }
+        val ready = if (releasable) settled else committedClusters
+        val released = if (ready > committedClusters) {
+            clusters.subList(committedClusters, ready).joinToString("") { it.text }
         } else {
-            sentPrefix = ""
-            0
+            ""
         }
-        val pending = next.text.substring(carried)
-        val released = settledHangul(pending)
-        if (released.isEmpty()) {
-            val caret = (next.selectionEndUtf16 - carried).coerceIn(0, pending.length)
-            composition = if (pending.isEmpty()) {
-                CompositionState.NONE
-            } else {
-                CompositionState(pending, caret, caret)
-            }
-            sink.onCompositionChanged(composition)
-            return
-        }
-        sentPrefix += released
-        val rest = pending.substring(released.length)
-        val caret = (next.selectionEndUtf16 - carried - released.length)
-            .coerceIn(0, rest.length)
+        // The IME went backwards: a backspace rewrote a syllable the terminal
+        // already has. The terminal owns that text, so it is corrected with a
+        // backspace of its own rather than by this class holding a copy.
+        val stale = if (ready < committedClusters) committedClusters - ready else 0
+        committedClusters = ready
+        releasedText = clusters.take(ready).joinToString("") { it.text }
+        val rest = clusters.drop(committedClusters).joinToString("") { it.text }
+        // The IME's offset counts from the whole word, which includes what the
+        // terminal already took, so it is rebased onto the remaining preedit.
+        // A caret the IME placed before the preedit (newCursorPosition 0) has
+        // to survive that: clamping alone would drag it to the end.
+        val consumed = next.text.length - rest.length
+        val caret = (next.selectionEndUtf16 - consumed).coerceIn(0, rest.length)
         composition = if (rest.isEmpty()) {
             CompositionState.NONE
         } else {
             CompositionState(rest, caret, caret)
         }
+        if (next.text.isEmpty()) {
+            committedClusters = 0
+            releasedText = ""
+        }
+        // Preedit is updated before the send so a redraw triggered by it never
+        // paints text the terminal has already taken.
         sink.onCompositionChanged(composition)
-        sink.sendText(released)
+        repeat(stale) {
+            sink.sendKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL), false)
+        }
+        if (released.isNotEmpty()) sink.sendText(released)
     }
 
     /**
-     * The leading syllables of a preedit the user has finished typing.
+     * Drops the clusters the terminal already has from a commit.
      *
-     * Empty unless the text is composed Hangul holding more than one syllable.
-     * The trailing syllable is never included: the next keystroke can still
-     * change it, so 하 must not go out before it has had the chance to become
-     * 한.
+     * A Korean IME commits the whole word it was showing, including the
+     * syllables released from the preedit as they settled. Only the tail is
+     * new. The commit has to actually carry those syllables to be that word:
+     * a commit of different text is fresh input and goes out whole, which is
+     * what 한 flushed then 글 committed must do.
      */
-    private fun settledHangul(text: String): String {
-        if (text.isEmpty() || !CompositionState.isCompleteHangul(text)) return ""
-        return text.substring(0, lastClusterStart(text))
-    }
-
-    /** UTF-16 offset where the final grapheme cluster of [text] begins. */
-    private fun lastClusterStart(text: String): Int {
-        val clusters = PreeditLayout.clusters(text)
-        return if (clusters.isEmpty()) 0 else clusters.last().startUtf16
+    private fun tailAfterCommitted(text: String): String {
+        val head = releasedText
+        if (head.isEmpty() || !text.startsWith(head)) return text
+        return text.substring(head.length)
     }
 
     /**
@@ -152,7 +182,6 @@ class TerminalImeController(private val sink: TerminalSink) {
      * the overlay is taken down rather than left hanging over the result.
      */
     fun abandonComposition() {
-        sentPrefix = ""
         if (!isComposing) return
         flushedText = null
         composition = CompositionState.NONE
@@ -196,11 +225,11 @@ class TerminalImeController(private val sink: TerminalSink) {
     /**
      * Ends composition styling.
      *
-     * Sends nothing. An IME that calls this and then commits would otherwise
-     * deliver the same text twice.
+     * Sends nothing. The cluster count goes with the preedit it described: a
+     * commit that follows carries a word this class never released, so none of
+     * it may be skipped.
      */
     fun onFinishComposing() {
-        sentPrefix = ""
         if (!isComposing) return
         composition = CompositionState.NONE
         sink.onCompositionChanged(composition)
@@ -214,19 +243,22 @@ class TerminalImeController(private val sink: TerminalSink) {
      */
     fun onCommitText(text: CharSequence?): Boolean {
         val raw = CompositionState.sanitizeUtf16(text)
-        // The IME echoing back what Enter already flushed. Swallow it once.
-        val pending = flushedText
-        flushedText = null
-        if (pending != null && raw == pending) return false
         // A Korean IME commits the whole word it has been showing, including
         // the syllables already released from the preedit. Only the tail is
         // new; sending the rest again would repeat what the terminal has.
-        val prefix = sentPrefix
-        sentPrefix = ""
-        val s = if (prefix.isNotEmpty() && raw.startsWith(prefix)) {
-            raw.substring(prefix.length)
-        } else {
-            raw
+        val s = tailAfterCommitted(raw)
+        committedClusters = 0
+        releasedText = ""
+        // The IME echoing back what Enter already flushed. Its commit carries
+        // the whole word, so the comparison is against the tail this class
+        // sent, not the word.
+        val pending = flushedText
+        flushedText = null
+        if (pending != null && s == pending) {
+            val wasOpen = isComposing
+            composition = CompositionState.NONE
+            if (wasOpen) sink.onCompositionChanged(composition)
+            return false
         }
         val wasComposing = isComposing
         composition = CompositionState.NONE
@@ -328,11 +360,12 @@ class TerminalImeController(private val sink: TerminalSink) {
         if (!isComposing) return null
         val text = composition.text
         composition = CompositionState.NONE
-        // The IME still owns the whole word, released syllables included, and
-        // commits all of it after the key. The guard holds that full word so
-        // the commit is recognised as an echo rather than resending the tail.
-        flushedText = sentPrefix + text
-        sentPrefix = ""
+        // The IME commits the whole word after the key, released syllables
+        // included. The count keeps covering them so that commit skips what
+        // the terminal has, and the flushed tail is now part of it.
+        committedClusters += PreeditLayout.clusters(text).size
+        releasedText += text
+        flushedText = text
         sink.onCompositionChanged(composition)
         sink.sendText(text)
         return text
@@ -350,7 +383,8 @@ class TerminalImeController(private val sink: TerminalSink) {
     /** The connection closed. Uncommitted preedit is dropped, not sent. */
     fun onClose() {
         flushedText = null
-        sentPrefix = ""
+        committedClusters = 0
+        releasedText = ""
         if (!isComposing) return
         composition = CompositionState.NONE
         sink.onCompositionChanged(composition)
