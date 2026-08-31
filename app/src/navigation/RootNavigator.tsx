@@ -15,6 +15,7 @@ import { SshTerminalScreen } from '../features/ssh-terminal/SshTerminalScreen';
 import { SshHostEditorScreen } from '../features/hosts/SshHostEditorScreen';
 import { FilesScreen } from '../features/files/FilesScreen';
 import { TransferIndicator } from '../features/files/TransferIndicator';
+import { TransferSheet } from '../features/files/TransferSheet';
 import { themeColors, useAppliedColorScheme } from '../theme/useColorScheme';
 import { linking } from './linking';
 import type { RootStackParamList } from './types';
@@ -69,6 +70,10 @@ export function RootNavigator(): React.ReactElement {
           disappears the moment the user navigates anywhere else, which is
           exactly when they most want to see it. */}
       <TransferIndicator />
+      {/* Mounted once, and beside the bar rather than inside it: the sheet
+          opens from the files toolbar too, when nothing is transferring and
+          the bar is hidden. Two copies drew one sheet stacked on the other. */}
+      <TransferSheet />
     </NavigationContainer>
   );
 }

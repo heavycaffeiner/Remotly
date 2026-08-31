@@ -32,15 +32,46 @@ export function useTransfers(): readonly TransferRecord[] {
   return list;
 }
 
-interface TransferSheetProps {
-  open: boolean;
-  onClose: () => void;
+/**
+ * Whether the transfer sheet is showing.
+ *
+ * The sheet is mounted once, above the navigator, so it survives navigation
+ * and cannot be drawn twice. Screens ask for it through [openTransferSheet]
+ * rather than rendering their own: two mounted copies opened together and the
+ * user saw one sheet stacked on the other.
+ */
+let sheetOpen = false;
+const sheetListeners = new Set<(open: boolean) => void>();
+
+function setSheetOpen(next: boolean): void {
+  if (sheetOpen === next) return;
+  sheetOpen = next;
+  for (const l of sheetListeners) l(next);
 }
 
-export function TransferSheet({
-  open,
-  onClose,
-}: TransferSheetProps): React.ReactElement {
+/** Opens the app-wide transfer sheet from anywhere. */
+export function openTransferSheet(): void {
+  setSheetOpen(true);
+}
+
+function useSheetOpen(): boolean {
+  const [open, setOpen] = useState(sheetOpen);
+  useEffect(() => {
+    sheetListeners.add(setOpen);
+    setOpen(sheetOpen);
+    return () => {
+      sheetListeners.delete(setOpen);
+    };
+  }, []);
+  return open;
+}
+
+/**
+ * The app-wide transfer sheet. Mounted once, above the navigator.
+ */
+export function TransferSheet(): React.ReactElement {
+  const open = useSheetOpen();
+  const onClose = useCallback(() => setSheetOpen(false), []);
   const list = useTransfers();
   const hasSettled = list.some(t => t.phase !== 'active');
   // Reported inside the sheet's own window: a Toast on the screen behind it

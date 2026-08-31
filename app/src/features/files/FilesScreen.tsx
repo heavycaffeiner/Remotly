@@ -20,11 +20,12 @@ import {
 import { sftpBridge } from '../../lib/sftp';
 import { DaemonTransferBackend } from '../../lib/daemonTransfer';
 import { SftpTransferBackend } from '../../lib/sftpTransfer';
-import { TransferSheet, useTransfers } from './TransferSheet';
+import { openTransferSheet, useTransfers } from './TransferSheet';
 import { filesTabCwd, setFilesTabCwd } from '../../lib/filesTabs';
 import {
   activeTransfers,
   advanceTransfer,
+  cancelTransfer as cancelRegisteredTransfer,
   registerTransfer,
   settleTransfer,
 } from '../../lib/transfers';
@@ -587,28 +588,36 @@ export function FilesScreen({
               advanceTransfer(id, totalBytes);
               settleTransfer(id, 'done');
             }
-            activeXferRef.current = null;
-            setTransfer({
-              kind: 'download',
-              path: picked.name,
-              received: totalBytes,
-              total: totalBytes,
-              active: false,
-              done: true,
-            });
+            // Only this screen's banner is conditional. The transfer itself
+            // is settled above whether or not anyone is watching.
+            const owned = id !== null && activeXferRef.current?.id === id;
+            if (owned) activeXferRef.current = null;
+            if (owned) {
+              setTransfer({
+                kind: 'download',
+                path: picked.name,
+                received: totalBytes,
+                total: totalBytes,
+                active: false,
+                done: true,
+              });
+            }
             void release(picked.uri).catch(() => undefined);
           },
           msg => {
             if (id !== null) settleTransfer(id, 'error', msg);
-            activeXferRef.current = null;
-            setTransfer({
-              kind: 'download',
-              path: picked.name,
-              received: 0,
-              total: -1,
-              active: false,
-              error: msg,
-            });
+            const owned = id !== null && activeXferRef.current?.id === id;
+            if (owned) activeXferRef.current = null;
+            if (owned) {
+              setTransfer({
+                kind: 'download',
+                path: picked.name,
+                received: 0,
+                total: -1,
+                active: false,
+                error: msg,
+              });
+            }
             // Kept only when Resume can continue from what is on disk.
             // Otherwise the partial file goes: it carries the name the user
             // chose and would pass for a complete download.
@@ -674,13 +683,19 @@ export function FilesScreen({
     // one start mid-append, and the two interleave into a corrupt file.
     let writes: Promise<void> = Promise.resolve();
     let writeFailed: string | null = null;
+    // Counted here rather than read back off the banner's state. The banner
+    // belongs to this screen and stops updating once the user navigates away,
+    // and taking the running total from it meant a backgrounded download
+    // recorded no progress and, worse, wrote nothing.
+    let received = resumeFrom;
 
     try {
       const handle = await xb.startDownload(
         path,
         (_offset, bytes) => {
-          const ax = activeXferRef.current;
-          if (ax?.id !== handle.id) return;
+          // Deliberately not gated on this screen still owning the transfer.
+          // The download continues in the background, so every chunk has to
+          // reach the file; dropping them silently truncated the result.
           writes = writes.then(async () => {
             if (writeFailed !== null) return;
             try {
@@ -690,10 +705,13 @@ export function FilesScreen({
               log.error('download sink write failed', { message: writeFailed });
             }
           });
+          received += bytes.length;
+          advanceTransfer(handle.id, received);
+          // Only the local banner is conditional: it is this screen's view of
+          // a transfer that no longer belongs to it.
+          if (activeXferRef.current?.id !== handle.id) return;
           setTransfer(t => {
             if (t === null || t.kind !== 'download' || !t.active) return t;
-            const received = t.received + bytes.length;
-            advanceTransfer(handle.id, received);
             return {
               ...t,
               received,
@@ -702,46 +720,54 @@ export function FilesScreen({
           });
         },
         totalBytes => {
-          activeXferRef.current = null;
+          const owned = activeXferRef.current?.id === handle.id;
+          if (owned) activeXferRef.current = null;
           // The last chunks may still be in flight. Releasing the file before
           // they land truncates it, and reporting success would be a lie.
           void writes.then(() => {
             if (writeFailed !== null) {
               settleTransfer(handle.id, 'error', writeFailed);
-              setTransfer({
-                kind: 'download',
-                path: picked.name,
-                received: 0,
-                total: -1,
-                active: false,
-                error: writeFailed,
-              });
+              if (owned) {
+                setTransfer({
+                  kind: 'download',
+                  path: picked.name,
+                  received: 0,
+                  total: -1,
+                  active: false,
+                  error: writeFailed,
+                });
+              }
             } else {
               advanceTransfer(handle.id, totalBytes);
               settleTransfer(handle.id, 'done');
-              setTransfer({
-                kind: 'download',
-                path: picked.name,
-                received: totalBytes,
-                total: totalBytes,
-                active: false,
-                done: true,
-              });
+              if (owned) {
+                setTransfer({
+                  kind: 'download',
+                  path: picked.name,
+                  received: totalBytes,
+                  total: totalBytes,
+                  active: false,
+                  done: true,
+                });
+              }
             }
             void release(picked.uri).catch(() => undefined);
           });
         },
         msg => {
-          activeXferRef.current = null;
+          const owned = activeXferRef.current?.id === handle.id;
+          if (owned) activeXferRef.current = null;
           settleTransfer(handle.id, 'error', msg);
-          setTransfer({
-            kind: 'download',
-            path: picked.name,
-            received: 0,
-            total: -1,
-            active: false,
-            error: msg,
-          });
+          if (owned) {
+            setTransfer({
+              kind: 'download',
+              path: picked.name,
+              received: 0,
+              total: -1,
+              active: false,
+              error: msg,
+            });
+          }
           // Waits for pending writes so the stream is not closed underneath
           // one, then drops the partial file: this path cannot resume, and
           // what is on disk carries the name the user chose.
@@ -763,7 +789,10 @@ export function FilesScreen({
         },
         () => {
           void xb.cancel(handle.id).catch(() => undefined);
-          void discard(picked.uri).catch(() => undefined);
+          // Waits on the pending writes for the same reason the error path
+          // does: discarding while one is in flight closes the stream under
+          // it. Cancelling from the sheet reaches here from another screen.
+          void writes.then(() => discard(picked.uri).catch(() => undefined));
         },
         () => void doDownload(picked, path, 0),
       );
@@ -924,18 +953,11 @@ export function FilesScreen({
 
   function cancelTransfer(): void {
     const ax = activeXferRef.current;
-    const xb = xferRef.current;
     if (ax === null) return;
-    void xb?.cancel(ax.id).catch(() => undefined);
-    // A cancelled download leaves a partial file under the name the user
-    // chose, which reads as a finished download. It is kept only where Resume
-    // can pick it back up; an upload writes nothing locally, so its
-    // destination is simply released.
-    if (ax.kind === 'download' && xb?.capabilities.transferResume !== true) {
-      void discard(ax.uri).catch(() => undefined);
-    } else {
-      void release(ax.uri).catch(() => undefined);
-    }
+    // Routed through the registry so the cancel runs the same callback the
+    // sheet does. That one waits on any pending write before dropping the
+    // partial file; discarding here as well closed the stream twice.
+    cancelRegisteredTransfer(ax.id);
     activeXferRef.current = null;
     setTransfer(t =>
       t !== null && t.active ? { ...t, active: false, error: 'Cancelled.' } : t,
@@ -994,7 +1016,8 @@ export function FilesScreen({
       // The transfer backend deliberately survives: transfers run in the
       // background and the sheet shows them from anywhere in the app. Only the
       // daemon's own channel bookkeeping is torn down, and only when nothing
-      // is still moving.
+      // is still moving. A daemon download streams its chunks through this
+      // module, so disposing the backend under one stops the file mid-write.
       const xb = xferRef.current;
       if (
         xb instanceof DaemonTransferBackend &&
@@ -1003,6 +1026,8 @@ export function FilesScreen({
         xb.dispose();
         xferRef.current = null;
       }
+      // Only this screen's claim on the transfer is dropped. The transfer
+      // itself keeps running and reporting into the app-wide store.
       activeXferRef.current = null;
       // SFTP holds a live connection per host. It is kept open while a
       // transfer is still using it, and closed otherwise.
@@ -1044,9 +1069,7 @@ export function FilesScreen({
   );
   const canTransfer = xferRef.current !== null;
   const runningCount = useTransfers().filter(t => t.phase === 'active').length;
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const openTransfers = React.useCallback(() => setSheetOpen(true), []);
-  const closeTransfers = React.useCallback(() => setSheetOpen(false), []);
+  const openTransfers = React.useCallback(() => openTransferSheet(), []);
   const kindLabel = kind === 'sftp' ? 'SSH SFTP' : 'Daemon';
   const canResume = backend?.capabilities.transferResume ?? false;
   const canIntegrity = backend?.capabilities.transferIntegrity ?? false;
@@ -1088,7 +1111,7 @@ export function FilesScreen({
       {...(embedded === undefined ? { onBack: closePage } : {})}
       actions={actions}
     >
-      <TransferSheet open={sheetOpen} onClose={closeTransfers} />
+      {/* The transfer sheet is mounted once, in RootNavigator. */}
       {phase === 'ready' ? (
         <Breadcrumbs crumbs={crumbs} path={cwd} onNavigate={navigate} />
       ) : null}

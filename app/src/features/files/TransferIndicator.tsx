@@ -4,13 +4,13 @@
 // reachable from wherever the user happens to be. This is a compact bar that
 // appears only while something is moving and opens the full sheet.
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback } from 'react';
 import { Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '../../components/ui/icon';
 import { Progress } from '../../components/ui/progress';
 import { Text } from '../../components/ui/text';
-import { TransferSheet, useTransfers } from './TransferSheet';
+import { openTransferSheet, useTransfers } from './TransferSheet';
 import { raisesTransferBar } from '../../lib/transfers';
 import { formatSize } from './filePresentation';
 
@@ -36,9 +36,7 @@ export const INDICATOR_HEIGHT = 50;
 export function TransferIndicator(): React.ReactElement | null {
   const list = useTransfers();
   const insets = useSafeAreaInsets();
-  const [open, setOpen] = useState(false);
-  const show = useCallback(() => setOpen(true), []);
-  const hide = useCallback(() => setOpen(false), []);
+  const show = useCallback(() => openTransferSheet(), []);
 
   const active = list.filter(t => t.phase === 'active');
   // Anything that stopped short is worth surfacing too: it is the state a user
@@ -55,9 +53,16 @@ export function TransferIndicator(): React.ReactElement | null {
   const total = active.reduce((n, t) => (t.total > 0 ? n + t.total : n), 0);
   const fraction = total > 0 ? Math.min(1, moved / total) : null;
 
+  // Naming the file is the point of the bar: a count alone left the user
+  // unable to tell what was moving, or whether anything was.
+  const first = active[0];
   const label =
-    running > 0
-      ? `${running} transfer${running === 1 ? '' : 's'} running`
+    running === 1 && first !== undefined
+      ? `${first.direction === 'download' ? 'Downloading' : 'Uploading'} ${
+          first.name
+        }`
+      : running > 1
+      ? `${running} transfers running`
       : `${failed} transfer${failed === 1 ? '' : 's'} failed`;
 
   return (
@@ -97,7 +102,6 @@ export function TransferIndicator(): React.ReactElement | null {
           />
         ) : null}
       </Pressable>
-      <TransferSheet open={open} onClose={hide} />
     </>
   );
 }
