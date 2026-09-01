@@ -115,16 +115,20 @@ class CellSpillTest {
     }
 
     @Test
-    fun aColouredOrSelectedNeighbourIsNotFree() {
-        // Both paint the cell even with no text in it, so ink over them would
-        // show through where the terminal asked for a flat colour.
+    fun aColouredOrSelectedCellIsStillFree() {
+        // Backgrounds are painted for the whole grid before any glyph, so a
+        // coloured cell no longer erases ink that crossed into it. This is the
+        // powerline case: every cell there carries its own background, and
+        // treating those as occupied disabled the overhang exactly where these
+        // icons are used.
         val coloured = frameOf(Cell(), Cell("\uE0B0"), Cell(bg = 0x445566))
         val selected = frameOf(Cell(), Cell("\uE0B0"), Cell(flags = CellFlags.SELECTED))
         val inverse = frameOf(Cell(), Cell("\uE0B0"), Cell(flags = CellFlags.INVERSE))
 
-        assertFalse(CellSpill.isFree(coloured, 2, 0))
-        assertFalse(CellSpill.isFree(selected, 2, 0))
-        assertFalse(CellSpill.isFree(inverse, 2, 0))
+        assertTrue(CellSpill.isFree(coloured, 2, 0))
+        assertTrue(CellSpill.isFree(selected, 2, 0))
+        assertTrue(CellSpill.isFree(inverse, 2, 0))
+        assertEquals(1f, CellSpill.columns(coloured, 1, 0, coloured.indexOf(1, 0)), 0.001f)
     }
 
     @Test

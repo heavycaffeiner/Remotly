@@ -87,6 +87,46 @@ class TerminalRenderer(context: Context, private val density: Float) {
     composing: Boolean,
   ) {
     canvas.drawColor(f.defaultBg)
+
+    // Backgrounds first, for the whole grid, then the glyphs. In one pass a
+    // cell's background rect landed on top of the glyph its left neighbour
+    // had already drawn, so a glyph could only ever overhang into a cell that
+    // painted no background. That ruled out the case Nerd Fonts exist for: a
+    // powerline prompt, where every cell carries a background of its own.
+    drawBackgrounds(canvas, f)
+    drawGlyphs(canvas, f)
+
+    drawCursor(canvas, f, cursorStyle, composing)
+  }
+
+  /** Fills every cell that is not on the default background. */
+  private fun drawBackgrounds(canvas: Canvas, f: TerminalFrame) {
+    val cellW = cellWidthPx.toFloat()
+    val cellH = cellHeightPx.toFloat()
+
+    for (y in 0 until f.rows) {
+      val top = y * cellH
+      for (x in 0 until f.cols) {
+        val i = f.indexOf(x, y)
+        if (f.isSpacer(i)) continue
+
+        val selected = f.hasFlag(i, CellFlags.SELECTED)
+        val bg = backgroundOf(f, i)
+        // Background, selection, and inverse all span the full occupancy, or a
+        // wide glyph sits on a half-painted background.
+        if (bg != f.defaultBg || selected) {
+          bgPaint.color = bg
+          val left = x * cellW
+          canvas.drawRect(
+            left, top, left + metrics.spanWidth(f.spanCells(i)), top + cellH, bgPaint,
+          )
+        }
+      }
+    }
+  }
+
+  /** Draws the text and its decorations over the finished backgrounds. */
+  private fun drawGlyphs(canvas: Canvas, f: TerminalFrame) {
     val lineWidth = decorationWidthPx
     val cellW = cellWidthPx.toFloat()
     val cellH = cellHeightPx.toFloat()
@@ -101,36 +141,8 @@ class TerminalRenderer(context: Context, private val density: Float) {
 
         // Ghostty decides occupancy; Android only rasterizes into it.
         val spanWidth = metrics.spanWidth(f.spanCells(i))
-
-        // Inverse and selection each swap the pair. Applied in turn rather
-        // than combined, so a selected inverse cell swaps back and reads as
-        // ordinary text, which is what a desktop terminal shows.
-        var fg = f.fgAt(i)
-        var bg = f.bgAt(i)
-        if (f.hasFlag(i, CellFlags.INVERSE)) {
-          val swap = fg
-          fg = bg
-          bg = swap
-        }
-        val selected = f.hasFlag(i, CellFlags.SELECTED)
-        if (selected) {
-          val swap = fg
-          fg = bg
-          bg = swap
-        }
-        // Faint is a dimmed foreground, mixed toward the background it sits
-        // on. Ignoring it made low-emphasis output, which agents use for hints
-        // and paths, indistinguishable from ordinary text.
-        if (f.hasFlag(i, CellFlags.FAINT)) fg = blend(fg, bg, FAINT_ALPHA)
-
+        val fg = foregroundOf(f, i)
         val left = x * cellW
-
-        // Background, selection, and inverse all span the full occupancy, or a
-        // wide glyph sits on a half-painted background.
-        if (bg != f.defaultBg || selected) {
-          bgPaint.color = bg
-          canvas.drawRect(left, top, left + spanWidth, top + cellH, bgPaint)
-        }
 
         if (f.textLengthAt(i) > 0) {
           drawGlyph(
@@ -159,7 +171,36 @@ class TerminalRenderer(context: Context, private val density: Float) {
         }
       }
     }
-    drawCursor(canvas, f, cursorStyle, composing)
+  }
+
+  /**
+   * The background a cell paints, after inverse and selection.
+   *
+   * Each swaps the pair, and they are applied in turn rather than combined, so
+   * a selected inverse cell swaps back and reads as ordinary text, which is
+   * what a desktop terminal shows.
+   */
+  private fun backgroundOf(f: TerminalFrame, i: Int): Int {
+    var bg = f.bgAt(i)
+    if (f.hasFlag(i, CellFlags.INVERSE)) bg = f.fgAt(i)
+    if (f.hasFlag(i, CellFlags.SELECTED)) {
+      bg = if (f.hasFlag(i, CellFlags.INVERSE)) f.bgAt(i) else f.fgAt(i)
+    }
+    return bg
+  }
+
+  /** The foreground a cell paints, after inverse, selection, and faint. */
+  private fun foregroundOf(f: TerminalFrame, i: Int): Int {
+    var fg = f.fgAt(i)
+    if (f.hasFlag(i, CellFlags.INVERSE)) fg = f.bgAt(i)
+    if (f.hasFlag(i, CellFlags.SELECTED)) {
+      fg = if (f.hasFlag(i, CellFlags.INVERSE)) f.fgAt(i) else f.bgAt(i)
+    }
+    // Faint is a dimmed foreground, mixed toward the background it sits on.
+    // Ignoring it made low-emphasis output, which agents use for hints and
+    // paths, indistinguishable from ordinary text.
+    if (f.hasFlag(i, CellFlags.FAINT)) fg = blend(fg, backgroundOf(f, i), FAINT_ALPHA)
+    return fg
   }
 
   /**

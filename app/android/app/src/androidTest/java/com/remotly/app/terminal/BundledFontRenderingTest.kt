@@ -178,15 +178,131 @@ class BundledFontRenderingTest {
         )
     }
 
+    /**
+     * An icon overhangs even when the cell it reaches into paints its own
+     * background.
+     *
+     * This is the powerline prompt: every cell there carries a background, and
+     * while backgrounds and glyphs were drawn in one pass the neighbour's rect
+     * landed on top of the icon, so the overhang had to be refused for exactly
+     * the prompts these icons are used in.
+     */
+    @Test
+    fun anIconOverhangsIntoACellThatPaintsItsOwnBackground() {
+        val renderer = TerminalRenderer(context, density = 3f)
+        renderer.fontSizePx = 48f
+        val cellW = renderer.cellWidthPx
+        val cellH = renderer.cellHeightPx
+
+        val plain = renderFrame(renderer, listOf("W", "\uE5FA", ""), cellW, cellH)
+        val coloured = renderFrame(
+            renderer,
+            listOf("W", "\uE5FA", ""),
+            cellW,
+            cellH,
+            bgOf = { x -> if (x == 2) 0x445566 else 0x101010 },
+        )
+
+        val plainInk = paintedWidth(plain, cellW, plain.width)
+        // The coloured cell is a different colour from the frame background,
+        // so "painted" there means anything that is not that colour: the
+        // icon's own ink.
+        val colouredInk = inkWidthOver(coloured, cellW, coloured.width, 0xFF445566.toInt())
+
+        assertTrue(
+            "icon overhangs past its own cell into a coloured cell ($colouredInk px > $cellW px)",
+            colouredInk > cellW,
+        )
+        assertEquals(
+            "a coloured neighbour does not change how far the icon draws",
+            plainInk.toFloat(),
+            colouredInk.toFloat(),
+            2f,
+        )
+    }
+
+    /**
+     * Columns in [from, to) holding a pixel that is neither the frame
+     * background nor [other].
+     */
+    private fun inkWidthOver(bitmap: Bitmap, from: Int, to: Int, other: Int): Int {
+        val bg = bitmap.getPixel(0, bitmap.height - 1)
+        var first = -1
+        var last = -1
+        for (x in from until to) {
+            var painted = false
+            for (y in 0 until bitmap.height) {
+                val p = bitmap.getPixel(x, y)
+                if (p != bg && p != other) {
+                    painted = true
+                    break
+                }
+            }
+            if (painted) {
+                if (first < 0) first = x
+                last = x
+            }
+        }
+        return if (first < 0) 0 else last - first + 1
+    }
+
+    /**
+     * Inverse and selection swap a cell's colours, and both together swap back.
+     *
+     * Splitting the draw into a background pass and a glyph pass moved this
+     * logic out of the single loop that used to hold it, so the result is
+     * checked against the pixels rather than against the code.
+     */
+    @Test
+    fun inverseAndSelectionSwapTheCellColours() {
+        val renderer = TerminalRenderer(context, density = 3f)
+        renderer.fontSizePx = 48f
+        val cellW = renderer.cellWidthPx
+        val cellH = renderer.cellHeightPx
+
+        // A full block, so the cell is painted edge to edge and the sampled
+        // pixel is the glyph's colour rather than a gap in it.
+        val plain = cellPixels(renderer, "\u2588", 0, cellW, cellH)
+        val inverse = cellPixels(renderer, "\u2588", CellFlags.INVERSE, cellW, cellH)
+        val selected = cellPixels(renderer, "\u2588", CellFlags.SELECTED, cellW, cellH)
+        val both = cellPixels(
+            renderer, "\u2588", CellFlags.INVERSE or CellFlags.SELECTED, cellW, cellH,
+        )
+
+        assertTrue("inverse changes the cell", inverse != plain)
+        assertTrue("selection changes the cell", selected != plain)
+        // Applied in turn, so the pair swaps back and reads as ordinary text.
+        assertEquals("inverse and selection together swap back", plain, both)
+    }
+
+    /** The colour at the centre of a single-cell frame holding [text]. */
+    private fun cellPixels(
+        renderer: TerminalRenderer,
+        text: String,
+        flags: Int,
+        cellW: Int,
+        cellH: Int,
+    ): Int {
+        val frame = TerminalFrame()
+        val bytes = frameBytes(listOf(text), flagsOf = { flags })
+        assertTrue("frame parses", frame.parse(bytes, bytes.size))
+        val bitmap = Bitmap.createBitmap(cellW, cellH, Bitmap.Config.ARGB_8888)
+        renderer.drawFrame(
+            Canvas(bitmap), frame, TerminalView.CursorStyle.BAR, composing = true,
+        )
+        return bitmap.getPixel(cellW / 2, cellH / 2)
+    }
+
     /** Draws a one-row frame of [texts] and returns the bitmap. */
     private fun renderFrame(
         renderer: TerminalRenderer,
         texts: List<String>,
         cellW: Int,
         cellH: Int,
+        bgOf: (Int) -> Int = { 0x101010 },
     ): Bitmap {
         val frame = TerminalFrame()
-        val bytes = frameBytes(texts)
+        val bytes = frameBytes(texts, bgOf)
         assertTrue("frame parses", frame.parse(bytes, bytes.size))
 
         val bitmap = Bitmap.createBitmap(cellW * texts.size, cellH, Bitmap.Config.ARGB_8888)
@@ -217,9 +333,15 @@ class BundledFontRenderingTest {
     }
 
     /** The little-endian frame layout the native serializer produces. */
-    private fun frameBytes(texts: List<String>): ByteArray {
+    private fun frameBytes(
+        texts: List<String>,
+        bgOf: (Int) -> Int = { 0x101010 },
+        flagsOf: (Int) -> Int = { 0 },
+    ): ByteArray {
         val out = java.io.ByteArrayOutputStream()
-        val bg = 0x101010
+        // The frame default, which the canvas is cleared to. Kept distinct
+        // from any per-cell colour so the two can be told apart in a bitmap.
+        val defaultBg = 0x101010
         val fg = 0xE0E0E0
         fun u16(v: Int) {
             out.write(v and 0xff)
@@ -237,13 +359,13 @@ class BundledFontRenderingTest {
         // The cursor would paint a bar over the first cell.
         out.write(0)
         out.write(0)
-        rgb(bg)
+        rgb(defaultBg)
         rgb(fg)
-        for (text in texts) {
+        for ((x, text) in texts.withIndex()) {
             out.write(CellFlags.WIDE_NARROW)
-            out.write(0)
+            out.write(flagsOf(x))
             rgb(fg)
-            rgb(bg)
+            rgb(bgOf(x))
             val t = text.toByteArray(Charsets.UTF_8)
             out.write(t.size)
             out.write(t)

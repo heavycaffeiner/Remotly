@@ -283,11 +283,13 @@ object CellSpill {
     }
 
     /**
-     * True when (x, y) is on the grid and holds nothing a spill would cover.
+     * True when (x, y) is on the grid and holds no glyph of its own.
      *
-     * A cell with its own background or a selection is not free even with no
-     * text: painting over it would show ink where the terminal asked for a
-     * flat colour.
+     * Only text matters. Backgrounds are painted for the whole grid before any
+     * glyph is drawn, so ink may cross into a coloured cell without being
+     * erased by it, and a powerline prompt (where every cell carries its own
+     * background) is exactly the case these icons exist for. The trailing half
+     * of a wide cell is not free: its lead cell paints across it.
      */
     fun isFree(f: TerminalFrame, x: Int, y: Int): Boolean {
         if (x < 0 || x >= f.cols) return false
@@ -295,9 +297,6 @@ object CellSpill {
         val j = f.indexOf(x, y)
         if (f.textLengthAt(j) > 0) return false
         if (f.isSpacer(j)) return false
-        if (f.bgAt(j) != f.defaultBg) return false
-        if (f.hasFlag(j, CellFlags.SELECTED)) return false
-        if (f.hasFlag(j, CellFlags.INVERSE)) return false
         return true
     }
 }
