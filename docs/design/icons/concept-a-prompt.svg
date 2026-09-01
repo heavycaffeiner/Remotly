@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Concept A: Prompt. The shell prompt itself, a chevron and a cursor. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1E2733"/>
+      <stop offset="1" stop-color="#0B0F14"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="192" height="192" rx="44" fill="url(#tile)"/>
+
+  <!-- The chevron, drawn as one stroked polyline so the vertex rounds cleanly. -->
+  <polyline points="54,62 88,96 54,130"
+            fill="none" stroke="#3B82F6" stroke-width="17"
+            stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- The cursor, sitting on the same baseline as the chevron's lower arm. -->
+  <rect x="100" y="115" width="46" height="15" rx="7.5" fill="#E6EDF3"/>
+</svg>

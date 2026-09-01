@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Concept B: Session. A ring left open at the point of reconnection, around
+     the prompt it keeps alive. The gap is the dropped link; the ring closing
+     back on itself is the session outliving it. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#1D4ED8"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="192" height="192" rx="44" fill="url(#tile)"/>
+
+  <!-- Open ring: a 290 degree sweep, so the two endpoints are a 70 degree gap
+       apart on the circle. The gap is centred on the lower right rather than
+       on the axis the chevron points along, where the two shapes would merge
+       and the gap would read as a rendering fault at launcher size. -->
+  <path d="M 105.03 147.21 A 52 52 0 1 1 147.21 105.03"
+        fill="none" stroke="#FFFFFF" stroke-width="14"
+        stroke-linecap="round" opacity="0.95"/>
+
+  <!-- The prompt at the centre, still running. -->
+  <polyline points="84,78 108,96 84,114"
+            fill="none" stroke="#FFFFFF" stroke-width="13"
+            stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

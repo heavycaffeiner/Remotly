@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Concept C: Bracket. The brackets of the shell prompt the app actually
+     shows, [user@host ~]$, closed around a live block cursor. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#11161D"/>
+      <stop offset="1" stop-color="#05070A"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="192" height="192" rx="44" fill="url(#tile)"/>
+
+  <g fill="none" stroke="#3B82F6" stroke-width="15"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 76 56 L 58 56 L 58 136 L 76 136"/>
+    <path d="M 116 56 L 134 56 L 134 136 L 116 136"/>
+  </g>
+
+  <rect x="84" y="84" width="24" height="24" rx="5" fill="#E6EDF3"/>
+</svg>
