@@ -5,10 +5,13 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// A Nerd Font icon has more ink than its one-cell advance. It may borrow the
-// columns beside it, but only when borrowing cannot paint over something. The
-// rule decides between a full-size icon and a compressed one, so getting it
-// wrong either pinches every icon or corrupts the cell next to it.
+// A Nerd Font icon has more ink than its one-cell advance. It may overhang
+// into the column to its right, but only when doing so cannot paint over
+// something. The rule decides between a full-size icon and a compressed one,
+// so getting it wrong either pinches every icon or corrupts the next cell.
+//
+// Overhang never changes how many columns a cell occupies: that comes from
+// ghostty, and the cursor and selection are addressed in those columns.
 class CellSpillTest {
 
     private val bg = 0x101010
@@ -58,30 +61,33 @@ class CellSpillTest {
     )
 
     @Test
-    fun aGlyphBetweenTwoBlanksBorrowsBothColumns() {
+    fun aGlyphWithAFreeCellToItsRightOverhangsIntoIt() {
         val f = frameOf(Cell(), Cell("\uE0B0"), Cell())
 
-        assertEquals(2f, CellSpill.columns(f, 1, 0, f.indexOf(1, 0)), 0.001f)
+        assertEquals(1f, CellSpill.columns(f, 1, 0, f.indexOf(1, 0)), 0.001f)
     }
 
     @Test
-    fun anOccupiedNeighbourStopsTheSpill() {
-        // Either side is enough to block it: the ink grows from both edges, so
-        // there is no way to spill into one side only.
-        val right = frameOf(Cell(), Cell("\uE0B0"), Cell("x"))
-        val left = frameOf(Cell("x"), Cell("\uE0B0"), Cell())
+    fun anOccupiedCellToTheRightStopsTheOverhang() {
+        val f = frameOf(Cell(), Cell("\uE0B0"), Cell("x"))
 
-        assertEquals(0f, CellSpill.columns(right, 1, 0, right.indexOf(1, 0)), 0.001f)
-        assertEquals(0f, CellSpill.columns(left, 1, 0, left.indexOf(1, 0)), 0.001f)
+        assertEquals(0f, CellSpill.columns(f, 1, 0, f.indexOf(1, 0)), 0.001f)
     }
 
     @Test
-    fun theRowEdgeIsNotFree() {
-        // A glyph in the first or last column has no neighbour on one side, so
-        // it must not paint outside the grid.
-        val f = frameOf(Cell("\uE0B0"), Cell(), Cell("\uE0B0"))
+    fun anOccupiedCellToTheLeftDoesNotStopTheOverhang() {
+        // These glyphs grow rightward from the origin, so what sits to the
+        // left is irrelevant. Requiring it to be free would refuse the most
+        // ordinary case there is: an icon drawn straight after a prompt.
+        val f = frameOf(Cell("$"), Cell("\uE0B0"), Cell())
 
-        assertEquals(0f, CellSpill.columns(f, 0, 0, f.indexOf(0, 0)), 0.001f)
+        assertEquals(1f, CellSpill.columns(f, 1, 0, f.indexOf(1, 0)), 0.001f)
+    }
+
+    @Test
+    fun theLastColumnHasNothingToOverhangInto() {
+        val f = frameOf(Cell(), Cell(), Cell("\uE0B0"))
+
         assertEquals(0f, CellSpill.columns(f, 2, 0, f.indexOf(2, 0)), 0.001f)
     }
 
@@ -136,5 +142,28 @@ class CellSpillTest {
         assertFalse(CellSpill.isFree(f, -1, 0))
         assertFalse(CellSpill.isFree(f, 3, 0))
         assertFalse(CellSpill.isFree(f, 1, 1))
+    }
+
+    @Test
+    fun overhangNeverChangesHowManyColumnsACellOccupies() {
+        // The column count comes from ghostty, which got it from the remote
+        // PTY's own width accounting, and the cursor, the selection, and mouse
+        // reporting are all addressed in those columns. Granting drawing room
+        // must not move that number, or the rendered grid and the terminal's
+        // idea of it drift apart.
+        val f = frameOf(
+            Cell("$"),
+            Cell("\uE0B0"),
+            Cell(),
+            Cell("\uD55C", wide = CellFlags.WIDE_WIDE),
+        )
+
+        assertEquals(1, f.spanCells(f.indexOf(1, 0)))
+        assertEquals(1f, CellSpill.columns(f, 1, 0, f.indexOf(1, 0)), 0.001f)
+        // Still one column after the overhang was granted.
+        assertEquals(1, f.spanCells(f.indexOf(1, 0)))
+        // A cell ghostty made wide keeps its two columns and gets nothing.
+        assertEquals(2, f.spanCells(f.indexOf(3, 0)))
+        assertEquals(0f, CellSpill.columns(f, 3, 0, f.indexOf(3, 0)), 0.001f)
     }
 }

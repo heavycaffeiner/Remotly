@@ -251,11 +251,16 @@ data class CellMetrics(
 }
 
 /**
- * How far a glyph may paint outside the columns the terminal gave its cell.
+ * How far a glyph may paint outside the column the terminal gave its cell.
  *
- * Nerd Font icons carry roughly one and a half cells of ink on a one-cell
- * advance. Squeezing that into one column is what makes them look pinched, so
- * a glyph is allowed to spill into neighbouring columns that hold nothing.
+ * Nerd Font icons carry up to about 1.5 cells of ink on a one-cell advance.
+ * Squeezing that into one column is what makes them look pinched, so a glyph
+ * may overhang into the next column when that column holds nothing.
+ *
+ * This never changes how many columns a cell occupies. Ghostty decided that
+ * from the remote PTY's own width accounting, and the cursor, the selection,
+ * and mouse reporting are all addressed in those columns. Only the ink is
+ * allowed past the edge.
  *
  * Separate from the renderer because it is a decision about the frame, not
  * about the Canvas, and it is the part worth testing.
@@ -263,19 +268,18 @@ data class CellMetrics(
 object CellSpill {
 
     /**
-     * Extra columns the cell at (x, y) may paint into, as a count.
+     * Extra columns of drawing room for the cell at (x, y), as a count.
      *
-     * The ink is centered on the cell, so it grows from both edges at once:
-     * a spill needs the columns on both sides free and then yields two extra
-     * columns of room. A cell the terminal already made wide is left alone,
-     * and so is one with an occupied neighbour, because painting over a
-     * neighbour would lose what it holds.
+     * Rightward only: these glyphs sit on the baseline origin and grow to the
+     * right, so the overhang lands in the following column. A cell the
+     * terminal already made wide is left alone, and so is one whose next
+     * column holds something, because painting over it would lose what it
+     * holds.
      */
     fun columns(f: TerminalFrame, x: Int, y: Int, i: Int): Float {
         if (f.spanCells(i) > 1) return 0f
-        if (!isFree(f, x - 1, y)) return 0f
         if (!isFree(f, x + 1, y)) return 0f
-        return 2f
+        return 1f
     }
 
     /**

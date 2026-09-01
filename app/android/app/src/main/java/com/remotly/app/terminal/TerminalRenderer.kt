@@ -226,10 +226,12 @@ class TerminalRenderer(context: Context, private val density: Float) {
     val scale = TerminalMetrics.fitScale(extent, maxWidth)
 
     if (scale >= 1f) {
-      // A glyph narrower than its columns is centered in them. One that
-      // overflows starts at its own left edge and spills into the borrowed
-      // column, which is the only side known to be free.
-      val dx = TerminalMetrics.centerOffset(advance, spanWidth)
+      // A glyph that fits its own columns is centered in them. One that only
+      // fits by overhanging starts at its own left edge instead, because the
+      // ink grows rightward and centering would push it back over the cell
+      // to the left, which was never checked and may hold anything.
+      val dx =
+        if (extent > spanWidth) 0f else TerminalMetrics.centerOffset(advance, spanWidth)
       canvas.drawText(chars, offset, length, left + dx, baseline, textPaint)
       return
     }

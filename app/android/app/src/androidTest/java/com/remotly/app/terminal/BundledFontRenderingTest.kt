@@ -137,38 +137,41 @@ class BundledFontRenderingTest {
     }
 
     /**
-     * An icon between two blanks is drawn at full size, and the same icon
-     * between two occupied cells is compressed to fit.
+     * An icon with a free column to its right is drawn at full size, and the
+     * same icon with that column occupied is compressed to fit.
      *
-     * Rendered twice and compared by the pixels actually painted, because that
-     * is the behaviour being claimed: the icon stops being squeezed when there
-     * is room for it.
+     * Rendered and compared by the pixels actually painted, because that is
+     * the behaviour being claimed: the icon stops being squeezed when there is
+     * somewhere for its ink to go.
      */
     @Test
-    fun anIconWithFreeNeighboursIsDrawnWiderThanOneWithout() {
+    fun anIconOverhangsIntoAFreeColumnAndIsCompressedWithoutOne() {
         val renderer = TerminalRenderer(context, density = 3f)
         renderer.fontSizePx = 48f
         val cellW = renderer.cellWidthPx
         val cellH = renderer.cellHeightPx
 
-        val roomy = renderFrame(renderer, listOf("", "\uE5FA", ""), cellW, cellH)
+        // A character to the left in both cases, so the only difference is
+        // the column to the right. That also pins the rule that what sits to
+        // the left never matters.
+        val roomy = renderFrame(renderer, listOf("W", "\uE5FA", ""), cellW, cellH)
         val crowded = renderFrame(renderer, listOf("W", "\uE5FA", "W"), cellW, cellH)
 
-        // Measure only the middle column's icon, in the band between the two
-        // neighbours, so the neighbouring 'W's are not counted.
-        val roomyInk = paintedWidth(roomy, 0, roomy.width)
+        // Measured from the icon's own column onward: in the roomy case its
+        // ink is allowed to continue past that column.
+        val roomyInk = paintedWidth(roomy, cellW, roomy.width)
         val crowdedInk = paintedWidth(crowded, cellW, cellW * 2)
 
         assertTrue(
-            "icon with free neighbours ($roomyInk px) is wider than one without ($crowdedInk px)",
+            "icon with a free column ($roomyInk px) is wider than one without ($crowdedInk px)",
             roomyInk > crowdedInk,
         )
-        // With room, it must exceed a single cell: that is the fix.
+        // With room it must exceed a single cell: that is the fix.
         assertTrue(
-            "icon with free neighbours ($roomyInk px) exceeds one cell ($cellW px)",
+            "icon with a free column ($roomyInk px) exceeds one cell ($cellW px)",
             roomyInk > cellW,
         )
-        // Without room, it must stay inside its own cell.
+        // Without room it must stay inside its own cell.
         assertTrue(
             "icon without room ($crowdedInk px) stays within one cell ($cellW px)",
             crowdedInk <= cellW,
