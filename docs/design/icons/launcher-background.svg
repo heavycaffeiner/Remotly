@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Adaptive icon background: the tile gradient, filling the whole 108dp
+     canvas. A launcher crops this layer to whatever mask it uses, so it
+     carries no detail that could be cut. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="108" height="108" viewBox="0 0 108 108">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1E2733"/>
+      <stop offset="1" stop-color="#0B0F14"/>
+    </linearGradient>
+  </defs>
+  <rect width="108" height="108" fill="url(#tile)"/>
+</svg>

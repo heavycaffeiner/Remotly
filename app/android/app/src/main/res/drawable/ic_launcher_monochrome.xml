@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed icon layer (Android 13+). The launcher tints this single colour to
+     match the wallpaper, so the prompt is drawn as one flat silhouette: the
+     chevron and the cursor, with no fill colours of their own.
+
+     Paths rather than strokes, because a themed icon is tinted as a whole and
+     an outline drawn with a stroke would lose its shape once recoloured. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group android:translateX="8.90"
+        android:translateY="8.78"
+        android:scaleX="0.4710"
+        android:scaleY="0.4710">
+        <!-- The chevron. Stroked, not filled: a fill on an open path would
+             close it and blacken the triangle between the two arms. -->
+        <path
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="17"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M54,62 L88,96 L54,130" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M107.5,115 L138.5,115 A7.5,7.5 0 0 1 138.5,130 L107.5,130 A7.5,7.5 0 0 1 107.5,115 Z" />
+    </group>
+</vector>

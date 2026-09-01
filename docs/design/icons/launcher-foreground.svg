@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Adaptive icon foreground: concept A's prompt on the 108dp canvas.
+     Scaled so the glyph's furthest corner sits at r=31 about the centre. A
+     launcher may mask this to a circle, whose radius is 33dp, and the cursor's
+     outer tip is the corner that would otherwise clip. That is tighter than
+     the 66dp square safe zone alone would require. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="108" height="108" viewBox="0 0 108 108">
+  <g transform="translate(8.90 8.78) scale(0.4710)">
+    <polyline points="54,62 88,96 54,130"
+              fill="none" stroke="#3B82F6" stroke-width="17"
+              stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="100" y="115" width="46" height="15" rx="7.5" fill="#E6EDF3"/>
+  </g>
+</svg>
