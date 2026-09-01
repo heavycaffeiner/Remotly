@@ -174,33 +174,28 @@ class TerminalRenderer(context: Context, private val density: Float) {
   }
 
   /**
-   * The background a cell paints, after inverse and selection.
+   * True when a cell paints with its foreground and background exchanged.
    *
-   * Each swaps the pair, and they are applied in turn rather than combined, so
-   * a selected inverse cell swaps back and reads as ordinary text, which is
-   * what a desktop terminal shows.
+   * Inverse and selection each swap the pair, so a cell carrying both swaps
+   * twice and reads as ordinary text, which is what a desktop terminal shows.
+   * That is an exclusive or, and writing it as one keeps the two callers below
+   * from disagreeing about the order the flags apply in.
    */
-  private fun backgroundOf(f: TerminalFrame, i: Int): Int {
-    var bg = f.bgAt(i)
-    if (f.hasFlag(i, CellFlags.INVERSE)) bg = f.fgAt(i)
-    if (f.hasFlag(i, CellFlags.SELECTED)) {
-      bg = if (f.hasFlag(i, CellFlags.INVERSE)) f.bgAt(i) else f.fgAt(i)
-    }
-    return bg
-  }
+  private fun isSwapped(f: TerminalFrame, i: Int): Boolean =
+    f.hasFlag(i, CellFlags.INVERSE) != f.hasFlag(i, CellFlags.SELECTED)
+
+  /** The background a cell paints, after inverse and selection. */
+  private fun backgroundOf(f: TerminalFrame, i: Int): Int =
+    if (isSwapped(f, i)) f.fgAt(i) else f.bgAt(i)
 
   /** The foreground a cell paints, after inverse, selection, and faint. */
   private fun foregroundOf(f: TerminalFrame, i: Int): Int {
-    var fg = f.fgAt(i)
-    if (f.hasFlag(i, CellFlags.INVERSE)) fg = f.bgAt(i)
-    if (f.hasFlag(i, CellFlags.SELECTED)) {
-      fg = if (f.hasFlag(i, CellFlags.INVERSE)) f.fgAt(i) else f.bgAt(i)
-    }
+    val fg = if (isSwapped(f, i)) f.bgAt(i) else f.fgAt(i)
     // Faint is a dimmed foreground, mixed toward the background it sits on.
     // Ignoring it made low-emphasis output, which agents use for hints and
     // paths, indistinguishable from ordinary text.
-    if (f.hasFlag(i, CellFlags.FAINT)) fg = blend(fg, backgroundOf(f, i), FAINT_ALPHA)
-    return fg
+    if (!f.hasFlag(i, CellFlags.FAINT)) return fg
+    return blend(fg, backgroundOf(f, i), FAINT_ALPHA)
   }
 
   /**
