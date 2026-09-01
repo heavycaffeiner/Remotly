@@ -33,19 +33,19 @@ class GlyphWidthCache {
    * The advance width of [length] chars at [offset], measured with [paint] on
    * a miss.
    *
-   * [paint] must already carry the face that [bold] and [italic] name, because
-   * the measurement is stored against them.
+   * [paint] must already carry the face [face] names, because the measurement
+   * is stored against it. Faces are [TerminalFontSet] indices, so a symbol or
+   * CJK cell never reads back the width measured for the text face.
    */
   fun width(
     chars: CharArray,
     offset: Int,
     length: Int,
-    bold: Boolean,
-    italic: Boolean,
+    face: Int,
     paint: Paint,
   ): Float {
     if (length <= 0) return 0f
-    val face = (if (bold) 1 else 0) or (if (italic) 2 else 0)
+    require(face in 0 until FACES) { "face out of range: $face" }
 
     if (length == 1) {
       val c = chars[offset].code
@@ -57,7 +57,7 @@ class GlyphWidthCache {
         asciiSet[slot] = true
         return w
       }
-      return bmpWidth(chars, offset, (c shl 2) or face, paint)
+      return bmpWidth(chars, offset, (c shl FACE_BITS) or face, paint)
     }
 
     // A multi-char cluster: the String is built once per distinct glyph, not
@@ -117,7 +117,13 @@ class GlyphWidthCache {
   }
 
   private companion object {
-    const val FACES = 4
+    // Face indices are packed into the low bits of a BMP key, so the field has
+    // to be wide enough for every face TerminalFontSet can hand out: the four
+    // text styles, the shared symbol face, and the CJK faces. Too narrow a
+    // field would overflow into the char bits and alias one glyph's cached
+    // width onto another's.
+    const val FACE_BITS = 3
+    const val FACES = 1 shl FACE_BITS
 
     /** Printable ASCII through the end of Latin-1. */
     const val ASCII_FIRST = 0x20
@@ -135,8 +141,8 @@ class GlyphWidthCache {
      */
     const val MAX_CLUSTERS = 4096
 
-    // Prefixes that keep one cluster's four faces apart in the map. Not
-    // characters a terminal cell can hold.
-    val FACE_TAGS = arrayOf("\u0000", "\u0001", "\u0002", "\u0003")
+    // Prefixes that keep one cluster's faces apart in the map. Not characters
+    // a terminal cell can hold.
+    val FACE_TAGS = Array(FACES) { it.toChar().toString() }
   }
 }

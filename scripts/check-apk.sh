@@ -86,8 +86,16 @@ require_resource 'font/jetbrains_mono_regular' "JetBrains Mono regular"
 require_resource 'font/jetbrains_mono_bold' "JetBrains Mono bold"
 require_resource 'font/jetbrains_mono_italic' "JetBrains Mono italic"
 require_resource 'font/jetbrains_mono_bold_italic' "JetBrains Mono bold italic"
+# The Nerd Font symbols and the CJK faces. Without the symbol face a prompt
+# draws its icons from the platform font, which has none of them; without a
+# CJK face the terminal falls back to whatever the device ships.
+require_resource 'font/nerd_symbols' "Nerd Font symbols"
+require_resource 'font/noto_sans_mono_cjk_kr' "Noto Sans Mono CJK KR"
+require_resource 'font/noto_sans_mono_cjk_jp' "Noto Sans Mono CJK JP"
+require_resource 'font/noto_sans_mono_cjk_sc' "Noto Sans Mono CJK SC"
 # Assets keep their names in a release build.
-require 'assets/licenses/OFL-JetBrainsMono.txt' "font license notice"
+require 'assets/licenses/OFL-JetBrainsMono.txt' "JetBrains Mono license notice"
+require 'assets/licenses/OFL-NotoSansCJK.txt' "Noto Sans CJK license notice"
 
 # The native libraries, for every shipped ABI.
 for abi in armeabi-v7a arm64-v8a x86_64; do

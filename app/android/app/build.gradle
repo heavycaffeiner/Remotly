@@ -123,6 +123,7 @@ android {
         versionName project.hasProperty('remotlyVersionName')
                 ? project.property('remotlyVersionName')
                 : rootProject.ext.remotlyVersionName
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             // The terminal .so set (libremotly_terminal) ships for these ABIs.
             abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64'
@@ -214,4 +215,7 @@ dependencies {
     testImplementation remotly.junit
     testImplementation remotly.bouncycastle
     testImplementation remotly.gson
+    androidTestImplementation remotly.androidx.test.runner
+    androidTestImplementation remotly.androidx.test.rules
+    androidTestImplementation remotly.androidx.test.ext.junit
 }

@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect
 
 /**
  * Paints a terminal frame onto a Canvas.
@@ -29,6 +30,10 @@ class TerminalRenderer(context: Context, private val density: Float) {
   // Reused across draws: the handles are rebuilt on every frame a selection
   // is up.
   private val handlePath = Path()
+
+  // Reused by the per-cell ink measurement, so measuring a symbol allocates
+  // nothing on the draw path.
+  private val inkBounds = Rect()
 
   /**
    * Advance widths for glyphs already drawn at the current size.
@@ -131,7 +136,7 @@ class TerminalRenderer(context: Context, private val density: Float) {
           drawGlyph(
             canvas, f.chars, f.textOffsetAt(i), f.textLengthAt(i),
             f.hasFlag(i, CellFlags.BOLD), f.hasFlag(i, CellFlags.ITALIC),
-            fg, left, top, spanWidth,
+            fg, left, top, spanWidth, overflowWidth(f, x, y, i, spanWidth),
           )
         }
 
@@ -158,12 +163,30 @@ class TerminalRenderer(context: Context, private val density: Float) {
   }
 
   /**
+   * How wide a glyph in this cell may actually paint.
+   *
+   * A Nerd Font icon carries about one and a half cells of ink on a one-cell
+   * advance, and the terminal still calls the cell one column wide.
+   * Compressing it into that column is what makes the icons look pinched, so
+   * it is allowed to spill into neighbouring columns that are provably empty.
+   */
+  private fun overflowWidth(
+    f: TerminalFrame,
+    x: Int,
+    y: Int,
+    i: Int,
+    spanWidth: Float,
+  ): Float =
+    spanWidth + CellSpill.columns(f, x, y, i) * cellWidthPx.toFloat()
+
+  /**
    * Draws one grapheme fitted to its cell box.
    *
    * The complete cell text is drawn at one origin, never split by code unit, so
-   * a combining sequence stays one cluster. A glyph wider than its box is
-   * compressed rather than allowed to bleed into the next column; a narrower
-   * one is centered.
+   * a combining sequence stays one cluster. A glyph is centered in the columns
+   * the terminal gave it. It is compressed only when it does not fit even the
+   * room [maxWidth] allows, because overflowing would paint over a neighbour
+   * that holds something.
    *
    * Text is read straight from the frame's shared char buffer, so drawing a
    * cell builds no String.
@@ -179,16 +202,34 @@ class TerminalRenderer(context: Context, private val density: Float) {
     left: Float,
     top: Float,
     spanWidth: Float,
+    maxWidth: Float = spanWidth,
   ) {
+    val kind = GlyphKind.of(Character.codePointAt(chars, offset))
     textPaint.color = fg
-    textPaint.typeface = fonts.typeface(bold, italic)
+    textPaint.typeface = fonts.typefaceFor(bold, italic, kind)
 
-    val natural = glyphWidths.width(chars, offset, length, bold, italic, textPaint)
+    val face = fonts.faceIndex(bold, italic, kind)
+    val advance = glyphWidths.width(chars, offset, length, face, textPaint)
     val baseline = top + metrics.baselinePx
-    val scale = TerminalMetrics.fitScale(natural, spanWidth)
+
+    // Nerd Font icons all carry a one-cell advance while their ink runs to
+    // about one and a half cells, so the advance says nothing about whether
+    // one will fit. Their painted extent is what has to be fitted; for text
+    // and CJK the advance is the right measure and is already cached.
+    val extent = if (kind == GlyphKind.SYMBOL) {
+      textPaint.getTextBounds(chars, offset, length, inkBounds)
+      inkBounds.width().toFloat()
+    } else {
+      advance
+    }
+
+    val scale = TerminalMetrics.fitScale(extent, maxWidth)
 
     if (scale >= 1f) {
-      val dx = TerminalMetrics.centerOffset(natural, spanWidth)
+      // A glyph narrower than its columns is centered in them. One that
+      // overflows starts at its own left edge and spills into the borrowed
+      // column, which is the only side known to be free.
+      val dx = TerminalMetrics.centerOffset(advance, spanWidth)
       canvas.drawText(chars, offset, length, left + dx, baseline, textPaint)
       return
     }
@@ -251,7 +292,6 @@ class TerminalRenderer(context: Context, private val density: Float) {
   fun drawComposingText(canvas: Canvas, f: TerminalFrame, composition: CompositionState) {
     if (composition.isEmpty) return
 
-    textPaint.typeface = fonts.regular
     val cellW = cellWidthPx.toFloat()
     val cellH = cellHeightPx.toFloat()
 
@@ -274,6 +314,11 @@ class TerminalRenderer(context: Context, private val density: Float) {
       bgPaint.color = f.defaultBg
       canvas.drawRect(left, top, left + spanWidth, top + cellH, bgPaint)
 
+      // Composed text is overwhelmingly CJK, and the text face has no glyph
+      // for it. Picked per cluster so a mixed composition draws each part
+      // from the face that covers it.
+      val kind = GlyphKind.of(cluster.text.codePointAt(0))
+      textPaint.typeface = fonts.typefaceFor(bold = false, italic = false, kind = kind)
       textPaint.color = f.defaultFg
       val natural = textPaint.measureText(cluster.text)
       val scale = TerminalMetrics.fitScale(natural, spanWidth)
