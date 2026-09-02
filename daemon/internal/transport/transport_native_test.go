@@ -68,9 +68,9 @@ func TestRealPTY(t *testing.T) {
 	if sm == nil || sm.ID != id || sm.Running || sm.Exit == nil {
 		t.Fatalf("session.update: %+v", sm)
 	}
-	waitFor(t, 15*time.Second, "session to show exited in the list", func() bool {
-		lst := e.sessions.List()
-		return len(lst) == 1 && !lst[0].Running
+	// A killed session is dropped rather than retained.
+	waitFor(t, 15*time.Second, "session to leave the list", func() bool {
+		return len(e.sessions.List()) == 0
 	})
 	c.close(t, websocket.StatusNormalClosure, "bye")
 }

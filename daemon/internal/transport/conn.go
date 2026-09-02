@@ -399,6 +399,8 @@ func (c *conn) handleCtrlFrame(f protocol.Frame) error {
 		return c.sessionResize(req)
 	case protocol.TypeSessionKill:
 		return c.sessionKill(req)
+	case protocol.TypeSessionRename:
+		return c.sessionRename(req)
 	case protocol.TypeHello:
 		c.sendCtrl(protocol.EncodeErrorResponse(req.ID, req.Type, protocol.CodeInvalidRequest, protocol.CodeInvalidRequest))
 		return nil
@@ -577,6 +579,25 @@ func (c *conn) sessionKill(req *protocol.Request) error {
 		return nil
 	}
 	c.sendCtrl(protocol.EncodePlainResponse(req.ID, req.Type))
+	return nil
+}
+
+// sessionRename changes a session's display name and tells every client.
+func (c *conn) sessionRename(req *protocol.Request) error {
+	s, err := c.srv.opts.Sessions.Get(*req.SessionID)
+	if err != nil {
+		c.respondError(req, err)
+		return nil
+	}
+	m, err := s.SetTitle(*req.Title)
+	if err != nil {
+		c.respondError(req, err)
+		return nil
+	}
+	c.sendCtrl(protocol.EncodePlainResponse(req.ID, req.Type))
+	// Every attached client shows the session list, so they all need the new
+	// name, including the one that asked for it.
+	c.srv.NotifySessionUpdate(m)
 	return nil
 }
 

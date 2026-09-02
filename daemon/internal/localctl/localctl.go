@@ -332,6 +332,18 @@ func (s *Server) dispatch(req Request) Response {
 			return Response{OK: false, Err: err.Error()}
 		}
 		return Response{OK: true}
+	case "session_rename":
+		if req.SessionID == "" {
+			return Response{OK: false, Err: "missing session id"}
+		}
+		sess, err := s.sessions.Get(req.SessionID)
+		if err != nil {
+			return Response{OK: false, Err: err.Error()}
+		}
+		if _, err := sess.SetTitle(req.Title); err != nil {
+			return Response{OK: false, Err: err.Error()}
+		}
+		return Response{OK: true}
 	case "session_create":
 		// An empty command is a plain shell; anything else runs as an agent
 		// session, which is the kind that carries a command line.

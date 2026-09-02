@@ -275,11 +275,11 @@ func (s *Server) NotifyGate() {
 	}
 }
 
-// NotifySessionExit broadcasts a session.update notification to every
-// connection. It is the session manager's exit hook. A connection whose
-// control queue is full or closed drops the notification; the session state
-// is authoritative and a re-list converges.
-func (s *Server) NotifySessionExit(m session.Metadata) {
+// NotifySessionUpdate broadcasts a session.update notification to every
+// connection. It carries any metadata change: an exit, or a rename. A
+// connection whose control queue is full or closed drops the notification;
+// the session state is authoritative and a re-list converges.
+func (s *Server) NotifySessionUpdate(m session.Metadata) {
 	payload := protocol.EncodeSessionUpdate(toMeta(m))
 	s.connMu.Lock()
 	defer s.connMu.Unlock()

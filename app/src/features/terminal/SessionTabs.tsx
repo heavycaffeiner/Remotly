@@ -68,8 +68,8 @@ interface SessionTabsProps {
     onPress: () => void;
   }[];
   /**
-   * Renames a tab. Omitted where the label is not the app's to change, as on
-   * a daemon workspace where the title is session metadata.
+   * Renames a tab. The daemon workspace sends the new name to the daemon,
+   * which owns it; the SSH strip keeps it locally.
    */
   onRename?: (sessionId: string, title: string) => void;
   /**

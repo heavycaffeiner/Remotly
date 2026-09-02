@@ -11,6 +11,8 @@ import {
   DaemonFilesBackend,
   SftpFilesBackend,
   isPlainName,
+  viewEntries,
+  type FileView,
   parseBreadcrumbs,
   parentPath,
   joinPath,
@@ -64,6 +66,7 @@ import type { RootStackParamList } from '../../navigation/types';
 import { useSettings } from '../../theme/SettingsProvider';
 import { Breadcrumbs } from './Breadcrumbs';
 import { FileListItem } from './FileListItem';
+import { FilesToolbar } from './FilesToolbar';
 import { entryKey, formatSize, numberedName } from './filePresentation';
 
 // One file browser, two backends: the daemon filesystem (fs.* over the control
@@ -137,6 +140,10 @@ export function FilesScreen({
   const tabId = embedded?.tabId ?? '';
   const [cwd, setCwd] = useState(() => filesTabCwd(tabId));
   const [entries, setEntries] = useState<FileEntry[] | null>(null);
+  // The query is per-screen: a search is about the folder in front of you,
+  // not a preference. Hidden files and the sort order are settings, so they
+  // are shared with the SSH browser and survive a restart.
+  const [query, setQuery] = useState('');
   const [more, setMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -1095,6 +1102,47 @@ export function FilesScreen({
     (entry: FileEntry) => setMenuFor(entry.name),
     [],
   );
+  // The persisted preferences plus this screen's search box.
+  const view: FileView = React.useMemo(
+    () => ({
+      sortKey: settings.filesSortKey,
+      direction: settings.filesSortDirection,
+      showHidden: settings.filesShowHidden,
+      query,
+    }),
+    [
+      settings.filesSortKey,
+      settings.filesSortDirection,
+      settings.filesShowHidden,
+      query,
+    ],
+  );
+
+  const setView = React.useCallback(
+    (next: FileView) => {
+      setQuery(next.query);
+      if (
+        next.sortKey !== view.sortKey ||
+        next.direction !== view.direction ||
+        next.showHidden !== view.showHidden
+      ) {
+        void update({
+          filesSortKey: next.sortKey,
+          filesSortDirection: next.direction,
+          filesShowHidden: next.showHidden,
+        });
+      }
+    },
+    [update, view],
+  );
+
+  // Entries stay raw: the filter is display only, and every operation still
+  // addresses the entry by its real name.
+  const shownEntries = React.useMemo(
+    () => viewEntries(entries ?? [], view),
+    [entries, view],
+  );
+
   const renderEntry = React.useCallback(
     ({ item }: { item: FileEntry }) => (
       <FileListItem entry={item} onOpen={openEntry} onMenu={menuForEntry} />
@@ -1195,8 +1243,17 @@ export function FilesScreen({
       ) : null}
 
       {phase === 'ready' ? (
+        <FilesToolbar
+          view={view}
+          shown={shownEntries.length}
+          loaded={entries?.length ?? 0}
+          onChange={setView}
+        />
+      ) : null}
+
+      {phase === 'ready' ? (
         <FlatList
-          data={entries ?? []}
+          data={shownEntries}
           keyExtractor={e => entryKey(cwd, e)}
           className="flex-1"
           contentContainerStyle={{ paddingBottom: 48 }}
@@ -1204,16 +1261,28 @@ export function FilesScreen({
             parentPath(cwd) !== null ? <UpRow onPress={goUp} /> : undefined
           }
           ListEmptyComponent={
-            entries !== null && entries.length === 0 ? (
-              <Empty
-                icon="folder-open"
-                title="This folder is empty"
-                message={
-                  canTransfer
-                    ? 'Upload a file to get started.'
-                    : 'This host supports browsing and metadata only.'
-                }
-              />
+            entries !== null && shownEntries.length === 0 ? (
+              entries.length > 0 ? (
+                <Empty
+                  icon="search"
+                  title="Nothing matches"
+                  message={
+                    more
+                      ? 'Only the entries loaded so far were searched. Scroll to load the rest of this folder.'
+                      : 'No entry here matches the search and hidden-file settings.'
+                  }
+                />
+              ) : (
+                <Empty
+                  icon="folder-open"
+                  title="This folder is empty"
+                  message={
+                    canTransfer
+                      ? 'Upload a file to get started.'
+                      : 'This host supports browsing and metadata only.'
+                  }
+                />
+              )
             ) : undefined
           }
           ListFooterComponent={

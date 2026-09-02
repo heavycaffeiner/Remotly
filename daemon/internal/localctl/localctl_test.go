@@ -296,20 +296,20 @@ func TestSessionsAndKill(t *testing.T) {
 		t.Fatalf("session_kill: %v %s", err, resp.Err)
 	}
 
-	// The exit is async: poll until the manager has reaped the process. The
-	// killed session stays listed with running=false for its post-exit
-	// retention window, where it remains attachable for final replay.
+	// The exit is async: poll until the manager has reaped the process. A
+	// killed session is dropped rather than retained, so it leaves the list
+	// entirely. Retention is for a shell that ended on its own.
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		resp, err = Call(env.path, Request{Op: "sessions"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(resp.Sessions) == 1 && !resp.Sessions[0].Running {
+		if len(resp.Sessions) == 0 {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("session %s not exited after kill: %+v", id, resp.Sessions)
+			t.Fatalf("session %s still listed after kill: %+v", id, resp.Sessions)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

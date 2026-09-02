@@ -313,6 +313,7 @@ export function WorkspaceScreen(): React.ReactElement {
         }}
         {...(overlay ? { overlay } : {})}
         onReady={ws.onViewportReady}
+        onTitle={ws.reportTerminalTitle}
         {...(tabs.length > 1 ? { onSwitchSession: switchSession } : {})}
         sessionIndex={tabs.findIndex(t => t.sessionId === activeTab?.sessionId)}
         tabStrip={
@@ -322,6 +323,7 @@ export function WorkspaceScreen(): React.ReactElement {
               activeSessionId={ws.workspace?.activeSessionId ?? null}
               onSelect={handleSelectTab}
               onClose={setCloseTarget}
+              onRename={ws.renameTabById}
               onNew={() => setPickerOpen(true)}
               canAdd={ws.canAdd}
             />

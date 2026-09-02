@@ -16,6 +16,7 @@ import {
   addSshTab,
   createSshTabs,
   findSshTab,
+  isDefaultSshTitle,
   mintSessionId,
   removeSshTab,
   setActiveSshTab,
@@ -446,6 +447,22 @@ export function renameSshTab(
   if (next === e.state) return;
   e.state = next;
   notify(e);
+}
+
+/**
+ * Records the title the running program set with an escape sequence.
+ *
+ * A shell repaints its title on every prompt, so this only applies while the
+ * tab still carries the name the app gave it ("Shell 2", "Files"). Once the
+ * user has renamed a tab, their name stands.
+ */
+export function reportSshTerminalTitle(hostId: string, title: string): void {
+  const e = entry(hostId);
+  const sessionId = e.state.activeSessionId;
+  if (sessionId === null) return;
+  const tab = findSshTab(e.state, sessionId);
+  if (tab === null || !isDefaultSshTitle(tab.title)) return;
+  renameSshTab(hostId, sessionId, title);
 }
 
 export function selectSshTab(hostId: string, sessionId: string): void {

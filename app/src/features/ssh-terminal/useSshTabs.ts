@@ -23,6 +23,7 @@ import {
   openSshFilesTab,
   reconnectSshTab,
   renameSshTab,
+  reportSshTerminalTitle,
   resizeSshHost,
   selectSshTab,
   sendSshInput,
@@ -57,6 +58,11 @@ export interface SshTabsController {
   closeTab: (sessionId: string) => void;
   /** Renames a tab. A blank name is ignored. */
   renameTab: (sessionId: string, title: string) => void;
+  /**
+   * Records the title the running program set. Adopted only while the tab
+   * still carries its generated name.
+   */
+  reportTitle: (title: string) => void;
   reconnectActive: () => void;
   answerHostKey: (decision: 'accept' | 'replace' | 'reject') => void;
   /** Ends every session for this host. Not called on unmount. */
@@ -170,6 +176,11 @@ export function useSshTabs(
     [hostId],
   );
 
+  const reportTitle = useCallback(
+    (title: string) => reportSshTerminalTitle(hostId, title),
+    [hostId],
+  );
+
   const reconnectActive = useCallback(() => {
     const sessionId = sshHostState(hostId).activeSessionId;
     if (sessionId !== null) reconnectSshTab(hostId, sessionId);
@@ -201,6 +212,7 @@ export function useSshTabs(
     selectTab,
     closeTab,
     renameTab,
+    reportTitle,
     reconnectActive,
     answerHostKey,
     disconnect,

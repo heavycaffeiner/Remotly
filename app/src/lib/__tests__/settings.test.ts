@@ -27,8 +27,25 @@ describe('normalizeSettings', () => {
       keyRepeatDelayMs: 250,
       downloadFolderUri:
         'content://com.android.providers/tree/primary%3ADownload',
+      filesShowHidden: true,
+      filesSortKey: 'size',
+      filesSortDirection: 'desc',
     };
     expect(normalizeSettings(input)).toEqual(input);
+  });
+
+  /**
+   * The stored value reaches the comparator, so an unknown key would order the
+   * listing by nothing at all.
+   */
+  it('falls back to the default sort for an unknown key', () => {
+    expect(normalizeSettings({ filesSortKey: 'colour' }).filesSortKey).toBe(
+      'name',
+    );
+    expect(normalizeSettings({ filesSortKey: 7 }).filesSortKey).toBe('name');
+    expect(
+      normalizeSettings({ filesSortDirection: 'sideways' }).filesSortDirection,
+    ).toBe('asc');
   });
 
   /**

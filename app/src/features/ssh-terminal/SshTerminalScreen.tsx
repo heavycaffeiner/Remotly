@@ -283,6 +283,7 @@ export function SshTerminalScreen(): React.ReactElement {
             }
           : {})}
         onReady={ssh.onViewportReady}
+        onTitle={ssh.reportTitle}
         {...(state.tabs.length > 1 ? { onSwitchSession: switchSession } : {})}
         sessionIndex={state.tabs.findIndex(
           t => t.sessionId === state.activeSessionId,

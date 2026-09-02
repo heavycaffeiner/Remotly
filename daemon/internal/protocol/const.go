@@ -39,6 +39,7 @@ const (
 	TypeSessionDetach         = "session.detach"
 	TypeSessionResize         = "session.resize"
 	TypeSessionKill           = "session.kill"
+	TypeSessionRename         = "session.rename"
 	TypePresetList            = "preset.list"
 	TypeFSList                = "fs.list"
 	TypeFSStat                = "fs.stat"

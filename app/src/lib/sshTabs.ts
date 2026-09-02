@@ -152,6 +152,18 @@ export function setSshTabPhase(
 export const MAX_SSH_TAB_TITLE = 60;
 
 /**
+ * True when a tab still carries the name the app generated for it.
+ *
+ * New tabs are named "Shell 1", "Files", "Files 2" and so on, so anything
+ * else is a name the user typed. A program's own title is only adopted while
+ * the name is still generated, which keeps a shell's per-prompt title from
+ * overwriting a name the user chose.
+ */
+export function isDefaultSshTitle(title: string): boolean {
+  return /^(Shell|Files)( \d+)?$/.test(title);
+}
+
+/**
  * Renames a tab.
  *
  * The title is trimmed and bounded. An empty result is rejected rather than

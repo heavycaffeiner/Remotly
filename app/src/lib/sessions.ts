@@ -265,6 +265,52 @@ export async function detachChannel(
   });
 }
 
+/**
+ * Ends a session on the daemon and terminates its process.
+ *
+ * Detaching only gives up the channel: the shell keeps running so it can be
+ * reattached later, which is the point of the daemon. Closing a tab is the
+ * user saying they are finished with it, and without this the session stayed
+ * alive with nothing referring to it.
+ */
+export async function killSession(
+  hostId: string,
+  sessionId: string,
+): Promise<void> {
+  if (!isValidSessionId(sessionId)) {
+    throw new DaemonError('invalid_request', 'bad session id');
+  }
+  await controlChecked(hostId, {
+    type: 'session.kill',
+    session_id: sessionId,
+  });
+}
+
+/**
+ * Renames a session on the daemon.
+ *
+ * The daemon owns the name so every client and every reconnect sees it, which
+ * a purely local label would not survive.
+ */
+export async function renameSession(
+  hostId: string,
+  sessionId: string,
+  title: string,
+): Promise<void> {
+  if (!isValidSessionId(sessionId)) {
+    throw new DaemonError('invalid_request', 'bad session id');
+  }
+  const name = title.trim();
+  if (name === '' || name.length > MAX_TITLE_LEN) {
+    throw new DaemonError('invalid_request', 'bad title');
+  }
+  await controlChecked(hostId, {
+    type: 'session.rename',
+    session_id: sessionId,
+    title: name,
+  });
+}
+
 /** Changes a session's PTY size. */
 export async function resizeSession(
   hostId: string,

@@ -21,12 +21,14 @@ import {
 import {
   MAX_CURSOR,
   MAX_TABS,
+  MAX_TITLE_LEN,
   addTab,
   adoptSessions,
   applySessionMeta,
   closeTab,
   createWorkspace,
   findTab,
+  isDefaultTitle,
   markAttached,
   markExited,
   markStale,
@@ -48,7 +50,9 @@ import {
   attachSession,
   createSession,
   detachChannel,
+  killSession,
   listPresets,
+  renameSession,
   listSessions,
   resizeSession,
   type Preset,
@@ -132,6 +136,16 @@ export interface WorkspaceController {
   selectTab: (sessionId: string) => void;
   closeTabById: (sessionId: string) => void;
   createNew: (kind: 'shell' | 'agent', preset?: Preset) => Promise<void>;
+  /** Renames a session. The daemon owns the name, so it is sent there. */
+  renameTabById: (sessionId: string, title: string) => void;
+  /**
+   * Records the title the running program set with an escape sequence.
+   *
+   * Only adopted while the user has not named the session themselves: a name
+   * the user typed is theirs, and a shell that repaints its title would
+   * otherwise overwrite it on the next prompt.
+   */
+  reportTerminalTitle: (title: string) => void;
   /** False at the tab cap, so the UI can disable the add action. */
   canAdd: boolean;
   retryNow: () => void;
@@ -552,23 +566,67 @@ export function useWorkspaceConnection({
     [commitWs, detachActive, attachActiveTab],
   );
 
+  const renameTabById = useCallback(
+    (sessionId: string, title: string) => {
+      const h = hostRef.current;
+      const w = wsRef.current;
+      if (h === null || w === null) return;
+      const name = title.trim().slice(0, MAX_TITLE_LEN);
+      if (name === '') return;
+      // Shown immediately; the daemon's session.update confirms it. Waiting on
+      // the round trip made renaming feel like it had not registered.
+      commitWs(applySessionMeta(w, { sessionId, title: name }));
+      void renameSession(h.id, sessionId, name).catch(e => {
+        log.error('session rename failed', {
+          message: userFacingMessage(toRemotlyError(e, 'unknown')),
+        });
+      });
+    },
+    [commitWs],
+  );
+
+  // A shell sets its title on every prompt, so this only takes effect while
+  // the session still carries the name the daemon gave it. Once the user has
+  // renamed it, their name stands.
+  const reportTerminalTitle = useCallback(
+    (title: string) => {
+      const w = wsRef.current;
+      const sessionId = activeRef.current?.sessionId ?? null;
+      if (w === null || sessionId === null) return;
+      const tab = findTab(w, sessionId);
+      if (tab === null || !isDefaultTitle(tab.title)) return;
+      const name = title.trim().slice(0, MAX_TITLE_LEN);
+      if (name === '' || name === tab.title) return;
+      renameTabById(sessionId, name);
+    },
+    [renameTabById],
+  );
+
   const closeTabById = useCallback(
     (sessionId: string) => {
       const w = wsRef.current;
       if (w === null) return;
       const h = hostRef.current;
       const wasActive = activeRef.current?.sessionId === sessionId;
+      // The tab goes now, before any round trip. Closing is a local decision
+      // and the daemon has no say in it, so waiting on the network first left
+      // the tab sitting there looking stuck.
+      const next = commitWs(closeTab(w, sessionId));
+      // The terminal is retained across screens so its scrollback survives
+      // navigation; closing the tab is what frees it.
+      void releaseTerminal(sessionId).catch(() => undefined);
       void (async () => {
-        if (wasActive) await detachActive(h);
-        // Re-read after the detach round trip: another close, a create, or an
-        // incoming session update may have committed while it was in flight,
-        // and closing from the pre-await snapshot threw that change away.
-        const next = commitWs(closeTab(wsRef.current ?? w, sessionId));
-        // The terminal is retained across screens so its scrollback survives
-        // navigation; closing the tab is what frees it.
-        void releaseTerminal(sessionId).catch(() => undefined);
-        if (h !== null && wasActive && next.tabs.length > 0) {
-          await attachActiveTab(h, next);
+        // Ending the session is what stops it running on the daemon. Without
+        // it every closed shell stayed alive there, invisible to the app and
+        // impossible to close from it.
+        if (h !== null) {
+          await killSession(h.id, sessionId).catch(() => undefined);
+        }
+        if (h !== null && wasActive) {
+          // attachActiveTab detaches the old channel before taking the next
+          // tab, so the detach is not repeated here.
+          if (next.tabs.length > 0) await attachActiveTab(h, next);
+          else await detachActive(h);
         }
       })();
     },
@@ -610,8 +668,9 @@ export function useWorkspaceConnection({
           setErrorText('Too many open tabs. Close one first.');
           return;
         }
+        // attachActiveTab detaches first, so a separate detach here only
+        // added a second round trip before the new shell could appear.
         const next = commitWs(setActive(state, tab.sessionId));
-        await detachActive(h);
         await attachActiveTab(h, next);
       } catch (e) {
         log.error('session create failed', {
@@ -620,7 +679,7 @@ export function useWorkspaceConnection({
         setErrorText(userFacingMessage(toRemotlyError(e, 'unknown')));
       }
     },
-    [commitWs, detachActive, attachActiveTab],
+    [commitWs, attachActiveTab],
   );
 
   const disconnect = useCallback(() => {
@@ -860,6 +919,8 @@ export function useWorkspaceConnection({
     selectTab,
     closeTabById,
     createNew,
+    renameTabById,
+    reportTerminalTitle,
     canAdd: (workspace?.tabs.length ?? 0) < MAX_TABS,
     retryNow,
     disconnect,

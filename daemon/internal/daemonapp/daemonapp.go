@@ -142,7 +142,7 @@ func presetsConfig(cfg config.Config) []protocol.Preset {
 // goroutine and must not block.
 func (a *App) sessionExited(m session.Metadata) {
 	if a.transport != nil {
-		a.transport.NotifySessionExit(m)
+		a.transport.NotifySessionUpdate(m)
 	}
 }
 

@@ -182,9 +182,10 @@ func TestHappyPath(t *testing.T) {
 	if m == nil || m.ID != id || m.Running || m.Exit == nil {
 		t.Fatalf("session.update: %+v", m)
 	}
-	waitFor(t, 10*time.Second, "session to show exited in the list", func() bool {
-		lst := e.sessions.List()
-		return len(lst) == 1 && !lst[0].Running
+	// A killed session is dropped rather than retained: retention is for a
+	// shell that ended on its own.
+	waitFor(t, 10*time.Second, "session to leave the list", func() bool {
+		return len(e.sessions.List()) == 0
 	})
 
 	c.close(t, websocket.StatusNormalClosure, "bye")

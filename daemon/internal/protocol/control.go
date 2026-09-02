@@ -154,6 +154,10 @@ var typeRules = map[string][]fieldRule{
 	TypeSessionKill: {
 		{name: "session_id", required: true},
 	},
+	TypeSessionRename: {
+		{name: "session_id", required: true},
+		{name: "title", required: true},
+	},
 }
 
 type fieldRule struct {
@@ -332,6 +336,16 @@ func checkValues(id uint64, typ string, w *wireRequest) error {
 		}
 	case TypeSessionKill:
 		if !sessionIDPattern.MatchString(*w.SessionID) {
+			return bad()
+		}
+	case TypeSessionRename:
+		if !sessionIDPattern.MatchString(*w.SessionID) {
+			return bad()
+		}
+		// The title is bounded here; the session applies the remaining rules
+		// (non-empty after trimming, valid UTF-8) and reports them as errors
+		// the app can show.
+		if len(*w.Title) > MaxTitleLen {
 			return bad()
 		}
 	case TypeFSList:

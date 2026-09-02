@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -486,6 +487,10 @@ type Session struct {
 
 	done     chan struct{}
 	doneOnce sync.Once
+	// discard marks a session the user explicitly killed. Retention is for a
+	// shell that ended on its own, so a killed one is dropped when it exits
+	// instead of lingering in the list.
+	discard atomic.Bool
 
 	mu   sync.Mutex
 	meta Metadata
@@ -561,6 +566,31 @@ func (s *Session) Resize(cols, rows uint16) error {
 	return s.proc.Resize(cols, rows)
 }
 
+// SetTitle renames the session.
+//
+// The name is what the user picks a session out of a list by, so it outlives
+// the process: renaming an exited session that is still retained is allowed.
+// The title is untrusted input from the app, bounded and validated the same
+// way a create request's title is. It returns the updated metadata so the
+// caller can broadcast the change.
+func (s *Session) SetTitle(title string) (Metadata, error) {
+	name := strings.TrimSpace(title)
+	if name == "" {
+		return Metadata{}, fmt.Errorf("%w: title must not be empty", ErrInvalidRequest)
+	}
+	if len(name) > MaxTitleLen {
+		return Metadata{}, fmt.Errorf("%w: title exceeds %d bytes", ErrInvalidRequest, MaxTitleLen)
+	}
+	if !utf8.ValidString(name) {
+		return Metadata{}, fmt.Errorf("%w: title must be valid UTF-8", ErrInvalidRequest)
+	}
+	s.mu.Lock()
+	s.meta.Title = name
+	m := s.meta
+	s.mu.Unlock()
+	return m, nil
+}
+
 // Signal sends a graceful stop to the foreground process.
 func (s *Session) Signal(sig os.Signal) error {
 	if !s.running() {
@@ -571,11 +601,19 @@ func (s *Session) Signal(sig os.Signal) error {
 
 // Kill terminates the process tree. It is idempotent: killing an already
 // exited session is not an error.
+//
+// A killed session is dropped rather than retained. Retention exists so a
+// shell that exited on its own can still be reattached for its final output;
+// a kill is someone saying they are finished with it, and keeping those
+// around left the list filling with sessions the user had already closed.
 func (s *Session) Kill() error {
 	s.mu.Lock()
 	running := s.meta.Running
 	s.mu.Unlock()
+	s.discard.Store(true)
 	if !running {
+		// Already exited and sitting in retention: drop it now.
+		s.m.forget(s.id)
 		return nil
 	}
 	if err := s.proc.Kill(); err != nil {
@@ -713,10 +751,18 @@ func (s *Session) waitLoop() {
 
 // retire moves an exited session from the live set into the retention set.
 // The session stops counting toward MaxSessions here.
+//
+// A session the user killed is dropped instead of retained: retention is for
+// reattaching to a shell that ended on its own.
 func (m *Manager) retire(s *Session) {
 	m.mu.Lock()
 	if cur, ok := m.sessions[s.id]; ok && cur == s {
 		delete(m.sessions, s.id)
+	}
+	if s.discard.Load() {
+		delete(m.retired, s.id)
+		m.mu.Unlock()
+		return
 	}
 	if len(m.retired) >= maxRetiredSessions {
 		// Evict the earliest-expiring entry to make room.
@@ -734,6 +780,15 @@ func (m *Manager) retire(s *Session) {
 	if _, exists := m.retired[s.id]; !exists {
 		m.retired[s.id] = &retiredEntry{session: s, expiresAt: time.Now().Add(m.opts.RetainedAfterExit)}
 	}
+	m.mu.Unlock()
+}
+
+// forget drops a session from both sets without waiting for its retention
+// window. Killing an already-exited session takes this path.
+func (m *Manager) forget(id string) {
+	m.mu.Lock()
+	delete(m.sessions, id)
+	delete(m.retired, id)
 	m.mu.Unlock()
 }
 

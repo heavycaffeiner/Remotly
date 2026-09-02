@@ -278,6 +278,55 @@ func TestRetiredDoesNotCountTowardLimit(t *testing.T) {
 	}
 }
 
+// A killed session leaves the list. Retention exists so a shell that ended on
+// its own can still be reattached for its final output; a kill is the user
+// saying they are finished, and keeping those listed filled the session list
+// with shells they had already closed.
+func TestKilledSessionIsNotRetained(t *testing.T) {
+	m, _ := newTestManager(t, Options{})
+	s, _ := mustCreate(t, m, Request{Kind: KindShell})
+	if err := s.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, s.Done(), "exit")
+	if got := len(m.List()); got != 0 {
+		t.Fatalf("List has %d entries after a kill, want 0", got)
+	}
+	if _, err := m.Get(s.ID()); !errors.Is(err, ErrUnknownSession) {
+		t.Fatalf("Get after kill = %v, want ErrUnknownSession", err)
+	}
+}
+
+// A shell that exits by itself is still retained, which is what makes the
+// final output readable after the fact.
+func TestNaturalExitIsRetained(t *testing.T) {
+	m, _ := newTestManager(t, Options{})
+	s, p := mustCreate(t, m, Request{Kind: KindShell})
+	p.terminate(pty.ExitStatus{Exited: true, Code: 0})
+	waitFor(t, s.Done(), "exit")
+	if got := len(m.List()); got != 1 {
+		t.Fatalf("List has %d entries after a natural exit, want 1", got)
+	}
+}
+
+// Killing a session that already exited drops it immediately rather than
+// leaving it to sit out its retention window.
+func TestKillAfterExitDropsTheRetainedSession(t *testing.T) {
+	m, _ := newTestManager(t, Options{})
+	s, p := mustCreate(t, m, Request{Kind: KindShell})
+	p.terminate(pty.ExitStatus{Exited: true, Code: 0})
+	waitFor(t, s.Done(), "exit")
+	if len(m.List()) != 1 {
+		t.Fatal("want the exited session retained before the kill")
+	}
+	if err := s.Kill(); err != nil {
+		t.Fatalf("kill after exit: %v", err)
+	}
+	if got := len(m.List()); got != 0 {
+		t.Fatalf("List has %d entries, want 0", got)
+	}
+}
+
 func TestKillIdempotent(t *testing.T) {
 	m, _ := newTestManager(t, Options{})
 	s, _ := mustCreate(t, m, Request{Kind: KindShell})

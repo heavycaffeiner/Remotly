@@ -162,6 +162,51 @@ function utf8(s: string): Uint8Array {
 }
 /* eslint-enable no-bitwise */
 
+/** How a listing is ordered. Applies to both backends. */
+export type SortKey = 'name' | 'size' | 'mtime' | 'kind';
+export type SortDirection = 'asc' | 'desc';
+
+/** Every sort key, in the order the picker offers them. */
+export const SORT_KEYS: readonly SortKey[] = ['name', 'size', 'mtime', 'kind'];
+
+export interface FileView {
+  sortKey: SortKey;
+  direction: SortDirection;
+  /** Dotfiles are listed only when this is true. */
+  showHidden: boolean;
+  /** Case-insensitive substring match on the raw name. Empty shows all. */
+  query: string;
+}
+
+export const DEFAULT_FILE_VIEW: FileView = {
+  sortKey: 'name',
+  direction: 'asc',
+  showHidden: false,
+  query: '',
+};
+
+/**
+ * True when an entry is hidden by Unix convention.
+ *
+ * A leading dot, tested on the raw byte-faithful name. "." and ".." are not
+ * entries a backend returns, so they need no special case.
+ */
+export function isHidden(entry: FileEntry): boolean {
+  return entry.name.startsWith('.');
+}
+
+/**
+ * Case-insensitive substring match for the filter box.
+ *
+ * Case folding is display behaviour, not identity: the raw name remains the
+ * operation identifier everywhere else. Folding is applied to both sides so a
+ * user typing "readme" finds "README", which is what a search box is for.
+ */
+function matches(name: string, query: string): boolean {
+  if (query === '') return true;
+  return name.toLowerCase().includes(query.toLowerCase());
+}
+
 /** Directories first, then byte-wise by raw name. Returns a new array; the
  *  input order of equal entries is preserved (stable). */
 export function sortEntries(entries: readonly FileEntry[]): FileEntry[] {
@@ -169,6 +214,61 @@ export function sortEntries(entries: readonly FileEntry[]): FileEntry[] {
     if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
     return compareNames(a.name, b.name);
   });
+}
+
+/**
+ * Applies the view to a listing: hidden filter, then search, then ordering.
+ *
+ * Directories always sort ahead of files, whatever the key and direction. A
+ * file browser that interleaves them by size or date is unusable for
+ * navigation, and reversing the order must not bury every directory below the
+ * files. Only the comparison within each group is reversed.
+ *
+ * Ties fall back to the byte-wise name so the order is total and stable: two
+ * files of equal size or with the same timestamp keep a fixed position instead
+ * of shuffling between renders.
+ */
+export function viewEntries(
+  entries: readonly FileEntry[],
+  view: FileView = DEFAULT_FILE_VIEW,
+): FileEntry[] {
+  const visible = entries.filter(
+    e => (view.showHidden || !isHidden(e)) && matches(e.name, view.query),
+  );
+  const sign = view.direction === 'desc' ? -1 : 1;
+  return visible.sort((a, b) => {
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+    const byKey = compareByKey(a, b, view.sortKey);
+    if (byKey !== 0) return byKey * sign;
+    return compareNames(a.name, b.name);
+  });
+}
+
+function compareByKey(a: FileEntry, b: FileEntry, key: SortKey): number {
+  switch (key) {
+    case 'size':
+      return a.size - b.size;
+    case 'mtime':
+      return a.mtime - b.mtime;
+    case 'kind':
+      return compareNames(extensionOf(a), extensionOf(b));
+    case 'name':
+      return compareNames(a.name, b.name);
+  }
+}
+
+/**
+ * The extension used for "sort by type", lowercased for grouping.
+ *
+ * A leading dot belongs to the name, not to an extension: ".bashrc" is a
+ * dotfile with no type, not a ".bashrc" file. Directories have no extension
+ * and group together ahead of files anyway.
+ */
+function extensionOf(entry: FileEntry): string {
+  if (entry.isDir) return '';
+  const dot = entry.name.lastIndexOf('.');
+  if (dot <= 0 || dot === entry.name.length - 1) return '';
+  return entry.name.slice(dot + 1).toLowerCase();
 }
 
 // --- path helpers (Unix and Windows forms) --------------------------------

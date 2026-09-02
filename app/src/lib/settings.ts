@@ -46,6 +46,7 @@ import {
   clampRepeatDelay,
   REPEAT_DELAY_MS as DEFAULT_KEY_REPEAT_DELAY_MS,
 } from '../features/terminal/keyRepeat';
+import { SORT_KEYS, type SortDirection, type SortKey } from './files';
 
 export interface AppSettings {
   /** In-app master switch for terminal event notifications. */
@@ -71,6 +72,10 @@ export interface AppSettings {
    * quietly renaming around the collision.
    */
   downloadFolderUri: string;
+  /** Show dotfiles in the file browser. Applies to both backends. */
+  filesShowHidden: boolean;
+  filesSortKey: SortKey;
+  filesSortDirection: SortDirection;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -84,6 +89,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   hapticFeedback: true,
   keyRepeatDelayMs: DEFAULT_KEY_REPEAT_DELAY_MS,
   downloadFolderUri: '',
+  filesShowHidden: false,
+  filesSortKey: 'name',
+  filesSortDirection: 'asc',
 };
 
 function clampFontSize(value: unknown): number {
@@ -132,6 +140,19 @@ export function normalizeSettings(
       raw.downloadFolderUri.startsWith('content://')
         ? raw.downloadFolderUri
         : DEFAULT_SETTINGS.downloadFolderUri,
+    filesShowHidden: pickBool(
+      raw.filesShowHidden,
+      DEFAULT_SETTINGS.filesShowHidden,
+    ),
+    // Stored values are untrusted: an unknown key would reach the comparator
+    // and order the listing by nothing at all.
+    filesSortKey:
+      SORT_KEYS.find(k => k === raw.filesSortKey) ??
+      DEFAULT_SETTINGS.filesSortKey,
+    filesSortDirection:
+      raw.filesSortDirection === 'desc' || raw.filesSortDirection === 'asc'
+        ? raw.filesSortDirection
+        : DEFAULT_SETTINGS.filesSortDirection,
   };
 }
 

@@ -261,7 +261,7 @@ func newEnv(t *testing.T, cfg envCfg) *env {
 		Backend: be,
 		OnExit: func(m session.Metadata) {
 			if s := srvPtr.Load(); s != nil {
-				s.NotifySessionExit(m)
+				s.NotifySessionUpdate(m)
 			}
 		},
 		OnEvent: func(ev session.Event) {
