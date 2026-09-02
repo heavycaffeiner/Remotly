@@ -715,7 +715,12 @@ class TerminalView @JvmOverloads constructor(
    */
   private fun scrollOrReportWheel(rows: Int, x: Float, y: Float, reportWheel: Boolean) {
     if (rows == 0) return
-    if (!reportWheel) {
+    // A viewport already showing scrollback keeps the gesture, even when the
+    // application is reading mouse reports. Otherwise a user who scrolled up
+    // on the primary screen had every further gesture handed to the
+    // application and no way back down: the wheel scrolled its list while the
+    // view stayed in the history.
+    if (!reportWheel || !atBottom()) {
       scrollByRows(rows)
       return
     }
@@ -880,27 +885,69 @@ class TerminalView @JvmOverloads constructor(
    * under the finger. A terminal running the alternate screen has no
    * scrollback and libghostty keeps the viewport pinned, so this does nothing
    * there rather than scrolling behind the application.
+   *
+   * A downward scroll that lands within a row of the end pins to the active
+   * area instead of stopping where the delta happened to fall. The delta is
+   * relative, so against an application still writing, the end moves further
+   * away while the gesture is being applied: the viewport crept toward a
+   * target it never reached and the user could not get back to the prompt.
    */
   fun scrollByRows(rows: Int) {
     if (handle == 0L || rows == 0) return
+    if (rows < 0 && withinSnapOfBottom(-rows)) {
+      scrollToBottom()
+      // Nothing is left to travel, and letting the fling run on would keep
+      // asking for rows the viewport no longer has.
+      stopFling()
+      return
+    }
     RemotlyTerminal.nativeScrollViewport(handle, -rows)
     lastScrollAtMs = SystemClock.uptimeMillis()
     invalidate()
   }
 
   /**
+   * True when scrolling down by rows would land at or past the last row.
+   *
+   * Read from the terminal each time rather than tracked here: the row count
+   * changes as output arrives, and a cached total is exactly what made the
+   * bottom unreachable.
+   */
+  private fun withinSnapOfBottom(rows: Int): Boolean {
+    val bar = RemotlyTerminal.nativeScrollbar(handle) ?: return false
+    if (bar.size < 3) return false
+    val total = bar[0]
+    val offset = bar[1]
+    val visible = bar[2]
+    if (total <= visible) return false
+    return offset + visible + rows >= total
+  }
+
+  /**
    * Pins the viewport back to the active area.
    *
-   * Used where the user's own action means "take me back to the prompt":
-   * typing, and a resize. Output does not call this. libghostty already keeps
-   * the viewport on the active area as it writes, and overriding that broke
-   * applications that redraw in place by moving the cursor up.
+   * Called for the user's own "take me back to the prompt" actions: typing, a
+   * resize, and the scroll-to-bottom affordance. Output does not call this.
+   * libghostty already keeps the viewport on the active area as it writes, and
+   * overriding that broke applications that redraw in place by moving the
+   * cursor up.
    */
   fun scrollToBottom() {
     if (handle == 0L || atBottom()) return
     RemotlyTerminal.nativeScrollToBottom(handle)
+    lastScrollAtMs = SystemClock.uptimeMillis()
     invalidate()
   }
+
+  /**
+   * True when the viewport is away from the active area, so the owning screen
+   * can offer a way back.
+   *
+   * A full-screen application that reads mouse reports takes every scroll
+   * gesture, so a user who scrolled the local viewport first had no gesture
+   * left to return with: the wheel goes to the application, not the viewport.
+   */
+  fun isScrolledBack(): Boolean = handle != 0L && !atBottom()
 
   /**
    * True when the viewport already shows the active area.
