@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -178,6 +179,73 @@ func TestNativeAgentCommand(t *testing.T) {
 	if meta.Kind != KindAgent || meta.Command != "echo rem-agent-ok; exit 7" {
 		t.Fatalf("meta %+v", meta)
 	}
+}
+
+// A bell from an interactive shell must not raise an event.
+//
+// zsh rings the bell as ordinary feedback: an ambiguous completion, a failed
+// history search, backspace at the start of the line. Treating those as
+// notifiable turned normal typing into a stream of notifications. An agent
+// session still reports its bell, which is the case the feature exists for.
+func TestBellOnlyNotifiesForAgentSessions(t *testing.T) {
+	var got []Event
+	var mu sync.Mutex
+	m, err := newNativeManager(t, Options{
+		Events:  &Events{BellEnabled: true},
+		OnEvent: func(e Event) { mu.Lock(); got = append(got, e); mu.Unlock() },
+	})
+	if err != nil {
+		t.Skipf("no shell: %v", err)
+	}
+
+	shell, err := m.Create(Request{Kind: KindShell, Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _, _ := shell.Attach()
+	defer a.Close()
+	if _, err := shell.Write([]byte("printf '\\a'\n")); err != nil {
+		t.Fatal(err)
+	}
+	readUntil(t, a, "printf", 5*time.Second)
+	time.Sleep(500 * time.Millisecond)
+
+	mu.Lock()
+	bells := 0
+	for _, e := range got {
+		if e.Kind == "bell" {
+			bells++
+		}
+	}
+	mu.Unlock()
+	if bells != 0 {
+		t.Fatalf("shell session reported %d bell events, want 0", bells)
+	}
+
+	agent, err := m.Create(Request{
+		Kind: KindAgent, Command: "printf '\\a'; sleep 1", Cols: 80, Rows: 24,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _, _ := agent.Attach()
+	defer b.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := 0
+		for _, e := range got {
+			if e.Kind == "bell" {
+				n++
+			}
+		}
+		mu.Unlock()
+		if n > 0 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("agent session reported no bell event, want one")
 }
 
 func TestNativeScrollbackReplay(t *testing.T) {

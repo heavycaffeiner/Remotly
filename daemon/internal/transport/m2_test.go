@@ -339,6 +339,10 @@ func TestM2PresetList(t *testing.T) {
 // TestM2SessionEvents delivers bell and pattern events as notifications.
 // Events are content: the test asserts exact text, and nothing here may
 // reach a log.
+//
+// An agent session, because a bell notifies only for those: an interactive
+// shell rings it as ordinary line-editor feedback and notifying on that
+// turned normal typing into a stream of notifications.
 func TestM2SessionEvents(t *testing.T) {
 	e := newEnv(t, envCfg{
 		lanEnabled: false,
@@ -352,7 +356,8 @@ func TestM2SessionEvents(t *testing.T) {
 	app := newAppKey(t)
 	c := e.newClientPair(t, app, e.tokens.Create())
 	c.hello(t, e, "phone")
-	resp := c.request(t, ctrlJSON(c.newID(), protocol.TypeSessionCreate, "kind", protocol.KindShell))
+	resp := c.request(t, ctrlJSON(c.newID(), protocol.TypeSessionCreate,
+		"kind", protocol.KindAgent, "command", "run-agent"))
 	if resp.Error != nil || resp.Session == nil {
 		t.Fatalf("create: %v", resp.Error)
 	}
@@ -390,7 +395,8 @@ func TestM2EventBroadcast(t *testing.T) {
 	c2 := e.newClientIK(t, app)
 	c2.hello(t, e, "tablet")
 
-	resp := c1.request(t, ctrlJSON(c1.newID(), protocol.TypeSessionCreate, "kind", protocol.KindShell))
+	resp := c1.request(t, ctrlJSON(c1.newID(), protocol.TypeSessionCreate,
+		"kind", protocol.KindAgent, "command", "run-agent"))
 	if resp.Error != nil || resp.Session == nil {
 		t.Fatalf("create: %v", resp.Error)
 	}

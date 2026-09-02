@@ -119,6 +119,15 @@ func (m *eventMatcher) newMatcher() *eventMatcher {
 	}
 }
 
+// disableBell turns off bell detection on one session's matcher, leaving the
+// pattern rules in place. Called before the session runs, so no lock is held
+// by a feed at that point; it takes one anyway because the sink is shared.
+func (m *eventMatcher) disableBell() {
+	m.mu.Lock()
+	m.bellEnabled = false
+	m.mu.Unlock()
+}
+
 // setSink installs the event sink.
 func (m *eventMatcher) setSink(s EventSink) {
 	m.mu.Lock()

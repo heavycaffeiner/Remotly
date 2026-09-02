@@ -91,9 +91,12 @@ type Request struct {
 	// Command is the preset command line for agent sessions; required for
 	// agent, forbidden for shell.
 	Command string
-	Cwd     string
-	Cols    uint16
-	Rows    uint16
+	// KeepShell leaves an interactive shell behind when Command exits, so a
+	// session started from a terminal returns to a prompt instead of ending.
+	KeepShell bool
+	Cwd       string
+	Cols      uint16
+	Rows      uint16
 }
 
 // Options configures a Manager.
@@ -319,6 +322,14 @@ func (m *Manager) Create(req Request) (*Session, error) {
 	}
 	if m.matcherTemplate != nil {
 		s.matcher = m.matcherTemplate.newMatcher()
+		// A bell means "the agent wants you" only for an agent session. An
+		// interactive shell rings it as ordinary feedback: zsh beeps on an
+		// ambiguous completion, a failed history search, and backspace at the
+		// start of the line, so notifying on it turned normal typing into a
+		// steady stream of notifications. Patterns still apply to both.
+		if req.Kind != KindAgent {
+			s.matcher.disableBell()
+		}
 	}
 	s.ring = newRing(m.opts.ScrollbackLines, derivedByteCap(m.opts.ScrollbackLines))
 	s.meta = Metadata{
@@ -346,13 +357,14 @@ func (m *Manager) Create(req Request) (*Session, error) {
 	}
 
 	proc, err := m.opts.Backend.Start(pty.StartRequest{
-		Program: m.shellPath,
-		Args:    m.shellArgs,
-		Command: req.Command,
-		Cwd:     cwd,
-		Env:     BuildEnv(m.opts.Term, id),
-		Cols:    req.Cols,
-		Rows:    req.Rows,
+		Program:   m.shellPath,
+		Args:      m.shellArgs,
+		Command:   req.Command,
+		KeepShell: req.KeepShell,
+		Cwd:       cwd,
+		Env:       BuildEnv(m.opts.Term, id),
+		Cols:      req.Cols,
+		Rows:      req.Rows,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("session: start: %w", err)
