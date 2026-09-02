@@ -459,23 +459,35 @@ func (s *Session) DecideHostKey(accept bool) {
 
 // Write sends terminal input to the remote PTY. A no-op before the session is
 // live or after close.
-func (s *Session) Write(data []byte) {
+//
+// A write error means the channel is already gone. Reporting it here is what
+// makes the failure attributable: the read loop notices the same breakage a
+// moment later and reports the generic "remote closed", so whatever the user
+// happened to be doing (typing right after a pinch-zoom, say) looked like the
+// cause. Returning the error lets the caller say what actually failed.
+func (s *Session) Write(data []byte) error {
 	s.stdinMu.Lock()
 	defer s.stdinMu.Unlock()
-	if s.stdin != nil {
-		_, _ = s.stdin.Write(data)
+	if s.stdin == nil {
+		return nil
 	}
+	_, err := s.stdin.Write(data)
+	return err
 }
 
 // WindowChange sends a real SSH window-change request. cols/rows are the new
 // dimensions; the underlying ssh API takes (height, width), so they are
 // swapped here.
-func (s *Session) WindowChange(cols, rows int) {
+//
+// The request is sent with wantReply=false, so an error here is a local write
+// failure on an already-broken channel, never a refusal by the server.
+func (s *Session) WindowChange(cols, rows int) error {
 	s.clientMu.Lock()
 	defer s.clientMu.Unlock()
-	if s.sess != nil {
-		_ = s.sess.WindowChange(rows, cols)
+	if s.sess == nil {
+		return nil
 	}
+	return s.sess.WindowChange(rows, cols)
 }
 
 // Close tears down the session. Idempotent; it emits exactly one terminal

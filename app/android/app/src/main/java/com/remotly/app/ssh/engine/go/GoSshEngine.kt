@@ -49,11 +49,27 @@ class GoSshEngine(private val listener: SshListener) : SshEngine, Listener, Stag
     }
 
     override fun write(data: ByteArray) {
-        session.write(data)
+        // Go now reports a failed write instead of dropping it. The channel is
+        // already gone by the time this throws, and the read loop reports the
+        // close a moment later with its own generic reason; naming the real
+        // failure here is what stops the next keystroke from taking the blame.
+        try {
+            session.write(data)
+        } catch (e: Exception) {
+            listener.onFailure(SshCode.CONNECT_FAILED, e.message ?: "write failed")
+        }
     }
 
     override fun resize(cols: Int, rows: Int) {
-        session.windowChange(cols.toLong(), rows.toLong())
+        // A window-change asks for no reply, so a throw here means the channel
+        // was already broken, not that the server refused the resize. It must
+        // not be swallowed: doing so is what made a pinch-zoom look like the
+        // cause of a disconnect that had already happened.
+        try {
+            session.windowChange(cols.toLong(), rows.toLong())
+        } catch (e: Exception) {
+            listener.onFailure(SshCode.CONNECT_FAILED, e.message ?: "resize failed")
+        }
     }
 
     override fun decideHostKey(accept: Boolean) {

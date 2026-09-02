@@ -40,8 +40,13 @@ class SshSession(
 ) {
 
     private val exec = Executors.newSingleThreadExecutor { r -> Thread(r, "ssh-session").apply { isDaemon = true } }
-    private var engine: SshEngine? = null
-    private var pendingInfo: HostKeyInfo? = null
+    // Written in start() on the caller's thread and read from write()/resize()
+    // on bridge threads. Without volatile there is no happens-before between
+    // those, so a reader can see a stale null and silently drop input; the
+    // weakly-ordered ARM cores in most phones make that observable where x86
+    // hides it.
+    @Volatile private var engine: SshEngine? = null
+    @Volatile private var pendingInfo: HostKeyInfo? = null
     @Volatile private var started = false
     @Volatile private var terminal = false
     @Volatile private var released = false
