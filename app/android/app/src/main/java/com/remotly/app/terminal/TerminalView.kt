@@ -1021,8 +1021,11 @@ class TerminalView @JvmOverloads constructor(
   /**
    * Resizes the terminal to the size the pty has been told.
    *
-   * Called once the remote has the same dimensions, so the coordinates an
-   * application sends are interpreted against the grid it is drawing for.
+   * Called after the resize has been sent to the pty, not after the pty has
+   * acknowledged it: the send is fire-and-forget, so a brief window remains
+   * where output produced for the old grid is parsed against the new one.
+   * That window is the reason the size is never applied straight from
+   * measurement, which would widen it to the whole debounce interval.
    *
    * Shrinking the height moves rows off the screen. When the cursor sits above
    * the last row, which is where a program that redraws its own output leaves
