@@ -115,13 +115,13 @@ Pushing a `v*` tag builds and attaches to the GitHub release:
 | Artifact | What it is |
 | --- | --- |
 | `app-release.apk` | Signed Android app |
-| `remotly-linux-amd64`, `remotly-linux-arm64` | Daemon |
-| `remotly-relay-linux-amd64`, `remotly-relay-linux-arm64` | Relay |
+| `remotly-<os>-<arch>` | Daemon: linux, darwin, and windows on amd64 and arm64 |
+| `remotly-relay-<os>-<arch>` | Relay: the same set minus windows/arm64 |
 | `SHA256SUMS` | Checksums for the binaries |
 
-The Go binaries are statically linked with CGO disabled, so they run on any glibc
-or musl host of the matching architecture. `scripts/release.sh` builds the same
-set locally, plus darwin and windows targets.
+The Go binaries are statically linked with CGO disabled, so they run on any
+glibc or musl host of the matching architecture. Windows builds carry a `.exe`
+suffix. `scripts/release.sh` builds the same set locally.
 
 ## License
 

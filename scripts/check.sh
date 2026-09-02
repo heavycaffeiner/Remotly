@@ -88,6 +88,23 @@ run "mobile" bash -c "cd mobile && go test ./..."
 run "daemon" bash -c "cd daemon && go test ./..."
 run "relay" bash -c "cd relay && go test ./..."
 
+# The daemon ships for darwin and windows too, and a platform-specific import
+# (SIGWINCH, say) breaks only that target. Nothing else here compiles for it,
+# so a broken Windows build would surface at release time instead of now.
+section "cross compile"
+for target in darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+  os="${target%/*}"
+  arch="${target#*/}"
+  run "daemon $target" bash -c \
+    "cd daemon && CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build ./..."
+done
+for target in darwin/amd64 darwin/arm64 windows/amd64; do
+  os="${target%/*}"
+  arch="${target#*/}"
+  run "relay $target" bash -c \
+    "cd relay && CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build ./..."
+done
+
 if [ "$RELEASE" -eq 1 ]; then
   section "release"
   if [ "${GRADLE_ONLINE:-0}" = "1" ]; then

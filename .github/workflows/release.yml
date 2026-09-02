@@ -124,14 +124,28 @@ jobs:
             *) version="$(sed -n 's/.*"version": "\(.*\)".*/\1/p' app/package.json | head -1)" ;;
           esac
           mkdir -p dist/bin
-          for arch in amd64 arm64; do
-            (cd daemon && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
+
+          # Cross-compiled with CGO disabled, so every binary is static and
+          # runs on any host of its architecture.
+          build() {
+            moddir="$1"; pkg="$2"; name="$3"; goos="$4"; goarch="$5"
+            out="../dist/bin/${name}-${goos}-${goarch}"
+            if [ "$goos" = windows ]; then out="$out.exe"; fi
+            (cd "$moddir" && CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
               go build -trimpath -ldflags "-s -w -X main.version=$version" \
-              -o "../dist/bin/remotly-linux-$arch" ./cmd/remotly)
-            (cd relay && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
-              go build -trimpath -ldflags "-s -w -X main.version=$version" \
-              -o "../dist/bin/remotly-relay-linux-$arch" ./cmd/remotly-relay)
+              -o "$out" "$pkg")
+          }
+
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 \
+                        windows/amd64 windows/arm64; do
+            build daemon ./cmd/remotly remotly "${target%/*}" "${target#*/}"
           done
+          # The relay has no windows/arm64 target: nobody runs a relay there.
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 \
+                        windows/amd64; do
+            build relay ./cmd/remotly-relay remotly-relay "${target%/*}" "${target#*/}"
+          done
+
           ( cd dist/bin && sha256sum * > SHA256SUMS )
           ls -la dist/bin
 
@@ -139,13 +153,18 @@ jobs:
       # fail only on a user's machine, so the type is checked here.
       - name: Verify
         run: |
-          file dist/bin/remotly-linux-amd64 | grep -q 'x86-64'
-          file dist/bin/remotly-linux-arm64 | grep -q 'aarch64'
+          file dist/bin/remotly-linux-amd64   | grep -q 'x86-64'
+          file dist/bin/remotly-linux-arm64   | grep -q 'aarch64'
+          file dist/bin/remotly-darwin-amd64  | grep -q 'Mach-O.*x86_64'
+          file dist/bin/remotly-darwin-arm64  | grep -q 'Mach-O.*arm64'
+          file dist/bin/remotly-windows-amd64.exe | grep -q 'PE32+'
+          file dist/bin/remotly-windows-arm64.exe | grep -q 'PE32+'
+          # Only the host binary can actually be run.
           ./dist/bin/remotly-linux-amd64 version
 
       - uses: actions/upload-artifact@v4
         with:
-          name: remotly-linux-binaries
+          name: remotly-binaries
           path: dist/bin/
           if-no-files-found: error
 

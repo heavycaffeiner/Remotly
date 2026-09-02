@@ -95,3 +95,51 @@ jobs:
       - name: Test
         working-directory: ${{ matrix.module }}
         run: go test -race ./...
+
+  # The daemon and relay ship for darwin and windows, but every other job here
+  # builds for linux only. A platform-specific import breaks just that target,
+  # so without this the failure surfaces at release time.
+  cross:
+    name: Cross compile (darwin, windows)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+          - { goos: windows, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: daemon/go.sum
+
+      - name: Build daemon
+        working-directory: daemon
+        env:
+          CGO_ENABLED: '0'
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build ./...
+
+      # The relay has no windows/arm64 target in the release set, so it is not
+      # built for one here either.
+      - name: Build relay
+        if: ${{ !(matrix.goos == 'windows' && matrix.goarch == 'arm64') }}
+        working-directory: relay
+        env:
+          CGO_ENABLED: '0'
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build ./...
+
+      - name: Vet
+        working-directory: daemon
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go vet ./...
