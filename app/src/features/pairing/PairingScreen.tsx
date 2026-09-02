@@ -182,26 +182,56 @@ export function PairingScreen({
       let connected = false;
       let lastError: unknown = null;
 
-      for (const target of preview.targets) {
+      // The targets are raced, not tried one after another. A daemon
+      // advertises every address it has, and some are unreachable from the
+      // phone: each of those costs the full connect timeout, so dialing in
+      // sequence made pairing sit on "Connecting" for minutes before it
+      // reported anything. Racing settles as fast as the reachable one.
+      //
+      // Each attempt gets its own transport id. The hub keys a connection by
+      // host id and rejects a second one as "already connecting", so sharing
+      // an id here would fail every dial but the first.
+      if (preview.targets.length > 0) {
+        const attemptId = (i: number): string => `${id}-${i}`;
+        const attempts = preview.targets.map(async (target, i) => {
+          await getTransport().connect(attemptId(i), target, { tokenID, psk });
+          return attemptId(i);
+        });
         try {
-          await getTransport().connect(id, target, { tokenID, psk });
+          const winner = await Promise.any(attempts);
+          tempHostId.current = winner;
           connected = true;
-          break;
+          // Losers are closed, including any that connects after the race is
+          // decided: a stray transport would hold a daemon connection slot
+          // for the rest of the pairing.
+          void Promise.allSettled(attempts).then(results => {
+            results.forEach((r, i) => {
+              if (r.status === 'fulfilled' && attemptId(i) !== winner) {
+                void getTransport()
+                  .close(attemptId(i))
+                  .catch(() => undefined);
+              }
+            });
+          });
         } catch (e) {
-          lastError = e;
-          const err = toRemotlyError(e, 'network');
-          // Only a network failure is worth trying the next route for. An auth
-          // or protocol failure means this payload will not work anywhere.
-          if (err.kind !== 'network') {
-            await closeTemp();
-            connecting.current = false;
-            if (!disposed.current) {
-              dispatch({
-                type: 'connectFailed',
-                message: userFacingMessage(err),
-              });
+          // Every dial failed. A non-network failure is the useful one: the
+          // payload itself is bad and no other route will do better.
+          const errors =
+            e instanceof AggregateError ? e.errors : [e as unknown];
+          lastError = errors[0] ?? e;
+          for (const inner of errors) {
+            const err = toRemotlyError(inner, 'network');
+            if (err.kind !== 'network') {
+              await closeTemp();
+              connecting.current = false;
+              if (!disposed.current) {
+                dispatch({
+                  type: 'connectFailed',
+                  message: userFacingMessage(err),
+                });
+              }
+              return;
             }
-            return;
           }
         }
       }

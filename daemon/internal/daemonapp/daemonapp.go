@@ -302,7 +302,7 @@ func (a *App) lanHints() []pairing.Hint {
 				continue
 			}
 			ip := ipn.IP
-			if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			if !dialableHint(ip) {
 				continue
 			}
 			if ip4 := ip.To4(); ip4 != nil {
@@ -316,6 +316,41 @@ func (a *App) lanHints() []pairing.Hint {
 		hints = hints[:pairing.MaxURIHints]
 	}
 	return hints
+}
+
+// dialableHint reports whether an interface address is worth advertising to a
+// phone on the same network.
+//
+// A pairing URI carries every hint the daemon offers and the app dials them
+// until one answers, so an address the phone cannot route to costs a full
+// connect timeout. A developer machine typically has several: container and
+// VM bridges, a VPN's carrier-grade NAT range, unique-local IPv6 from a
+// container manager. None of those reach a phone on the LAN, and advertising
+// them made pairing look like it had hung.
+//
+// Only ordinary private LAN addresses are kept. A public address is kept too:
+// a daemon on a routable address is reachable, and refusing it would break
+// that setup to tidy up a developer laptop.
+func dialableHint(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified() || ip.IsMulticast() {
+		return false
+	}
+	if ip4 := ip.To4(); ip4 != nil {
+		// 100.64.0.0/10, the carrier-grade NAT range Tailscale and similar
+		// overlays use. Reachable only through that overlay, never over the
+		// LAN the app is pairing on.
+		if ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
+			return false
+		}
+		return true
+	}
+	// Unique-local IPv6 (fc00::/7). Container and VM managers hand these out
+	// per host, and they do not route to anything else on the network.
+	if len(ip) == net.IPv6len && ip[0]&0xfe == 0xfc {
+		return false
+	}
+	return true
 }
 
 // daemonName returns a sanitized host name for display in pairing URIs and
