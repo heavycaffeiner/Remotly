@@ -127,6 +127,35 @@ export function closeTab(
   return { ...ws, tabs, activeSessionId };
 }
 
+// Adds a tab for every running daemon session that does not have one yet,
+// oldest first, up to the tab cap.
+//
+// reconcile deliberately never creates tabs, so a device that has no stored
+// workspace (a fresh pairing, a cleared app, or a stored document the parser
+// rejected) showed no tabs at all while the daemon was running several
+// sessions: the sessions were unreachable from the app and only a brand new
+// one could be opened. Sessions that already exited are left alone; adopting
+// them would fill the strip with dead tabs on every connect.
+export function adoptSessions(
+  ws: WorkspaceState,
+  sessions: readonly {
+    sessionId: string;
+    title: string;
+    kind: string;
+    running: boolean;
+  }[],
+): WorkspaceState {
+  let state = ws;
+  for (const s of sessions) {
+    if (!s.running) continue;
+    if (findTab(state, s.sessionId) !== null) continue;
+    const { state: next, tab } = addTab(state, s);
+    if (tab === null) break;
+    state = next;
+  }
+  return state;
+}
+
 // Sets the active tab. Unknown session ids are ignored.
 export function setActive(
   ws: WorkspaceState,

@@ -3,6 +3,7 @@ import {
   MAX_TABS,
   advanceCursor,
   addTab,
+  adoptSessions,
   applySessionMeta,
   closeTab,
   createWorkspace,
@@ -401,5 +402,56 @@ describe('workspace tab state', () => {
       '","title":"t","kind":"shell","cursor":0,"state":"attached"}]}';
     const parsed = parseWorkspace(json, HOST)!;
     expect(parsed.activeSessionId).toBe(ID1);
+  });
+});
+
+/**
+ * A device with no stored workspace has to find the daemon's live sessions.
+ *
+ * reconcile only ever updates tabs that already exist, so without adoption a
+ * fresh pairing (or a stored document the parser rejected) showed an empty
+ * strip while the daemon held several running sessions: they were unreachable
+ * from the app, and the only way to get a tab was to create another session.
+ */
+describe('adoptSessions', () => {
+  function remote(n: number, running = true) {
+    return { sessionId: sid(n), title: `tab ${n}`, kind: 'shell', running };
+  }
+
+  it('creates a tab for every running session', () => {
+    const ws = adoptSessions(createWorkspace(HOST), [
+      remote(1),
+      remote(2),
+      remote(3),
+    ]);
+
+    expect(ws.tabs.map(t => t.sessionId)).toEqual([ID1, ID2, ID3]);
+    // The first adopted session is what the screen attaches to.
+    expect(ws.activeSessionId).toBe(ID1);
+  });
+
+  it('leaves exited sessions alone', () => {
+    const ws = adoptSessions(createWorkspace(HOST), [
+      remote(1),
+      remote(2, false),
+    ]);
+
+    expect(ws.tabs.map(t => t.sessionId)).toEqual([ID1]);
+  });
+
+  // Reconnects run this every time, so it must not duplicate what is open.
+  it('keeps existing tabs and their cursors', () => {
+    const open = setCursor(wsWithTabs(1), ID1, 4096);
+    const ws = adoptSessions(open, [remote(1), remote(2)]);
+
+    expect(ws.tabs).toHaveLength(2);
+    expect(findTab(ws, ID1)?.cursor).toBe(4096);
+  });
+
+  it('stops at the tab cap', () => {
+    const many = Array.from({ length: MAX_TABS + 5 }, (_, i) => remote(i + 1));
+    const ws = adoptSessions(createWorkspace(HOST), many);
+
+    expect(ws.tabs).toHaveLength(MAX_TABS);
   });
 });

@@ -323,6 +323,7 @@ export function WorkspaceScreen(): React.ReactElement {
               onSelect={handleSelectTab}
               onClose={setCloseTarget}
               onNew={() => setPickerOpen(true)}
+              canAdd={ws.canAdd}
             />
           ) : null
         }

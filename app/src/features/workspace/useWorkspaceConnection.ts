@@ -20,7 +20,9 @@ import {
 } from '../../lib/pairing';
 import {
   MAX_CURSOR,
+  MAX_TABS,
   addTab,
+  adoptSessions,
   applySessionMeta,
   closeTab,
   createWorkspace,
@@ -130,6 +132,8 @@ export interface WorkspaceController {
   selectTab: (sessionId: string) => void;
   closeTabById: (sessionId: string) => void;
   createNew: (kind: 'shell' | 'agent', preset?: Preset) => Promise<void>;
+  /** False at the tab cap, so the UI can disable the add action. */
+  canAdd: boolean;
   retryNow: () => void;
   disconnect: () => void;
   leave: () => void;
@@ -359,8 +363,21 @@ export function useWorkspaceConnection({
         });
         sessions = [];
       }
-      const reconciled = reconcile(
+      // Sessions the daemon is already running are adopted into tabs before
+      // reconcile, which only ever updates tabs that exist. Without this a
+      // device with no stored workspace saw an empty strip while the daemon
+      // held live sessions, so only one tab could ever be opened: a new one.
+      const adopted = adoptSessions(
         wsRef.current ?? createWorkspace(h.id),
+        sessions.map(s => ({
+          sessionId: s.id,
+          title: s.title,
+          kind: s.kind,
+          running: s.running,
+        })),
+      );
+      const reconciled = reconcile(
+        adopted,
         sessions.map(s => ({
           sessionId: s.id,
           title: s.title,
@@ -543,7 +560,10 @@ export function useWorkspaceConnection({
       const wasActive = activeRef.current?.sessionId === sessionId;
       void (async () => {
         if (wasActive) await detachActive(h);
-        const next = commitWs(closeTab(w, sessionId));
+        // Re-read after the detach round trip: another close, a create, or an
+        // incoming session update may have committed while it was in flight,
+        // and closing from the pre-await snapshot threw that change away.
+        const next = commitWs(closeTab(wsRef.current ?? w, sessionId));
         // The terminal is retained across screens so its scrollback survives
         // navigation; closing the tab is what frees it.
         void releaseTerminal(sessionId).catch(() => undefined);
@@ -560,6 +580,13 @@ export function useWorkspaceConnection({
       const h = hostRef.current;
       const w = wsRef.current;
       if (h === null || w === null) return;
+      // Checked before the daemon call, not after. Creating first and then
+      // finding no room left the session running on the daemon with no tab
+      // referring to it: invisible in the app and impossible to close from it.
+      if (w.tabs.length >= MAX_TABS) {
+        setErrorText('Too many open tabs. Close one first.');
+        return;
+      }
       try {
         const s = size.current;
         const created = await createSession(h.id, {
@@ -569,7 +596,11 @@ export function useWorkspaceConnection({
             : {}),
           ...(s !== null ? { cols: s.cols, rows: s.rows } : {}),
         });
-        const { state, tab } = addTab(w, {
+        // Re-read: the await above is a daemon round trip, and a tab may have
+        // been added or closed while it was in flight. Committing from the
+        // pre-await snapshot silently discarded that change.
+        const current = wsRef.current ?? w;
+        const { state, tab } = addTab(current, {
           sessionId: created.id,
           title: created.title,
           kind: created.kind,
@@ -829,6 +860,7 @@ export function useWorkspaceConnection({
     selectTab,
     closeTabById,
     createNew,
+    canAdd: (workspace?.tabs.length ?? 0) < MAX_TABS,
     retryNow,
     disconnect,
     leave,
