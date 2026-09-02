@@ -49,9 +49,17 @@ trusts the transport layer for authentication.
 
 ## Building
 
-Requires JDK 21, the Android SDK, Go 1.26, Node 22+, and pnpm.
+Requires JDK 21, the Android SDK with an NDK, Go 1.26, Node 22+, and pnpm.
+
+The app links a Go SSH/SFTP core built with gomobile. It is a build output
+rather than a checked-in binary, so a fresh clone builds it once before Gradle
+can resolve it:
 
 ```sh
+# Produces app/android/app/libs/sshcore.aar. Needed again only after a change
+# under mobile/sshcore.
+scripts/build-sshcore.sh
+
 # Everything that runs without a device.
 scripts/check.sh
 

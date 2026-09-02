@@ -173,10 +173,21 @@ android {
     // copied there by copyVectorIconsFonts (see below).
 }
 
-// Local AAR repository: the Go sshcore engine (RN-05) is built by
-// scripts/build-sshcore.sh into app/libs and consumed as a plain AAR.
+// Local AAR repository: the Go sshcore engine (RN-05) is a build output, built
+// by scripts/build-sshcore.sh into app/libs.
 repositories {
     flatDir { dirs 'libs' }
+}
+
+// The AAR is not in version control, so a fresh clone has none until the
+// script runs. Checked here rather than in a task: dependency resolution fails
+// first with "Could not find :sshcore:", which says nothing about how to fix
+// it, and no task of ours ever gets to run.
+if (!file('libs/sshcore.aar').exists()) {
+    throw new GradleException(
+        "missing app/android/app/libs/sshcore.aar\n" +
+        "  build it: scripts/build-sshcore.sh\n" +
+        "  (needs Go, ANDROID_HOME, and an NDK; it is a build output, not a checked-in file)")
 }
 
 dependencies {

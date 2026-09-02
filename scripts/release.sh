@@ -86,17 +86,11 @@ else
     fi
   done
 
-  AAR="$ROOT/app/android/app/libs/sshcore.aar"
-  if [ ! -f "$AAR" ]; then
-    if [ "${BUILD_SSHCORE:-0}" = "1" ]; then
-      echo "==> building sshcore.aar"
-      "$ROOT/scripts/build-sshcore.sh"
-    else
-      echo "ERROR: missing $AAR" >&2
-      echo "       build it: ./scripts/build-sshcore.sh, or rerun with BUILD_SSHCORE=1" >&2
-      exit 1
-    fi
-  fi
+  # The AAR is a build output, not a checked-in binary, so it is built rather
+  # than demanded. Rebuilding costs seconds and guarantees the APK links the
+  # sshcore in this working tree instead of whatever an earlier build left.
+  echo "==> sshcore.aar"
+  "$ROOT/scripts/build-sshcore.sh"
 
   # --frozen-lockfile: the lock file is the input, not a suggestion.
   echo "==> JS deps (Metro bundles during gradle)"

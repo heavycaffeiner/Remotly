@@ -20,6 +20,16 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      # The sshcore AAR is a build output, not a checked-in binary, so the
+      # release builds it from source like every other artifact here.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: mobile/go.sum
+
+      - name: Build sshcore AAR
+        run: scripts/build-sshcore.sh
+
       - uses: pnpm/action-setup@v4
         with:
           version: 11

@@ -15,10 +15,11 @@ dist/
 app/android/terminal-native/build/
 app/android/terminal-native/stage/
 
-# Checked-in build outputs the release currently depends on. Removing these
-# from version control requires updating scripts/release.sh in the same change.
-!app/android/app/libs/sshcore.aar
+# The debug keystore is deliberately shared so a debug build is reproducible.
+# The sshcore AAR is not here: it is a build output, produced by
+# scripts/build-sshcore.sh and by CI before Gradle runs.
 !app/android/app/debug.keystore
+app/android/app/libs/
 dist.backup-*/
 
 # Release signing material. The debug keystore above is deliberately shared so
