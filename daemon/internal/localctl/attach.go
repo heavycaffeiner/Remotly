@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/heavycaffeiner/remotly/daemon/internal/session"
@@ -257,7 +258,12 @@ func (a *AttachStream) Read() ([]byte, error) {
 	for {
 		kind, payload, err := ReadFrame(a.conn)
 		if err != nil {
-			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			// The daemon closes the connection when the session ends, so a
+			// reset is the ordinary end of an attach rather than a failure:
+			// reporting it verbatim showed the user a socket error where the
+			// session had simply finished.
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+				errors.Is(err, net.ErrClosed) || errors.Is(err, syscall.ECONNRESET) {
 				return nil, ErrStreamClosed
 			}
 			return nil, err
