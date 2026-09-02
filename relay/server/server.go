@@ -90,8 +90,9 @@ type Server struct {
 	appQBytes  int
 	writeDelay time.Duration
 
-	listener net.Listener
-	admin    *http.Server
+	listener      net.Listener
+	admin         *http.Server
+	adminListener net.Listener
 
 	mu      sync.Mutex
 	closing bool
@@ -167,12 +168,20 @@ func (s *Server) Listen() error {
 		_, _ = io.WriteString(w, s.metricsText())
 	})
 	s.admin = &http.Server{
-		Addr:              s.cfg.AdminListen,
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+	// Bound here rather than inside the goroutine. ListenAndServe binds and
+	// serves in one call, so Listen could return before the socket existed and
+	// a caller that immediately requested /healthz got connection refused.
+	adminLn, err := net.Listen("tcp", s.cfg.AdminListen)
+	if err != nil {
+		_ = ln.Close()
+		return fmt.Errorf("relay: admin listen %s: %w", s.cfg.AdminListen, err)
+	}
+	s.adminListener = adminLn
 	go func() {
-		if err := s.admin.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := s.admin.Serve(adminLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			s.log.Error("relay: admin listener failed", "err", err.Error())
 		}
 	}()
@@ -181,7 +190,7 @@ func (s *Server) Listen() error {
 	go s.acceptLoop()
 	s.wg.Add(1)
 	go s.sweepLoop()
-	s.log.Info("relay: listening", "listen", s.cfg.Listen, "admin", s.cfg.AdminListen)
+	s.log.Info("relay: listening", "listen", ln.Addr().String(), "admin", adminLn.Addr().String())
 	return nil
 }
 
@@ -193,9 +202,14 @@ func (s *Server) Addr() string {
 	return s.listener.Addr().String()
 }
 
-// AdminAddr returns the admin listener address from config; it is bound
-// before the data listener, so it is already live after Listen.
-func (s *Server) AdminAddr() string { return s.cfg.AdminListen }
+// AdminAddr returns the bound admin listener address. It is meaningful only
+// after Listen, and reports the real port when the config asked for port 0.
+func (s *Server) AdminAddr() string {
+	if s.adminListener == nil {
+		return s.cfg.AdminListen
+	}
+	return s.adminListener.Addr().String()
+}
 
 // Shutdown stops accepting, ends every live connection with a going-away
 // close, and waits for handlers to drain. It is idempotent; the context

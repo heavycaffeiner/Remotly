@@ -68,16 +68,13 @@ type testEnv struct {
 
 func startTestServer(t *testing.T, mutate func(*relaycfg.Config), opts func(*Options)) *testEnv {
 	t.Helper()
-	cfg, err := relaycfg.Parse([]byte(`{"listen": "127.0.0.1:0", "admin_listen": "127.0.0.1:1"}`))
+	// Port 0 for both listeners: the server binds them and AdminAddr reports
+	// what it got. Picking a port here by binding and closing first left a
+	// window where something else could take it.
+	cfg, err := relaycfg.Parse([]byte(`{"listen": "127.0.0.1:0", "admin_listen": "127.0.0.1:0"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg.AdminListen = ln.Addr().String()
-	_ = ln.Close()
 	if mutate != nil {
 		mutate(&cfg)
 	}
