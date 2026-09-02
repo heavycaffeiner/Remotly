@@ -12,4 +12,6 @@ require (
 	nhooyr.io/websocket v1.8.17
 )
 
+require golang.org/x/term v0.45.0 // indirect
+
 replace github.com/heavycaffeiner/remotly/relay => ../relay

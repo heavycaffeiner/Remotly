@@ -20,6 +20,27 @@ func flagValue(args []string, name string) string {
 	return ""
 }
 
+// hasFlag reports whether name appears in args as a standalone flag.
+func hasFlag(args []string, name string) bool {
+	for _, a := range args {
+		if a == name {
+			return true
+		}
+	}
+	return false
+}
+
+// isTerminal reports whether f is attached to a terminal rather than a file or
+// a pipe. A character device is the portable signal for that across the
+// platforms this daemon runs on, and it needs no extra dependency.
+func isTerminal(f *os.File) bool {
+	fi, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
+}
+
 // fmtErr writes a "remotly: ..." line to stderr for early failures before a
 // logger exists.
 func fmtErr(format string, a ...interface{}) {

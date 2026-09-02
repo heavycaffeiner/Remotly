@@ -7,6 +7,7 @@
 package localctl
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -42,13 +43,21 @@ func Path(dataDir string) string {
 // Request is one localctl operation.
 type Request struct {
 	// Op selects the operation: "pair", "devices", "revoke", "sessions",
-	// "status".
+	// "session_kill", "session_create", "attach", "status".
 	Op string `json:"op"`
 	// Public is the base64url-encoded 32-byte device public key, used by
 	// "revoke".
 	Public string `json:"public,omitempty"`
-	// SessionID is the session id, used by "session_kill".
+	// SessionID is the session id, used by "session_kill" and "attach".
 	SessionID string `json:"session_id,omitempty"`
+	// Command is the program to run, used by "session_create". Empty starts
+	// a shell.
+	Command string `json:"command,omitempty"`
+	// Title labels a created session in the app and the session list.
+	Title string `json:"title,omitempty"`
+	// Cols and Rows are the initial PTY size for "session_create".
+	Cols uint16 `json:"cols,omitempty"`
+	Rows uint16 `json:"rows,omitempty"`
 }
 
 // DeviceOut is a paired device as reported to the CLI.
@@ -88,6 +97,9 @@ type Response struct {
 
 	// "sessions"
 	Sessions []SessionOut `json:"sessions,omitempty"`
+
+	// "session_create"
+	SessionID string `json:"session_id,omitempty"`
 
 	// "status"
 	ActiveTokens  int  `json:"active_tokens,omitempty"`
@@ -195,13 +207,55 @@ func (s *Server) acceptLoop(ln net.Listener) {
 func (s *Server) handleConn(conn net.Conn) {
 	defer conn.Close()
 	_ = conn.SetReadDeadline(time.Now().Add(connTimeout))
+	dec := json.NewDecoder(io.LimitReader(conn, maxRequestBytes))
 	var req Request
-	if err := json.NewDecoder(io.LimitReader(conn, maxRequestBytes)).Decode(&req); err != nil {
+	if err := dec.Decode(&req); err != nil {
 		s.writeResponse(conn, Response{OK: false, Err: "bad request"})
 		return
 	}
 	_ = conn.SetReadDeadline(time.Time{})
+	if req.Op == "attach" {
+		sess, err := s.attachTarget(req)
+		if err != nil {
+			s.writeResponse(conn, Response{OK: false, Err: err.Error()})
+			return
+		}
+		s.writeResponse(conn, Response{OK: true})
+		s.serveAttach(conn, streamAfter(dec, conn), sess)
+		return
+	}
 	s.writeResponse(conn, s.dispatch(req))
+}
+
+// attachTarget resolves the session an attach request names.
+func (s *Server) attachTarget(req Request) (*session.Session, error) {
+	if req.SessionID == "" {
+		return nil, errors.New("missing session id")
+	}
+	return s.sessions.Get(req.SessionID)
+}
+
+// streamAfter returns the frame stream that follows a decoded request.
+//
+// Decode stops at the closing brace, so the newline json.Encoder writes after
+// every document is still buffered. Handing that to the frame reader made it
+// take 0x0a as a frame kind and the next four bytes as a length, which blew
+// past the payload bound and killed the attach on the client's first frame.
+// Leading whitespace is therefore dropped before the stream starts; it can
+// only ever be request terminators.
+//
+// rest is an io.Reader rather than the connection so the framing rule can be
+// tested without a socket.
+func streamAfter(dec *json.Decoder, rest io.Reader) io.Reader {
+	buffered, err := io.ReadAll(dec.Buffered())
+	if err != nil {
+		return rest
+	}
+	buffered = bytes.TrimLeft(buffered, " \t\r\n")
+	if len(buffered) == 0 {
+		return rest
+	}
+	return io.MultiReader(bytes.NewReader(buffered), rest)
 }
 
 func (s *Server) writeResponse(conn net.Conn, resp Response) {
@@ -278,6 +332,24 @@ func (s *Server) dispatch(req Request) Response {
 			return Response{OK: false, Err: err.Error()}
 		}
 		return Response{OK: true}
+	case "session_create":
+		// An empty command is a plain shell; anything else runs as an agent
+		// session, which is the kind that carries a command line.
+		kind := session.KindShell
+		if req.Command != "" {
+			kind = session.KindAgent
+		}
+		sess, err := s.sessions.Create(session.Request{
+			Kind:    kind,
+			Title:   req.Title,
+			Command: req.Command,
+			Cols:    req.Cols,
+			Rows:    req.Rows,
+		})
+		if err != nil {
+			return Response{OK: false, Err: err.Error()}
+		}
+		return Response{OK: true, SessionID: sess.ID()}
 	case "status":
 		at := s.tokens.ActiveCount()
 		pd := s.devices.ActiveCount()

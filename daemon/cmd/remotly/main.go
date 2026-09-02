@@ -6,6 +6,8 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
+	"strings"
 
 	"github.com/heavycaffeiner/remotly/daemon/internal/config"
 	"github.com/heavycaffeiner/remotly/daemon/internal/localctl"
@@ -23,6 +25,16 @@ func run(args []string) int {
 	if len(args) == 0 {
 		usage()
 		return 2
+	}
+	// Everything after -- is a program, never a subcommand. Without it the
+	// commands below permanently shadow programs that share their names, and
+	// `run` and `status` are real ones.
+	if args[0] == "--" {
+		if len(args) == 1 {
+			fmt.Fprintln(os.Stderr, "remotly: -- needs a program to run")
+			return 2
+		}
+		return cmdExec(args[1:])
 	}
 	switch args[0] {
 	case "version":
@@ -48,23 +60,48 @@ func run(args []string) int {
 		return cmdSessions(args[1:])
 	case "doctor":
 		return cmdDoctor(args[1:])
+	case "attach":
+		return cmdAttach(args[1:])
+	case "tui":
+		return cmdTUI(args[1:])
 	case "help", "-h", "--help":
 		usage()
 		return 0
 	default:
-		fmt.Fprintf(os.Stderr, "remotly: unknown command %q\n", args[0])
-		usage()
-		return 2
+		// A flag is never a program: it is a mistyped subcommand, and running
+		// it would start a session named after the mistake.
+		if strings.HasPrefix(args[0], "-") {
+			fmt.Fprintf(os.Stderr, "remotly: unknown command %q\n", args[0])
+			usage()
+			return 2
+		}
+		// A bare word only runs if it actually exists. Otherwise `remotly
+		// statuss` would silently become a session that fails to start,
+		// rather than the typo report the user needs.
+		if _, err := exec.LookPath(args[0]); err != nil {
+			fmt.Fprintf(os.Stderr, "remotly: unknown command %q, and no such program in PATH\n", args[0])
+			usage()
+			return 2
+		}
+		return cmdExec(args)
 	}
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `usage: remotely <command>
+	fmt.Fprint(os.Stderr, `usage: remotly <command>
+       remotly <program> [args...]
+       remotly -- <program> [args...]
+
+Running a program starts it as a daemon session on this terminal. The session
+outlives the terminal: detach with Ctrl-A d and the phone can attach to it.
+
+A command name always wins, so use -- to run a program that shares one:
+`+"`remotly -- run htop`"+` runs htop rather than the daemon.
 
 commands:
   version     print the binary version
   status      show configuration, state files, and service state
-  run         run the daemon in the foreground
+  run         run the daemon in the foreground (prints a pairing QR when unpaired)
   start       install and start the per-user daemon service
   stop        stop the per-user daemon service
   uninstall   remove the service definition (keeps config and data)
@@ -72,6 +109,8 @@ commands:
   pair        print a one-time pairing QR code and link
   devices     list and revoke paired devices
   sessions    list and kill sessions
+  attach      attach to a session by id
+  tui         browse sessions and attach to one
   doctor      diagnose PTY session environment inheritance
 `)
 }
