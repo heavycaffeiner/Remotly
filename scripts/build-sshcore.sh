@@ -43,18 +43,30 @@ fi
 export ANDROID_NDK_HOME
 echo "==> ndk $(basename "$ANDROID_NDK_HOME")"
 
-# Install (or refresh) the pinned gomobile + gobind toolchain.
+# Install (or refresh) the pinned toolchain.
+#
+# gomobile shells out to gobind and finds it on PATH only, so gobind needs a
+# real binary: the module's tool directive records the dependency for
+# reproducibility but installs nothing. A developer machine tends to have one
+# already, which is exactly why this gap only showed up on a clean runner.
 go install "golang.org/x/mobile/cmd/gomobile@$GOMOBILE_VERSION"
+go install "golang.org/x/mobile/cmd/gobind@$GOMOBILE_VERSION"
 # The mobile module records a tool directive so go.mod keeps the dependency.
 (cd mobile && go get -tool "golang.org/x/mobile/cmd/gobind@$GOMOBILE_VERSION" >/dev/null)
 
-# gomobile is installed into GOBIN, which is not always on PATH (CI runners in
-# particular). Resolve it rather than assuming.
-GOMOBILE="$(command -v gomobile || echo "$(go env GOPATH)/bin/gomobile")"
-if [ ! -x "$GOMOBILE" ]; then
-  echo "ERROR: gomobile not found at $GOMOBILE" >&2
-  exit 1
-fi
+# GOBIN is not always on PATH (CI runners in particular), and gomobile looks
+# up gobind there rather than beside itself.
+GOBIN_DIR="$(go env GOBIN)"
+[ -n "$GOBIN_DIR" ] || GOBIN_DIR="$(go env GOPATH)/bin"
+export PATH="$GOBIN_DIR:$PATH"
+
+for tool in gomobile gobind; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "ERROR: $tool not found in $GOBIN_DIR after install" >&2
+    exit 1
+  fi
+done
+GOMOBILE="$(command -v gomobile)"
 
 # Build for the three ABIs the app ships. gomobile packages all of them into a
 # single .aar under jni/<abi>/libgojni.so.
