@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { View } from 'react-native';
+import { Keyboard, type KeyboardEvent, View } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
@@ -65,6 +65,49 @@ function startTransfer(): void {
   );
 }
 
+/** The keyboard height the fake IME reports. */
+const KEYBOARD_HEIGHT = 300;
+
+/** Mirrors the clearance the toast applies for the transfer bar. */
+const TRANSFER_BAR_CLEARANCE = TAB_BAR_HEIGHT + INDICATOR_HEIGHT;
+
+type ShowHandler = (event: Pick<KeyboardEvent, 'endCoordinates'>) => void;
+
+/**
+ * Installs a fake IME and returns its show and hide triggers.
+ *
+ * The real listeners come from the native keyboard module, which never fires
+ * under Jest, so the events are driven directly.
+ */
+function fakeKeyboard(): { show: () => void; hide: () => void } {
+  let showCb: ShowHandler | null = null;
+  let hideCb: (() => void) | null = null;
+  jest
+    .spyOn(Keyboard, 'addListener')
+    .mockImplementation((event: string, cb: unknown) => {
+      if (event === 'keyboardDidShow') showCb = cb as ShowHandler;
+      if (event === 'keyboardDidHide') hideCb = cb as () => void;
+      return { remove: jest.fn() } as never;
+    });
+  return {
+    show: () =>
+      act(() => {
+        showCb?.({
+          endCoordinates: {
+            screenX: 0,
+            screenY: METRICS.frame.height - KEYBOARD_HEIGHT,
+            width: METRICS.frame.width,
+            height: KEYBOARD_HEIGHT,
+          },
+        });
+      }),
+    hide: () =>
+      act(() => {
+        hideCb?.();
+      }),
+  };
+}
+
 describe('Toast', () => {
   beforeEach(() => {
     jest.useFakeTimers();
@@ -81,6 +124,10 @@ describe('Toast', () => {
     });
     jest.useRealTimers();
     resetTransfers();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   /**
@@ -135,6 +182,50 @@ describe('Toast', () => {
 
     expect(bottomOffset(tree)).toBeGreaterThanOrEqual(
       METRICS.insets.bottom + TAB_BAR_HEIGHT + INDICATOR_HEIGHT,
+    );
+  });
+
+  /**
+   * The toast is absolutely positioned, and Yoga resolves a bottom inset
+   * against the containing node's size less its border, ignoring padding. The
+   * terminal screen lifts its content clear of the IME with paddingBottom, and
+   * that padding does not reach the toast, so the zoom notice was drawn behind
+   * the keyboard.
+   */
+  it('clears the keyboard while it is up', () => {
+    const keyboard = fakeKeyboard();
+    const tree = render('Terminal text: 14 sp');
+
+    keyboard.show();
+
+    expect(bottomOffset(tree)).toBe(
+      METRICS.insets.bottom + 16 + KEYBOARD_HEIGHT,
+    );
+  });
+
+  it('drops back down once the keyboard closes', () => {
+    const keyboard = fakeKeyboard();
+    const tree = render('Terminal text: 14 sp');
+
+    keyboard.show();
+    keyboard.hide();
+
+    expect(bottomOffset(tree)).toBe(METRICS.insets.bottom + 16);
+  });
+
+  // Both offsets apply at once: the bar floats above the keyboard, so clearing
+  // only the taller of the two would still overlap one of them.
+  it('clears the keyboard and the transfer bar together', () => {
+    const keyboard = fakeKeyboard();
+    act(() => {
+      startTransfer();
+    });
+    const tree = render('Terminal text: 14 sp');
+
+    keyboard.show();
+
+    expect(bottomOffset(tree)).toBe(
+      METRICS.insets.bottom + 16 + KEYBOARD_HEIGHT + TRANSFER_BAR_CLEARANCE,
     );
   });
 });

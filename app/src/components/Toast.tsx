@@ -5,7 +5,7 @@
 // stays put.
 
 import * as React from 'react';
-import { View } from 'react-native';
+import { Keyboard, type KeyboardEvent, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from './ui/text';
 import { subscribeTransfers, transferBarVisible } from '../lib/transfers';
@@ -22,6 +22,32 @@ import {
  * the bar's height alone left the toast inside it.
  */
 const TRANSFER_BAR_CLEARANCE = TAB_BAR_HEIGHT + INDICATOR_HEIGHT;
+
+/**
+ * How much of the screen the software keyboard covers, in pixels.
+ *
+ * The toast is positioned absolutely, and Yoga resolves a bottom inset against
+ * the containing node's measured size less its border, never its padding. An
+ * ancestor's paddingBottom that lifts the rest of the tree clear of the IME
+ * therefore does not move the toast at all, and it ends up drawn behind the
+ * keyboard. Measuring the keyboard here is what keeps it visible.
+ */
+function useKeyboardHeight(): number {
+  const [height, setHeight] = React.useState(0);
+
+  React.useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', (e: KeyboardEvent) => {
+      setHeight(Math.max(0, Math.round(e.endCoordinates.height)));
+    });
+    const hide = Keyboard.addListener('keyboardDidHide', () => setHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+
+  return height;
+}
 
 interface ToastProps {
   /** Empty renders nothing. Callers pass state directly. */
@@ -49,6 +75,10 @@ export function Toast({
     [],
   );
 
+  // The IME draws over the window under edge-to-edge, so the keyboard's height
+  // is added to the offset rather than replacing it.
+  const keyboard = useKeyboardHeight();
+
   React.useEffect(() => {
     if (message === '') return undefined;
     const timer = setTimeout(() => dismissRef.current(), durationMs);
@@ -61,7 +91,11 @@ export function Toast({
     <View
       pointerEvents="none"
       style={{
-        bottom: insets.bottom + 16 + (barVisible ? TRANSFER_BAR_CLEARANCE : 0),
+        bottom:
+          insets.bottom +
+          16 +
+          keyboard +
+          (barVisible ? TRANSFER_BAR_CLEARANCE : 0),
       }}
       className="absolute inset-x-4 z-20 rounded-md bg-foreground px-4 py-3"
       accessibilityLiveRegion="polite"
