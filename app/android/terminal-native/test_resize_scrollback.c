@@ -77,10 +77,8 @@ int main(void) {
 
   // The case the shell scrollback bug actually needs: the cursor parked above
   // the last row, which is where a program that redraws its own output leaves
-  // it. The shrink then has no trailing blanks to drop and pushes rows the
-  // screen was showing into the scrollback; the grow pads with blanks instead
-  // of pulling them back. The viewport still reports itself at the bottom, so
-  // the count is what has to be checked, not the offset.
+  // it. The shrink then has no trailing blanks to drop and moves rows the
+  // screen was showing into the scrollback.
   CHECK(ghostty_terminal_new(NULL, &t, 80, 24) == GHOSTTY_SUCCESS, "new term 2");
   ghostty_terminal_set(t, GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES, &cap);
   for (int i = 0; i < 200; i++) {
@@ -104,25 +102,14 @@ int main(void) {
   // The rows are re-partitioned, never destroyed: everything written is still
   // reachable. If this ever fails, content is being lost rather than moved.
   CHECK(total >= parked_total, "no content is destroyed by the resize pair");
-
-  // The app corrects the view by scrolling back over the padding, which is
-  // exactly how much the total grew while the height returned to its old
-  // value. This is the arithmetic TerminalView.compensateStrandedRows relies
-  // on; if the library stops stranding rows, the delta is simply zero and the
-  // correction becomes a no-op.
   CHECK(visible == parked_visible, "height came back to what it was");
-  uint64_t stranded = total - parked_total;
-  if (stranded > 0) {
-    GhosttyTerminalScrollViewport up = {.tag = GHOSTTY_SCROLL_VIEWPORT_DELTA};
-    up.value.delta = -(intptr_t)stranded;
-    ghostty_terminal_scroll_viewport(t, up);
-    uint64_t t2 = 0, o2 = 0, v2 = 0;
-    scrollbar(t, &t2, &o2, &v2);
-    printf("after correction: offset=%llu (was %llu before the resize)\n",
-           (unsigned long long)o2, (unsigned long long)(parked_total - parked_visible));
-    CHECK(o2 + parked_visible == parked_total,
-          "correction restores the pre-resize view");
-  }
+
+  // What the view has to satisfy: it is still on the active area, so the
+  // newest output is on screen and the user can keep typing. The app applies
+  // no correction of its own here. One that scrolled back by the growth in
+  // the row count pushed the viewport up into the scrollback instead, leaving
+  // the terminal stuck above its own output.
+  CHECK(offset + visible >= total, "viewport is still at the bottom");
 
   ghostty_terminal_free(t);
   printf("%d checks, %d failures\n", g_checks, g_failures);
