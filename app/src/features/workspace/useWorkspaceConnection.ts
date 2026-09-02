@@ -611,19 +611,21 @@ export function useWorkspaceConnection({
       // The terminal is retained across screens so its scrollback survives
       // navigation; closing the tab is what frees it.
       void releaseTerminal(sessionId).catch(() => undefined);
+      // Ending the session is what stops it running on the daemon. Without it
+      // every closed shell stayed alive there, invisible to the app and
+      // impossible to close from it. Nothing waits on it: the next tab has to
+      // come up now, and a kill that fails leaves a session the list still
+      // shows.
+      if (h !== null) {
+        void killSession(h.id, sessionId).catch(() => undefined);
+      }
+      if (h === null || !wasActive) return;
       void (async () => {
-        // Ending the session is what stops it running on the daemon. Without
-        // it every closed shell stayed alive there, invisible to the app and
-        // impossible to close from it.
-        if (h !== null) {
-          await killSession(h.id, sessionId).catch(() => undefined);
-        }
-        if (h !== null && wasActive) {
-          // attachActiveTab detaches the old channel before taking the next
-          // tab, so the detach is not repeated here.
-          if (next.tabs.length > 0) await attachActiveTab(h, next);
-          else await detachActive(h);
-        }
+        // attachActiveTab detaches the old channel before taking the next
+        // tab, so the detach is not repeated here.
+        const current = wsRef.current ?? next;
+        if (current.tabs.length > 0) await attachActiveTab(h, current);
+        else await detachActive(h);
       })();
     },
     [commitWs, detachActive, attachActiveTab],
