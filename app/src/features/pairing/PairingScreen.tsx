@@ -59,6 +59,16 @@ const HINT_LABELS: Record<number, string> = {
   3: 'Relay',
 };
 
+/**
+ * How many pairing targets are dialed at once.
+ *
+ * The transport hub caps the total number of hosts, and each in-flight dial
+ * holds one of those slots, so this stays well under that cap to leave room
+ * for the hosts the user already has connected. Three is enough to hide the
+ * connect timeout of two dead addresses behind the one that answers.
+ */
+const MAX_PARALLEL_DIALS = 3;
+
 export function PairingScreen({
   route,
 }: {
@@ -182,56 +192,85 @@ export function PairingScreen({
       let connected = false;
       let lastError: unknown = null;
 
-      // The targets are raced, not tried one after another. A daemon
-      // advertises every address it has, and some are unreachable from the
-      // phone: each of those costs the full connect timeout, so dialing in
-      // sequence made pairing sit on "Connecting" for minutes before it
-      // reported anything. Racing settles as fast as the reachable one.
+      // Targets are dialed by a small pool of workers rather than one after
+      // another. A daemon advertises every address it has and some are
+      // unreachable from the phone; each of those costs the full connect
+      // timeout, so a strict sequence made pairing sit on "Connecting" for
+      // minutes before it reported anything.
       //
-      // Each attempt gets its own transport id. The hub keys a connection by
-      // host id and rejects a second one as "already connecting", so sharing
-      // an id here would fail every dial but the first.
+      // The pool is bounded because the hub keys a connection by host id and
+      // caps the total at MAX_HOSTS: dialing every hint at once made each
+      // attempt past the cap fail with "too many hosts", so pairing failed
+      // outright on a machine advertising many addresses. A worker also
+      // closes its own failed attempt before taking the next target, so the
+      // slots it used do not accumulate.
       if (preview.targets.length > 0) {
         const attemptId = (i: number): string => `${id}-${i}`;
-        const attempts = preview.targets.map(async (target, i) => {
-          await getTransport().connect(attemptId(i), target, { tokenID, psk });
-          return attemptId(i);
-        });
-        try {
-          const winner = await Promise.any(attempts);
+        const targets = preview.targets;
+        let next = 0;
+        let winner: string | null = null;
+
+        const worker = async (): Promise<void> => {
+          for (;;) {
+            if (winner !== null) return;
+            const i = next++;
+            if (i >= targets.length) return;
+            try {
+              await getTransport().connect(attemptId(i), targets[i] as string, {
+                tokenID,
+                psk,
+              });
+            } catch (e) {
+              lastError = e;
+              // The hub keeps no entry for a failed connect, but closing is
+              // cheap and covers a failure that landed after the transport
+              // was registered.
+              void getTransport()
+                .close(attemptId(i))
+                .catch(() => undefined);
+              const err = toRemotlyError(e, 'network');
+              // A non-network failure means the payload itself is wrong, so
+              // no other address will do better.
+              if (err.kind !== 'network') throw e;
+              continue;
+            }
+            if (winner === null) {
+              winner = attemptId(i);
+            } else {
+              // Another worker won while this dial was in flight.
+              void getTransport()
+                .close(attemptId(i))
+                .catch(() => undefined);
+            }
+            return;
+          }
+        };
+
+        const pool = Math.min(MAX_PARALLEL_DIALS, targets.length);
+        const results = await Promise.allSettled(
+          Array.from({ length: pool }, worker),
+        );
+
+        if (winner !== null) {
           tempHostId.current = winner;
           connected = true;
-          // Losers are closed, including any that connects after the race is
-          // decided: a stray transport would hold a daemon connection slot
-          // for the rest of the pairing.
-          void Promise.allSettled(attempts).then(results => {
-            results.forEach((r, i) => {
-              if (r.status === 'fulfilled' && attemptId(i) !== winner) {
-                void getTransport()
-                  .close(attemptId(i))
-                  .catch(() => undefined);
-              }
-            });
-          });
-        } catch (e) {
-          // Every dial failed. A non-network failure is the useful one: the
-          // payload itself is bad and no other route will do better.
-          const errors =
-            e instanceof AggregateError ? e.errors : [e as unknown];
-          lastError = errors[0] ?? e;
-          for (const inner of errors) {
-            const err = toRemotlyError(inner, 'network');
-            if (err.kind !== 'network') {
-              await closeTemp();
-              connecting.current = false;
-              if (!disposed.current) {
-                dispatch({
-                  type: 'connectFailed',
-                  message: userFacingMessage(err),
-                });
-              }
-              return;
+        } else {
+          const fatal = results.find(r => r.status === 'rejected');
+          if (fatal !== undefined) {
+            await closeTemp();
+            connecting.current = false;
+            if (!disposed.current) {
+              dispatch({
+                type: 'connectFailed',
+                message: userFacingMessage(
+                  toRemotlyError(
+                    (fatal as PromiseRejectedResult).reason,
+                    'network',
+                  ),
+                ),
+              });
             }
+            return;
           }
         }
       }
