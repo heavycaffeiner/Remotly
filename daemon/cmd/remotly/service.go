@@ -42,6 +42,19 @@ func cmdStart(args []string) int {
 		return 1
 	}
 
+	// Put the binary where the shell can find it before the service points at
+	// it, so `remotly pair` and the rest work by name. The service is then
+	// installed against the on-PATH copy: a user who deletes the download
+	// still has a daemon that starts.
+	if installed, ierr := installOnPath(bin); ierr != nil {
+		fmtErr("install on PATH: %v\n", ierr)
+	} else if installed != "" {
+		fmt.Printf("installed: %s\n", installed)
+		bin = installed
+	} else if hint := pathHint(); hint != "" {
+		fmt.Fprintf(os.Stderr, "remotly: %s\n", hint)
+	}
+
 	mgr := service.New()
 	st, _ := mgr.State()
 	needInstall := !st.Installed || st.Binary != bin
