@@ -28,7 +28,11 @@ import {
 } from './TerminalStatusBanner';
 import { applyModifier, transformKey, type ModifierKey } from './terminalInput';
 import { useTerminalFocus } from './useTerminalFocus';
-import { useTerminalResize, type GridSize } from './useTerminalResize';
+import {
+  useTerminalResize,
+  type GridSize,
+  type TerminalResizeHandle,
+} from './useTerminalResize';
 import { SwipePager } from '../../components/SwipePager';
 import { useKeyboardOverlap } from '../../components/KeyboardLifted';
 import { Button } from '../../components/ui/button';
@@ -181,17 +185,28 @@ export const TerminalScreen = forwardRef<
   // never disagree about the grid. Resizing locally on measurement instead
   // leaves a window in which the application is still drawing for its old
   // size, and its absolute moves and scroll regions land in the wrong band.
+  //
+  // A dropped apply is reported rather than swallowed. The viewport can be
+  // unmounted when the size settles, and the command can reach a view that
+  // owns no terminal yet; both fail without reaching the grid. The scheduler
+  // has recorded that size as sent by then and would drop every later report
+  // of it, leaving the terminal on the old grid for good, so the baseline is
+  // cleared and the next measurement offers it again.
+  const resizeRef = useRef<TerminalResizeHandle | null>(null);
   const sendResize = useCallback(
     (size: GridSize) => {
       onResize(size);
-      void viewport.current
-        ?.applyRemoteSize(size.cols, size.rows)
-        .catch(() => undefined);
+      const node = viewport.current;
+      if (node === null) throw new Error('terminal viewport is not mounted');
+      void node.applyRemoteSize(size.cols, size.rows).catch(() => {
+        resizeRef.current?.forget(size);
+      });
     },
     [onResize],
   );
 
   const resize = useTerminalResize({ send: sendResize, sessionKey });
+  resizeRef.current = resize;
 
   const focusTerminal = useCallback(() => {
     viewport.current?.focus().catch(() => undefined);

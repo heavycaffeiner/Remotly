@@ -158,4 +158,65 @@ describe('createResizeScheduler', () => {
     jest.advanceTimersByTime(100);
     expect(send).toHaveBeenCalledTimes(1);
   });
+
+  /**
+   * A send that throws never reached the terminal, so the size must stay
+   * offerable. Recording it anyway left the grid at the old size with nothing
+   * able to correct it: every later report of the same size was deduped
+   * against a send that did not land.
+   */
+  it('re-sends a size whose send threw', () => {
+    const send = jest.fn(() => {
+      throw new Error('viewport is not mounted');
+    });
+    const s = createResizeScheduler(send, 100);
+
+    s.report({ cols: 80, rows: 24 });
+    jest.advanceTimersByTime(100);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(s.current()).toBeNull();
+
+    // The same measurement again: it is offered rather than dropped.
+    s.report({ cols: 80, rows: 24 });
+    jest.advanceTimersByTime(100);
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * The apply is asynchronous, so a size can be recorded as sent and then fail
+   * to reach the terminal. Clearing the baseline is what lets the next
+   * measurement offer it again.
+   */
+  it('re-sends a size after the baseline is forgotten', () => {
+    const send = jest.fn();
+    const s = createResizeScheduler(send, 100);
+
+    s.report({ cols: 80, rows: 24 });
+    jest.advanceTimersByTime(100);
+    expect(send).toHaveBeenCalledTimes(1);
+
+    // Deduped while the baseline holds it.
+    s.report({ cols: 80, rows: 24 });
+    jest.advanceTimersByTime(100);
+    expect(send).toHaveBeenCalledTimes(1);
+
+    // The apply failed after the fact.
+    s.forget({ cols: 80, rows: 24 });
+    expect(s.current()).toBeNull();
+
+    s.report({ cols: 80, rows: 24 });
+    jest.advanceTimersByTime(100);
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  /** Forgetting a size that is not the baseline leaves it alone. */
+  it('ignores a forget for a different size', () => {
+    const send = jest.fn();
+    const s = createResizeScheduler(send, 100);
+
+    s.report({ cols: 80, rows: 24 });
+    jest.advanceTimersByTime(100);
+    s.forget({ cols: 80, rows: 12 });
+    expect(s.current()).toEqual({ cols: 80, rows: 24 });
+  });
 });

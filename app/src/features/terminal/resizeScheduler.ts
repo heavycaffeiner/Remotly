@@ -26,6 +26,15 @@ export interface ResizeScheduler {
    * the previous one must never reach it.
    */
   reset(): void;
+  /**
+   * Clears the baseline if it still records this size.
+   *
+   * The apply runs asynchronously, so a size can be recorded as sent and then
+   * fail to reach the terminal. Clearing it lets the next measurement offer
+   * the same size again instead of being deduped against a send that never
+   * landed.
+   */
+  forget(size: GridSize): void;
   /** The last size actually sent. */
   current(): GridSize | null;
 }
@@ -65,8 +74,16 @@ export function createResizeScheduler(
     if (next === null) return;
     if (next.cols <= 0 || next.rows <= 0) return;
     if (same(sent, next)) return;
+    // Recorded only once the send has run without throwing. A send that fails
+    // has not reached the terminal, and recording it anyway made this drop
+    // every later report of the same size: the grid then stayed at the old
+    // one with nothing left to correct it. The next measurement re-offers it.
+    try {
+      send(next);
+    } catch {
+      return;
+    }
     sent = next;
-    send(next);
   };
 
   return {
@@ -90,6 +107,9 @@ export function createResizeScheduler(
       clearTimer();
       pending = null;
       sent = null;
+    },
+    forget(size: GridSize): void {
+      if (same(sent, size)) sent = null;
     },
     current: () => sent,
   };
