@@ -154,17 +154,20 @@ func (a *App) sessionEvent(e session.Event) {
 	}
 }
 
+// PairedDevices reports how many devices are currently paired. A zero count
+// means nobody can reach this daemon yet, which is what makes a startup
+// pairing invitation worth showing.
+func (a *App) PairedDevices() int { return a.devices.ActiveCount() }
+
+// PairingInvite mints a one-time pairing token and returns its URI and expiry
+// (unix seconds). Minting opens the LAN gate, and Run evaluates that gate when
+// it starts the transport, so calling this before Run is what makes the
+// listener come up already reachable for the invitation on screen.
+func (a *App) PairingInvite() (string, int64, error) { return a.buildPairingURI() }
+
 // Run starts the daemon and blocks until ctx is cancelled. It returns
 // context.Canceled on clean shutdown.
-func Run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
-	app, err := Build(ctx, cfg, log)
-	if err != nil {
-		return err
-	}
-	return app.run(ctx)
-}
-
-func (a *App) run(ctx context.Context) error {
+func (a *App) Run(ctx context.Context) error {
 	a.local = localctl.NewServer(
 		localctl.Path(a.dataDir),
 		a.log,
