@@ -12,7 +12,8 @@ describe('kindFromCloseCode', () => {
     expect(kindFromCloseCode(4000)).toBe('protocol');
     expect(kindFromCloseCode(4001)).toBe('auth');
     expect(kindFromCloseCode(4002)).toBe('handshake');
-    expect(kindFromCloseCode(4003)).toBe('network');
+    // A token close is not retryable against another address.
+    expect(kindFromCloseCode(4003)).toBe('auth');
     expect(kindFromCloseCode(4004)).toBe('protocol');
     expect(kindFromCloseCode(1011)).toBe('unknown');
   });
@@ -34,7 +35,7 @@ describe('toRemotlyError', () => {
     expect(err.kind).toBe('auth');
     expect(err.code).toBe(4001);
     expect(userFacingMessage(err)).toBe(
-      'Pairing was rejected. Check the pairing code and try again.',
+      'Pairing was refused. Generate a new pairing code and scan it again.',
     );
   });
 

@@ -59,32 +59,11 @@ const HINT_LABELS: Record<number, string> = {
   3: 'Relay',
 };
 
-/**
- * How long one pairing target may take before the next is tried.
- *
- * A pairing token is single-use, so the targets cannot be raced: they are
- * dialed in turn, and this bounds what an unreachable address costs. The
- * transport's own connect timeout is longer and covers a reachable host that
- * is merely slow; this is the budget for deciding an address is dead.
- */
-const DIAL_TIMEOUT_MS = 3000;
-
-/**
- * Rejects when a promise has not settled within ms.
- *
- * The underlying dial keeps running: the transport is closed by the caller,
- * which is what releases the connection slot it holds.
- */
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
-  const { promise, reject } = Promise.withResolvers<never>();
-  const timer = setTimeout(
-    () => reject(new Error('pairing: no answer from this address')),
-    ms,
-  );
-  return Promise.race([p, promise]).finally(() =>
-    clearTimeout(timer),
-  ) as Promise<T>;
-}
+// Each dial is bounded by the native transport: 10s to connect and 10s to
+// finish the handshake. Nothing shorter may be imposed here. A pairing token
+// is single-use and is claimed part-way through the handshake, so abandoning
+// a dial early can burn the token on an attempt that was still going to
+// succeed, and every remaining target then fails with token_used.
 
 export function PairingScreen({
   route,
@@ -209,23 +188,16 @@ export function PairingScreen({
       let connected = false;
       let lastError: unknown = null;
 
-      // Targets are dialed one at a time. A pairing token is single-use: the
-      // first handshake to reach the daemon claims it and every other one is
-      // refused with token_used, so two dials racing the same token cannot
-      // both succeed and may both fail. Concurrency here is not an
-      // optimisation with a cost, it is incorrect.
-      //
-      // The slowness that made this look worth parallelising belongs to the
-      // connect timeout, which is bounded separately: a dead address gives up
-      // in DIAL_TIMEOUT_MS rather than the transport's full window.
+      // Targets are dialed one at a time, each to completion. A pairing token
+      // is single-use: the first handshake to reach the daemon claims it and
+      // every other one is refused with token_used, so the targets can be
+      // neither raced nor abandoned early. Ordering is what keeps this quick:
+      // the daemon lists the address most likely to answer first.
       for (let i = 0; i < preview.targets.length; i++) {
         const target = preview.targets[i] as string;
         const attemptId = `${id}-${i}`;
         try {
-          await withTimeout(
-            getTransport().connect(attemptId, target, { tokenID, psk }),
-            DIAL_TIMEOUT_MS,
-          );
+          await getTransport().connect(attemptId, target, { tokenID, psk });
           tempHostId.current = attemptId;
           connected = true;
           break;

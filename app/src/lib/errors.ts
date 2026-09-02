@@ -34,7 +34,7 @@ const MESSAGES: Record<RemotlyErrorKind, string> = {
   network: 'Cannot reach the device. Check the network and try again.',
   handshake:
     'Secure connection failed. The device may be running a different version.',
-  auth: 'Pairing was rejected. Check the pairing code and try again.',
+  auth: 'Pairing was refused. Generate a new pairing code and scan it again.',
   protocol: 'The connection closed unexpectedly. Reconnect to continue.',
   terminal: 'The terminal session stopped. Reopen the session to continue.',
   storage: 'Saved hosts could not be read. Your data has not been changed.',
@@ -52,7 +52,11 @@ export function kindFromCloseCode(code: number): RemotlyErrorKind {
     case 4002:
       return 'handshake';
     case 4003:
-      return 'network';
+      // The pairing token was unknown, expired, or already used. None of
+      // those is fixed by dialing a different address, and treating it as a
+      // network failure made the app work through every remaining target
+      // with a token the daemon had already refused.
+      return 'auth';
     case 4004:
       return 'protocol';
     default:
