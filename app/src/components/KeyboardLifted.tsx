@@ -7,7 +7,7 @@
 // keyboard.
 //
 // Only the measured overlap is compensated. Where the platform really did
-// resize, endCoordinates.screenY sits at or below this view's bottom edge and
+// resize, the keyboard's top edge sits at or below this view's bottom edge and
 // the padding stays zero, so it is never applied twice.
 
 import * as React from 'react';
@@ -23,43 +23,70 @@ interface KeyboardLiftedProps {
   children: React.ReactNode;
 }
 
-/** How much of the view the keyboard currently covers, in pixels. */
+/**
+ * How much of the view the keyboard currently covers, in pixels.
+ *
+ * The keyboard reports its top edge in screen coordinates, so the view's
+ * bottom edge has to be in the same space to subtract them. Measuring gives
+ * that; the height from onLayout does not, because it says nothing about where
+ * the view starts. Using the height alone left the padding short by however
+ * far down the screen the view began, which on a screen with a toolbar above
+ * the terminal is the toolbar's height: enough rows stayed under the keyboard
+ * to look like the terminal had not resized at all.
+ */
 export function useKeyboardOverlap(): {
   overlap: number;
   onLayout: (event: LayoutChangeEvent) => void;
+  ref: React.RefObject<View | null>;
 } {
-  const [height, setHeight] = React.useState(0);
+  const ref = React.useRef<View | null>(null);
   const [overlap, setOverlap] = React.useState(0);
+  // The keyboard's top edge, held so a later layout can recompute against it.
+  const keyboardTop = React.useRef<number | null>(null);
 
-  const onLayout = React.useCallback((event: LayoutChangeEvent) => {
-    // React Native recycles the synthetic event once this returns, so the
-    // value is read here rather than inside the state updater, which can run
-    // later.
-    const next = Math.round(event.nativeEvent.layout.height);
-    setHeight(current => (current === next ? current : next));
+  const measure = React.useCallback(() => {
+    const top = keyboardTop.current;
+    const node = ref.current;
+    if (top === null || node === null) return;
+    node.measureInWindow((_x, y, _w, h) => {
+      const next = Math.max(0, Math.round(y + h - top));
+      setOverlap(current => (current === next ? current : next));
+    });
   }, []);
+
+  // A layout pass moves the bottom edge, so the overlap is recomputed against
+  // the keyboard that is already up.
+  const onLayout = React.useCallback(
+    (_event: LayoutChangeEvent) => measure(),
+    [measure],
+  );
 
   React.useEffect(() => {
     const show = Keyboard.addListener('keyboardDidShow', (e: KeyboardEvent) => {
-      setOverlap(Math.max(0, Math.round(height - e.endCoordinates.screenY)));
+      keyboardTop.current = e.endCoordinates.screenY;
+      measure();
     });
-    const hide = Keyboard.addListener('keyboardDidHide', () => setOverlap(0));
+    const hide = Keyboard.addListener('keyboardDidHide', () => {
+      keyboardTop.current = null;
+      setOverlap(0);
+    });
     return () => {
       show.remove();
       hide.remove();
     };
-  }, [height]);
+  }, [measure]);
 
-  return { overlap, onLayout };
+  return { overlap, onLayout, ref };
 }
 
 export function KeyboardLifted({
   className,
   children,
 }: KeyboardLiftedProps): React.ReactElement {
-  const { overlap, onLayout } = useKeyboardOverlap();
+  const { overlap, onLayout, ref } = useKeyboardOverlap();
   return (
     <View
+      ref={ref}
       onLayout={onLayout}
       style={{ paddingBottom: overlap }}
       className={className}

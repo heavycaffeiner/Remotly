@@ -166,8 +166,11 @@ export const TerminalScreen = forwardRef<
   const [rendererError, setRendererError] = useState<string | null>(null);
   // API 35+ edge-to-edge can leave an adjustResize window at its full height.
   // In that case the IME overlays the native terminal and hides the key row.
-  const { overlap: imeInset, onLayout: handleRootLayout } =
-    useKeyboardOverlap();
+  const {
+    overlap: imeInset,
+    onLayout: handleRootLayout,
+    ref: rootRef,
+  } = useKeyboardOverlap();
   const [hasSelection, setHasSelection] = useState(false);
   const bottomSpacerStyle = useMemo(
     () => ({ height: imeInset > 0 ? 0 : insets.bottom }),
@@ -397,6 +400,7 @@ export const TerminalScreen = forwardRef<
 
   return (
     <View
+      ref={rootRef}
       onLayout={handleRootLayout}
       style={{ paddingBottom: imeInset }}
       className="flex-1 bg-terminal"
