@@ -127,7 +127,18 @@ func (unixBackend) Start(req StartRequest) (Process, error) {
 	}
 	args := append([]string{}, req.Args...)
 	if req.Command != "" {
-		args = append(args, "-c", req.Command)
+		script := req.Command
+		if req.KeepShell {
+			// The shell runs the program and then stays, rather than exec'ing
+			// away: when the program exits the user is left at a prompt in the
+			// same session, with the program's output still in the scrollback.
+			//
+			// Only for sessions started from a terminal. An agent session must
+			// still exit when its command finishes, because the app reads that
+			// exit as the end of the stream.
+			script += "\nexec " + shellQuote(req.Program) + " -i -l"
+		}
+		args = append(args, "-c", script)
 	}
 	cmd := exec.Command(req.Program, args...)
 	cmd.Dir = req.Cwd
@@ -139,4 +150,13 @@ func (unixBackend) Start(req StartRequest) (Process, error) {
 		return nil, err
 	}
 	return &unixProcess{cmd: cmd, ptmx: ptmx, closed: make(chan struct{})}, nil
+}
+
+// shellQuote renders s as a single-quoted POSIX shell word.
+//
+// The shell path comes from configuration or /etc/passwd, so it is not
+// attacker-controlled, but it is interpolated into a script and a path with a
+// space would otherwise split into two words.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

@@ -343,8 +343,12 @@ func (s *Server) dispatch(req Request) Response {
 			Kind:    kind,
 			Title:   req.Title,
 			Command: req.Command,
-			Cols:    req.Cols,
-			Rows:    req.Rows,
+			// Started from a terminal, so the shell stays when the program
+			// exits: the user lands at a prompt in the same session rather
+			// than watching it disappear.
+			KeepShell: req.Command != "",
+			Cols:      req.Cols,
+			Rows:      req.Rows,
 		})
 		if err != nil {
 			return Response{OK: false, Err: err.Error()}

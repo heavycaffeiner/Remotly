@@ -35,10 +35,15 @@ type StartRequest struct {
 	// command form for the platform.
 	Args    []string
 	Command string // optional command to run through the shell and exit
-	Cwd     string
-	Env     []string // full KEY=VALUE environment, already overridden
-	Cols    uint16
-	Rows    uint16
+	// KeepShell drops back to an interactive shell after Command finishes
+	// instead of ending the session with it. Set for sessions a user drives
+	// from a terminal; an agent session leaves it false, because its exit is
+	// what tells the app the stream ended.
+	KeepShell bool
+	Cwd       string
+	Env       []string // full KEY=VALUE environment, already overridden
+	Cols      uint16
+	Rows      uint16
 }
 
 // ExitStatus is the terminal state of a PTY process.
