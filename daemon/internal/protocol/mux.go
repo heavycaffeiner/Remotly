@@ -227,6 +227,13 @@ func (m *Mux) take() (Frame, error) {
 			}
 			ch.closed = true
 			delete(m.chans, ch.id)
+			m.dropFromOrder(ch)
+			// The slot is reclaimed with the channel. Without this the
+			// count only ever rose, so a connection that opened and
+			// closed channels normally (every tab switch attaches and
+			// detaches one) walked up to MaxChannels and then failed
+			// every further attach for the life of the connection.
+			m.chanCount--
 			return Frame{Type: ChannelCtrl, ID: 0, Payload: payload}, nil
 		}
 	}
@@ -234,6 +241,30 @@ func (m *Mux) take() (Frame, error) {
 		return Frame{}, ErrMuxClosed
 	}
 	return Frame{}, errWait
+}
+
+// dropFromOrder removes a closed channel from the round-robin ring and keeps
+// the cursor pointing at the same position. Callers hold m.mu.
+//
+// Without this the ring grows for the life of the connection: closed entries
+// are skipped on every pass, so a long session pays for channels that no
+// longer exist.
+func (m *Mux) dropFromOrder(ch *channel) {
+	for i, c := range m.order {
+		if c != ch {
+			continue
+		}
+		m.order = append(m.order[:i], m.order[i+1:]...)
+		// Entries after i shifted down by one; keep the cursor on the
+		// channel it was about to visit.
+		if m.rr > i {
+			m.rr--
+		}
+		if m.rr >= len(m.order) {
+			m.rr = 0
+		}
+		return
+	}
 }
 
 func (m *Mux) takeCtrlLocked() (Frame, bool) {

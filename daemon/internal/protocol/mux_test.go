@@ -270,6 +270,71 @@ func TestMuxChannelLimit(t *testing.T) {
 	}
 }
 
+// A closed channel gives its slot back.
+//
+// The count was only ever incremented, so a connection that opened and closed
+// channels normally walked up to MaxChannels and then refused every further
+// attach for the rest of its life. Attaching and detaching a session is
+// exactly that cycle, so ordinary tab use exhausted the budget and the
+// daemon failed the connection on a channel limit that nothing was using.
+func TestMuxCloseReclaimsChannelSlot(t *testing.T) {
+	m, _ := testMux(MuxConfig{MaxChannels: 2})
+
+	// One term channel fits alongside the control channel.
+	for i := 0; i < 5; i++ {
+		id, err := m.OpenTerm(nil)
+		if err != nil {
+			t.Fatalf("open %d: %v", i, err)
+		}
+		if err := m.CloseTerm(id, ReasonDetached); err != nil {
+			t.Fatalf("close %d: %v", i, err)
+		}
+		// The slot is reclaimed when the close notification is emitted,
+		// which is what drains the channel out of the mux.
+		f, err := m.Read()
+		if err != nil {
+			t.Fatalf("read close %d: %v", i, err)
+		}
+		if f.Type != ChannelCtrl {
+			t.Fatalf("frame %d type = %v, want ctrl", i, f.Type)
+		}
+	}
+}
+
+// The round-robin ring must not retain closed channels either, or a long
+// connection pays for every channel it ever opened on each pass.
+func TestMuxCloseDropsChannelFromRotation(t *testing.T) {
+	m, _ := testMux(MuxConfig{})
+	a := openTerm(t, m)
+	b := openTerm(t, m)
+
+	if err := m.CloseTerm(a, ReasonDetached); err != nil {
+		t.Fatalf("close a: %v", err)
+	}
+	if _, err := m.Read(); err != nil {
+		t.Fatalf("read close notice: %v", err)
+	}
+
+	m.mu.Lock()
+	got := len(m.order)
+	m.mu.Unlock()
+	if got != 1 {
+		t.Fatalf("order length = %d, want 1 (only the live channel)", got)
+	}
+
+	// The surviving channel still carries traffic.
+	if err := m.Send(termFrame(b, 'b')); err != nil {
+		t.Fatalf("send on b: %v", err)
+	}
+	f, err := m.Read()
+	if err != nil {
+		t.Fatalf("read b: %v", err)
+	}
+	if f.ID != b || f.Payload[0] != 'b' {
+		t.Fatalf("frame = id %d payload %q, want id %d payload \"b\"", f.ID, f.Payload, b)
+	}
+}
+
 func TestMuxDeliverRouting(t *testing.T) {
 	m, ctrl := testMux(MuxConfig{})
 	var got []byte
