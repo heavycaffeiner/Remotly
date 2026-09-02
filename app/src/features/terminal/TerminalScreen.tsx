@@ -186,12 +186,16 @@ export const TerminalScreen = forwardRef<
   // leaves a window in which the application is still drawing for its old
   // size, and its absolute moves and scroll regions land in the wrong band.
   //
-  // A dropped apply is reported rather than swallowed. The viewport can be
-  // unmounted when the size settles, and the command can reach a view that
-  // owns no terminal yet; both fail without reaching the grid. The scheduler
-  // has recorded that size as sent by then and would drop every later report
-  // of it, leaving the terminal on the old grid for good, so the baseline is
-  // cleared and the next measurement offers it again.
+  // A dropped apply clears the record of it rather than swallowing it. The
+  // viewport can be unmounted when the size settles, and the command can
+  // reach a view that owns no terminal yet; both fail without reaching the
+  // grid, and the scheduler has recorded that size as sent by then, so it
+  // would drop every later report of it.
+  //
+  // Clearing is all that happens here. Re-sending on failure would repeat for
+  // as long as the view stays detached, resizing the pty on every pass. The
+  // view re-measures when it is attached again and offers the size then,
+  // which is exactly when the condition that dropped it has cleared.
   const resizeRef = useRef<TerminalResizeHandle | null>(null);
   const sendResize = useCallback(
     (size: GridSize) => {

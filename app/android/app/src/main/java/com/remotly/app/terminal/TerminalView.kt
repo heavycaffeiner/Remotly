@@ -996,13 +996,12 @@ class TerminalView @JvmOverloads constructor(
       createTerminal()
       return
     }
-    // The measurement is republished whenever the terminal is not already
-    // running at it, not only when it changes. An apply can be dropped: the
-    // view may be detached when the command arrives, or own no terminal yet,
-    // and both paths fail silently. The scheduler upstream has already
-    // recorded that size as sent and drops every later report of it, so
-    // without this the native grid stays at the old size for good and the
-    // screen renders for a grid the pty no longer has.
+    // Republished whenever the terminal is not already running at the
+    // measurement, not only when the measurement changes. This alone does not
+    // recover a dropped apply: the size upstream still matches what the
+    // scheduler recorded as sent, so it is deduped. Clearing that record is
+    // what makes the retry happen, and this is what offers the size again
+    // once it has been cleared.
     if (newCols != cols || newRows != rows ||
       appliedCols != newCols || appliedRows != newRows
     ) {
