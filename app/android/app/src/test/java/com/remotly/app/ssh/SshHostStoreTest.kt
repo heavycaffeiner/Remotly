@@ -61,15 +61,22 @@ class SshHostStoreTest {
 
     @Test
     fun addPersistsAndSealsCredential() {
-        val h = store.add("My Server", "example.com", 22, "alice", pw("pw"))
+        // A distinctive secret: the sealed blob is base64, so a short common
+        // string like "pw" turns up in the ciphertext by chance and the leak
+        // check fails at random.
+        val secret = "correct-horse-battery-staple"
+        val h = store.add("My Server", "example.com", 22, "alice", pw(secret))
         assertEquals("example.com", h.host)
         assertEquals(22, h.port)
         assertEquals(SshHost.AUTH_PASSWORD, h.authKind)
         assertTrue(h.credentialRef.isNotEmpty())
         val cred = store.credential(h.id) as SshCredential.Password
-        assertArrayEquals("pw".toByteArray(), cred.value)
+        assertArrayEquals(secret.toByteArray(), cred.value)
         // The plaintext never lands in the document.
-        assertFalse("password leaked to store file", storeFile().readText().contains("pw"))
+        assertFalse(
+            "password leaked to store file",
+            storeFile().readText().contains(secret),
+        )
     }
 
     @Test

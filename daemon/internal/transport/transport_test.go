@@ -355,8 +355,11 @@ func (e *env) newClient(t *testing.T, app *appKey, mode byte, token *pairing.Tok
 		pending: make(map[uint64]chan *protocol.Response),
 		termOut: make(chan termFrame, 4096),
 		fileOut: make(chan termFrame, 4096),
-		notifs:  make(chan *protocol.Notification, 64),
-		dead:    make(chan struct{}),
+		// Closing a connection emits one channel.close per open channel, and a
+		// test may hold the full cap open, so the queue has to absorb a burst
+		// of that size plus whatever else is already waiting.
+		notifs: make(chan *protocol.Notification, 4*protocol.MaxChannels),
+		dead:   make(chan struct{}),
 	}
 	for _, o := range opts {
 		o(c)
