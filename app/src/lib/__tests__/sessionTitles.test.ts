@@ -1,38 +1,61 @@
-import { isDefaultTitle } from '../workspace';
-import { isDefaultSshTitle } from '../sshTabs';
+import {
+  addSshTab,
+  createSshTabs,
+  findSshTab,
+  setSshTabTitle,
+  type SshTabsState,
+} from '../sshTabs';
 
-// A program repaints its terminal title constantly: a shell does it on every
-// prompt. The title is only adopted while the session still carries the name
-// it was created with, so a name the user typed is never overwritten.
-describe('isDefaultTitle', () => {
-  it('recognises the names the daemon gives a new session', () => {
-    expect(isDefaultTitle('shell')).toBe(true);
-    expect(isDefaultTitle('agent')).toBe(true);
+const SID = 'ssh-1';
+
+function withTab(): SshTabsState {
+  const { state } = addSshTab(createSshTabs('host-1'), SID, 'Shell 1');
+  return state;
+}
+
+function titleOf(state: SshTabsState): string {
+  return findSshTab(state, SID)?.title ?? '';
+}
+
+// A shell repaints its title on every prompt, usually with the working
+// directory. The tab has to keep following that rather than freezing on the
+// first title it ever sees.
+describe('terminal titles', () => {
+  it('keeps tracking the program title', () => {
+    let state = withTab();
+    for (const want of ['~', '~/src', '~/src/remotly']) {
+      state = setSshTabTitle(state, SID, want);
+      expect(titleOf(state)).toBe(want);
+    }
   });
 
-  it('treats anything else as a chosen name', () => {
-    expect(isDefaultTitle('build logs')).toBe(false);
-    expect(isDefaultTitle('Shell')).toBe(false);
-    expect(isDefaultTitle('')).toBe(false);
-    // A preset names the session after itself, which is a chosen name too.
-    expect(isDefaultTitle('Fix the tests')).toBe(false);
+  it('ignores a blank title rather than clearing the label', () => {
+    const state = withTab();
+    expect(setSshTabTitle(state, SID, '   ')).toBe(state);
+    expect(titleOf(state)).toBe('Shell 1');
   });
 });
 
-describe('isDefaultSshTitle', () => {
-  it('recognises the names the app generates', () => {
-    expect(isDefaultSshTitle('Shell')).toBe(true);
-    expect(isDefaultSshTitle('Shell 1')).toBe(true);
-    expect(isDefaultSshTitle('Shell 12')).toBe(true);
-    expect(isDefaultSshTitle('Files')).toBe(true);
-    expect(isDefaultSshTitle('Files 3')).toBe(true);
+describe('renaming a tab', () => {
+  it('pins the name against later program titles', () => {
+    let state = setSshTabTitle(withTab(), SID, '~/src');
+    state = setSshTabTitle(state, SID, 'build logs', true);
+    expect(titleOf(state)).toBe('build logs');
+
+    // The shell's next prompt must not take the name back.
+    const after = setSshTabTitle(state, SID, '~/other');
+    expect(after).toBe(state);
+    expect(titleOf(after)).toBe('build logs');
   });
 
-  it('treats anything else as a chosen name', () => {
-    expect(isDefaultSshTitle('build logs')).toBe(false);
-    expect(isDefaultSshTitle('shell')).toBe(false);
-    expect(isDefaultSshTitle('Shell notes')).toBe(false);
-    expect(isDefaultSshTitle('My Shell 2')).toBe(false);
-    expect(isDefaultSshTitle('')).toBe(false);
+  it('still allows a second rename', () => {
+    let state = setSshTabTitle(withTab(), SID, 'first', true);
+    state = setSshTabTitle(state, SID, 'second', true);
+    expect(titleOf(state)).toBe('second');
+  });
+
+  it('leaves the state alone when nothing changes', () => {
+    const state = setSshTabTitle(withTab(), SID, 'named', true);
+    expect(setSshTabTitle(state, SID, 'named', true)).toBe(state);
   });
 });

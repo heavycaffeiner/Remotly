@@ -28,7 +28,6 @@ import {
   closeTab,
   createWorkspace,
   findTab,
-  isDefaultTitle,
   markAttached,
   markExited,
   markStale,
@@ -53,6 +52,7 @@ import {
   killSession,
   listPresets,
   renameSession,
+  reportTerminalTitle as reportTerminalTitleTo,
   listSessions,
   resizeSession,
   type Preset,
@@ -585,22 +585,18 @@ export function useWorkspaceConnection({
     [commitWs],
   );
 
-  // A shell sets its title on every prompt, so this only takes effect while
-  // the session still carries the name the daemon gave it. Once the user has
-  // renamed it, their name stands.
-  const reportTerminalTitle = useCallback(
-    (title: string) => {
-      const w = wsRef.current;
-      const sessionId = activeRef.current?.sessionId ?? null;
-      if (w === null || sessionId === null) return;
-      const tab = findTab(w, sessionId);
-      if (tab === null || !isDefaultTitle(tab.title)) return;
-      const name = title.trim().slice(0, MAX_TITLE_LEN);
-      if (name === '' || name === tab.title) return;
-      renameTabById(sessionId, name);
-    },
-    [renameTabById],
-  );
+  // A shell repaints its title on every prompt, so this keeps following it.
+  // The daemon decides whether to take it: once the session has been renamed
+  // by hand it keeps that name and answers this as a no-op. Deciding here
+  // instead would freeze the tab on the first title it ever saw.
+  const reportTerminalTitle = useCallback((title: string) => {
+    const h = hostRef.current;
+    const sessionId = activeRef.current?.sessionId ?? null;
+    if (h === null || sessionId === null) return;
+    const name = title.trim().slice(0, MAX_TITLE_LEN);
+    if (name === '') return;
+    void reportTerminalTitleTo(h.id, sessionId, name).catch(() => undefined);
+  }, []);
 
   const closeTabById = useCallback(
     (sessionId: string) => {

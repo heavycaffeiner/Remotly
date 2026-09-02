@@ -311,6 +311,30 @@ export async function renameSession(
   });
 }
 
+/**
+ * Reports the title the running program set with an escape sequence.
+ *
+ * Separate from renameSession because the daemon treats them differently: a
+ * rename pins the name, this does not. A shell repaints its title on every
+ * prompt, so this keeps following it until the user picks a name.
+ */
+export async function reportTerminalTitle(
+  hostId: string,
+  sessionId: string,
+  title: string,
+): Promise<void> {
+  if (!isValidSessionId(sessionId)) {
+    throw new DaemonError('invalid_request', 'bad session id');
+  }
+  const name = title.trim();
+  if (name === '' || name.length > MAX_TITLE_LEN) return;
+  await controlChecked(hostId, {
+    type: 'session.term_title',
+    session_id: sessionId,
+    title: name,
+  });
+}
+
 /** Changes a session's PTY size. */
 export async function resizeSession(
   hostId: string,

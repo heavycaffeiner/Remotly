@@ -158,6 +158,10 @@ var typeRules = map[string][]fieldRule{
 		{name: "session_id", required: true},
 		{name: "title", required: true},
 	},
+	TypeSessionTermTitle: {
+		{name: "session_id", required: true},
+		{name: "title", required: true},
+	},
 }
 
 type fieldRule struct {
@@ -338,7 +342,7 @@ func checkValues(id uint64, typ string, w *wireRequest) error {
 		if !sessionIDPattern.MatchString(*w.SessionID) {
 			return bad()
 		}
-	case TypeSessionRename:
+	case TypeSessionRename, TypeSessionTermTitle:
 		if !sessionIDPattern.MatchString(*w.SessionID) {
 			return bad()
 		}
@@ -537,6 +541,9 @@ type Meta struct {
 	Running      bool   `json:"running"`
 	Exit         *Exit  `json:"exit"`
 	Preview      string `json:"preview,omitempty"`
+	// TitlePinned is set once the session has been renamed by hand. The app
+	// stops sending the terminal's own title after that.
+	TitlePinned bool `json:"title_pinned,omitempty"`
 }
 
 // Preset is one configured agent session preset: the app renders presets

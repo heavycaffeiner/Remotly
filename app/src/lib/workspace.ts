@@ -57,19 +57,6 @@ export const MAX_CURSOR = 2 ** 53 - 1;
 function clampTitle(title: string): string {
   return title.slice(0, MAX_TITLE_LEN);
 }
-
-/**
- * True when a session still carries the name the daemon gave it.
- *
- * The daemon names a new session after its kind, so anything else is a name
- * someone chose: either the user, or a preset. A program's own title is only
- * adopted while the name is still one of these, so a shell repainting its
- * title cannot overwrite a name the user typed.
- */
-export function isDefaultTitle(title: string): boolean {
-  return title === 'shell' || title === 'agent';
-}
-
 function clampCursor(cursor: number): number {
   if (!Number.isFinite(cursor) || cursor < 0) return 0;
   return Math.min(Math.floor(cursor), MAX_CURSOR);

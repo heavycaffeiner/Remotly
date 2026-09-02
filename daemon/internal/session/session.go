@@ -83,6 +83,10 @@ type Metadata struct {
 	// sequences and control characters stripped, at most 120 bytes), or ""
 	// when nothing is retained.
 	Preview string
+	// TitlePinned is set once someone renames the session by hand. The app
+	// stops applying the terminal's own title after that, so a shell
+	// repainting its title cannot overwrite a name the user chose.
+	TitlePinned bool
 }
 
 // Request describes a new session.
@@ -566,7 +570,7 @@ func (s *Session) Resize(cols, rows uint16) error {
 	return s.proc.Resize(cols, rows)
 }
 
-// SetTitle renames the session.
+// SetTitle renames the session and pins the name.
 //
 // The name is what the user picks a session out of a list by, so it outlives
 // the process: renaming an exited session that is still retained is allowed.
@@ -574,6 +578,28 @@ func (s *Session) Resize(cols, rows uint16) error {
 // way a create request's title is. It returns the updated metadata so the
 // caller can broadcast the change.
 func (s *Session) SetTitle(title string) (Metadata, error) {
+	return s.setTitle(title, true)
+}
+
+// SetTerminalTitle records the title the running program set with an escape
+// sequence. It is ignored once someone has renamed the session by hand: a
+// shell repaints its title on every prompt and would otherwise overwrite the
+// name the user chose.
+func (s *Session) SetTerminalTitle(title string) (Metadata, bool, error) {
+	s.mu.Lock()
+	pinned := s.meta.TitlePinned
+	s.mu.Unlock()
+	if pinned {
+		return Metadata{}, false, nil
+	}
+	m, err := s.setTitle(title, false)
+	if err != nil {
+		return Metadata{}, false, err
+	}
+	return m, true, nil
+}
+
+func (s *Session) setTitle(title string, pin bool) (Metadata, error) {
 	name := strings.TrimSpace(title)
 	if name == "" {
 		return Metadata{}, fmt.Errorf("%w: title must not be empty", ErrInvalidRequest)
@@ -586,6 +612,9 @@ func (s *Session) SetTitle(title string) (Metadata, error) {
 	}
 	s.mu.Lock()
 	s.meta.Title = name
+	if pin {
+		s.meta.TitlePinned = true
+	}
 	m := s.meta
 	s.mu.Unlock()
 	return m, nil

@@ -401,6 +401,8 @@ func (c *conn) handleCtrlFrame(f protocol.Frame) error {
 		return c.sessionKill(req)
 	case protocol.TypeSessionRename:
 		return c.sessionRename(req)
+	case protocol.TypeSessionTermTitle:
+		return c.sessionTermTitle(req)
 	case protocol.TypeHello:
 		c.sendCtrl(protocol.EncodeErrorResponse(req.ID, req.Type, protocol.CodeInvalidRequest, protocol.CodeInvalidRequest))
 		return nil
@@ -598,6 +600,26 @@ func (c *conn) sessionRename(req *protocol.Request) error {
 	// Every attached client shows the session list, so they all need the new
 	// name, including the one that asked for it.
 	c.srv.NotifySessionUpdate(m)
+	return nil
+}
+
+// sessionTermTitle records the title the running program set. A session the
+// user has renamed keeps its name, so this is a no-op there.
+func (c *conn) sessionTermTitle(req *protocol.Request) error {
+	s, err := c.srv.opts.Sessions.Get(*req.SessionID)
+	if err != nil {
+		c.respondError(req, err)
+		return nil
+	}
+	m, applied, err := s.SetTerminalTitle(*req.Title)
+	if err != nil {
+		c.respondError(req, err)
+		return nil
+	}
+	c.sendCtrl(protocol.EncodePlainResponse(req.ID, req.Type))
+	if applied {
+		c.srv.NotifySessionUpdate(m)
+	}
 	return nil
 }
 
@@ -1175,6 +1197,7 @@ func toMeta(m session.Metadata) protocol.Meta {
 		p.Exit = &protocol.Exit{Code: m.Exit.Code, Signal: m.Exit.Signal}
 	}
 	p.Preview = m.Preview
+	p.TitlePinned = m.TitlePinned
 	return p
 }
 

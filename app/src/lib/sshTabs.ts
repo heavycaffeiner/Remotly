@@ -36,6 +36,11 @@ export interface SshTab {
   /** User-facing explanation for a closed or failed tab. Empty otherwise. */
   detail: string;
   kind: SshTabKind;
+  /**
+   * Set once the user renames the tab. The terminal's own title is ignored
+   * after that, so a shell repainting its title cannot take the name back.
+   */
+  titlePinned?: boolean;
 }
 
 export interface SshTabsState {
@@ -152,36 +157,32 @@ export function setSshTabPhase(
 export const MAX_SSH_TAB_TITLE = 60;
 
 /**
- * True when a tab still carries the name the app generated for it.
- *
- * New tabs are named "Shell 1", "Files", "Files 2" and so on, so anything
- * else is a name the user typed. A program's own title is only adopted while
- * the name is still generated, which keeps a shell's per-prompt title from
- * overwriting a name the user chose.
- */
-export function isDefaultSshTitle(title: string): boolean {
-  return /^(Shell|Files)( \d+)?$/.test(title);
-}
-
-/**
  * Renames a tab.
  *
  * The title is trimmed and bounded. An empty result is rejected rather than
- * leaving a tab with no label to select or close by.
+ * leaving a tab with no label to select or close by. `pin` records that the
+ * name came from the user, which stops the terminal's own title replacing it.
  */
 export function setSshTabTitle(
   state: SshTabsState,
   sessionId: string,
   title: string,
+  pin = false,
 ): SshTabsState {
   const tab = findSshTab(state, sessionId);
   if (tab === null) return state;
+  // A tab the user named keeps that name; only a rename may change it.
+  if (!pin && tab.titlePinned === true) return state;
   const next = title.trim().slice(0, MAX_SSH_TAB_TITLE);
-  if (next === '' || tab.title === next) return state;
+  if (next === '') return state;
+  const pinning = pin && tab.titlePinned !== true;
+  if (tab.title === next && !pinning) return state;
   return {
     ...state,
     tabs: state.tabs.map(t =>
-      t.sessionId === sessionId ? { ...t, title: next } : t,
+      t.sessionId === sessionId
+        ? { ...t, title: next, ...(pin ? { titlePinned: true } : {}) }
+        : t,
     ),
   };
 }
