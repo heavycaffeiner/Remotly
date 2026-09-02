@@ -158,6 +158,16 @@ data class ControlResponse(
     @SerializedName("replayed_from") val replayedFrom: Long? = null,
     // preset.list only.
     @SerializedName("presets") val presets: List<Preset>? = null,
+    // The response exactly as the daemon sent it.
+    //
+    // This class declares only the fields the native side acts on. The fs.*
+    // and transfer.* responses carry result fields beyond those (entries,
+    // roots, transfer_id, and the rest), and re-encoding this object would
+    // drop every one of them before the bridge hands the JSON to JS. Requests
+    // that cross to JS forward this string instead.
+    //
+    // Transient so Gson neither reads nor writes it as a wire field.
+    @Transient val raw: String = "",
 ) : ControlMessage()
 
 // A decoded session.event notification: a bell or configured output-pattern
@@ -267,7 +277,7 @@ class ControlCodec {
         if (type.isNullOrEmpty()) throw ControlException("missing type")
         return try {
             if (obj.has("id")) {
-                val r = gson.fromJson(obj, ControlResponse::class.java)
+                val r = gson.fromJson(obj, ControlResponse::class.java).copy(raw = data)
                 if (r.id < 0 || r.id > ControlLimits.MAX_ID) throw ControlException("bad id")
                 if (r.channelId != null && r.channelId !in 0..0xFFFFFFFFL) {
                     throw ControlException("bad channel id")

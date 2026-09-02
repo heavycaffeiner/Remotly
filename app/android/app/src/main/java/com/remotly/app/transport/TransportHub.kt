@@ -373,7 +373,11 @@ object TransportHub {
                 safe {
                     cb(
                         result.map { resp ->
-                            gson.toJson(resp)
+                            // The daemon's own JSON, not a re-encode of the
+                            // typed view: ControlResponse omits the fs.* and
+                            // transfer.* result fields, and re-serializing it
+                            // stripped them before JS ever saw them.
+                            resp.raw.ifEmpty { gson.toJson(resp) }
                         }
                     )
                 }

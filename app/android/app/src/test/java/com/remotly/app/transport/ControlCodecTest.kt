@@ -289,6 +289,25 @@ class ControlCodecTest {
         }
     }
 
+    // ControlResponse declares only the fields the native side acts on, so
+    // re-encoding it drops the fs.* and transfer.* results. The bridge
+    // forwards `raw` instead; a truncated fs.list read as an empty directory
+    // and every transfer.create failed for a missing transfer_id.
+    @Test
+    fun `decode keeps the daemon json for fields it does not model`() {
+        val listJson =
+            """{"id":20,"type":"fs.list","entries":[{"name":"a.txt","size":11}],"more":false,"total":1}"""
+        val listed = codec.decode(listJson) as ControlResponse
+        assertEquals(listJson, listed.raw)
+
+        val createJson =
+            """{"id":21,"type":"transfer.create","transfer_id":"t-1","channel_id":3,"expected_size":99}"""
+        val created = codec.decode(createJson) as ControlResponse
+        assertEquals(createJson, created.raw)
+        // The modelled fields still decode alongside the passthrough.
+        assertEquals(3L, created.channelId)
+    }
+
     private fun presets(n: Int): String =
         (1..n).joinToString(",") { """{"name":"p$it","command":"ls"}""" }
 }
