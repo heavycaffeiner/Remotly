@@ -15,6 +15,7 @@ import {
   registerTransfer,
   resetTransfers,
   settleTransfer,
+  type TransferRecord,
 } from '../../../lib/transfers';
 
 jest.mock('../../../specs/NativeRemotlyFileIO', () => ({
@@ -122,5 +123,58 @@ describe('a download whose screen has gone', () => {
 
     expect(activeTransfers()).toHaveLength(0);
     expect(listTransfers()[0]?.phase).toBe('done');
+  });
+});
+
+/**
+ * The bar's denominator comes from the directory listing.
+ *
+ * The transfer sheet renders a determinate bar only while `total > 0`
+ * (TransferSheet's `known` check); otherwise Progress falls back to its
+ * indeterminate form, which is a static 40% fill rather than an animation. The
+ * SFTP backend reports a size only once the transfer finishes, so a download
+ * registered with total -1 looked frozen for its whole run. The listing
+ * already knows the size, so it seeds the total up front.
+ */
+describe('download progress', () => {
+  it('is determinate when the listing knows the size', () => {
+    registerTransfer(
+      {
+        id: 'd4',
+        direction: 'download',
+        path: '/remote/big.bin',
+        name: 'big.bin',
+        hostId: 'h1',
+        total: 400,
+      },
+      () => {},
+    );
+
+    advanceTransfer('d4', 100);
+
+    const t = listTransfers()[0] as TransferRecord;
+    expect(t.total).toBeGreaterThan(0);
+    expect(t.transferred / t.total).toBe(0.25);
+  });
+
+  // The size is genuinely unknown for a stream, and an indeterminate bar is
+  // honest about that. Only the known-size case regressed.
+  it('stays indeterminate when the size is unknown', () => {
+    registerTransfer(
+      {
+        id: 'd5',
+        direction: 'download',
+        path: '/remote/stream',
+        name: 'stream',
+        hostId: 'h1',
+        total: -1,
+      },
+      () => {},
+    );
+
+    advanceTransfer('d5', 100);
+
+    const t = listTransfers()[0] as TransferRecord;
+    expect(t.total).toBeLessThanOrEqual(0);
   });
 });

@@ -153,6 +153,8 @@ export function FilesScreen({
     name: string;
     remotePath: string;
     existingUri: string;
+    /** Remote size from the listing, or -1 when unknown. */
+    size: number;
   } | null>(null);
   const { settings, update } = useSettings();
 
@@ -166,12 +168,17 @@ export function FilesScreen({
     kind: TransferKind;
   } | null>(null);
   const pendingUploadRef = useRef<PickedFile | null>(null);
-  const pendingDownloadRef = useRef<string | null>(null);
-  // The remote name a folder pick was started for, so the download can carry
-  // on once the folder comes back.
-  const pendingFolderPickRef = useRef<{ name: string; path: string } | null>(
+  // The remote path and size a download-folder pick is waiting on.
+  const pendingDownloadRef = useRef<{ path: string; size: number } | null>(
     null,
   );
+  // The remote name a folder pick was started for, so the download can carry
+  // on once the folder comes back.
+  const pendingFolderPickRef = useRef<{
+    name: string;
+    path: string;
+    size: number;
+  } | null>(null);
   // The download folder, readable from the mount-time event closures. Kept in
   // step with the stored setting, which is the source of truth across runs.
   const folderUriRef = useRef(settings.downloadFolderUri);
@@ -545,10 +552,20 @@ export function FilesScreen({
     }
   }
 
+  /**
+   * Runs one download to a destination the caller already resolved.
+   *
+   * remoteSize is the size from the directory listing, or -1 when it is not
+   * known. It seeds the progress total: the SFTP backend reports the size only
+   * once the transfer finishes, so without it the bar has no denominator and
+   * renders in its static indeterminate form for the whole download, which
+   * reads as frozen.
+   */
   async function doDownload(
     picked: PickedFile,
     path: string,
     resumeFrom = 0,
+    remoteSize = -1,
   ): Promise<void> {
     const xb = xferRef.current;
     if (xb === null) return;
@@ -556,7 +573,7 @@ export function FilesScreen({
       kind: 'download',
       path: picked.name,
       received: resumeFrom,
-      total: -1,
+      total: remoteSize,
       active: true,
     });
     // The fast path: the backend writes the file itself, so no file bytes
@@ -642,7 +659,7 @@ export function FilesScreen({
             path,
             name: picked.name,
             hostId: hostIdParam,
-            total: -1,
+            total: handle.size > 0 ? handle.size : remoteSize,
             resumable,
           },
           () => {
@@ -651,7 +668,8 @@ export function FilesScreen({
             // partial file is dropped unless Resume can continue from it.
             if (!resumable) void discard(picked.uri).catch(() => undefined);
           },
-          from => void doDownload(picked, path, resumable ? from : 0),
+          from =>
+            void doDownload(picked, path, resumable ? from : 0, remoteSize),
         );
         if (resumeFrom > 0) advanceTransfer(handle.id, resumeFrom);
         activeXferRef.current = {
@@ -781,7 +799,7 @@ export function FilesScreen({
           path,
           name: picked.name,
           hostId: hostIdParam,
-          total: handle.size,
+          total: handle.size > 0 ? handle.size : remoteSize,
           // This path appends through JS and cannot seek the destination, so
           // picking it back up starts over. The sheet says Retry rather than
           // Resume, which is what actually happens.
@@ -794,7 +812,7 @@ export function FilesScreen({
           // it. Cancelling from the sheet reaches here from another screen.
           void writes.then(() => discard(picked.uri).catch(() => undefined));
         },
-        () => void doDownload(picked, path, 0),
+        () => void doDownload(picked, path, 0, remoteSize),
       );
       activeXferRef.current = {
         id: handle.id,
@@ -836,7 +854,7 @@ export function FilesScreen({
     });
   }
 
-  function startDownload(name: string, path: string): void {
+  function startDownload(name: string, path: string, size: number): void {
     if (xferRef.current === null) {
       setTransfer({
         kind: 'download',
@@ -848,7 +866,7 @@ export function FilesScreen({
       });
       return;
     }
-    void beginDownload(name, path);
+    void beginDownload(name, path, size);
   }
 
   /**
@@ -859,7 +877,11 @@ export function FilesScreen({
    * is not used as a fallback, because it resolves a collision by renaming and
    * never reports that it did.
    */
-  async function beginDownload(name: string, path: string): Promise<void> {
+  async function beginDownload(
+    name: string,
+    path: string,
+    size: number,
+  ): Promise<void> {
     // Read through the ref, not the captured value. The event subscription
     // that calls this is registered once on mount, so its closure holds the
     // settings as they were then: the folder just granted was saved and never
@@ -867,7 +889,7 @@ export function FilesScreen({
     const folder = folderUriRef.current;
     const usable = folder !== '' && (await hasFolderAccess(folder));
     if (!usable) {
-      pendingFolderPickRef.current = { name, path };
+      pendingFolderPickRef.current = { name, path, size };
       pickFolder().catch(e => {
         pendingFolderPickRef.current = null;
         log.error('folder pick failed', {
@@ -880,11 +902,16 @@ export function FilesScreen({
     try {
       const existing = await findInFolder(folder, name);
       if (existing !== null) {
-        setNameClash({ name, remotePath: path, existingUri: existing });
+        setNameClash({
+          name,
+          remotePath: path,
+          existingUri: existing,
+          size,
+        });
         return;
       }
       const uri = await createInFolder(folder, name);
-      void doDownload({ uri, name, size: -1 }, path);
+      void doDownload({ uri, name, size: -1 }, path, 0, size);
     } catch (e) {
       setTransfer({
         kind: 'download',
@@ -916,6 +943,8 @@ export function FilesScreen({
     void doDownload(
       { uri: c.existingUri, name: c.name, size: -1 },
       c.remotePath,
+      0,
+      c.size,
     );
   }
 
@@ -931,7 +960,12 @@ export function FilesScreen({
         // it rather than from the remote listing.
         const candidate = await freeNameIn(folder, c.name);
         const uri = await createInFolder(folder, candidate);
-        void doDownload({ uri, name: candidate, size: -1 }, c.remotePath);
+        void doDownload(
+          { uri, name: candidate, size: -1 },
+          c.remotePath,
+          0,
+          c.size,
+        );
       } catch (e) {
         setTransfer({
           kind: 'download',
@@ -1001,12 +1035,12 @@ export function FilesScreen({
           // whatever the store does.
           folderUriRef.current = f.uri;
           void update({ downloadFolderUri: f.uri }).catch(() => undefined);
-          void beginDownload(wanted.name, wanted.path);
+          void beginDownload(wanted.name, wanted.path, wanted.size);
           return;
         }
         const p = pendingDownloadRef.current;
         pendingDownloadRef.current = null;
-        if (p !== null) void doDownload(f, p);
+        if (p !== null) void doDownload(f, p.path, 0, p.size);
       }),
     ];
 
@@ -1331,7 +1365,14 @@ export function FilesScreen({
                 const name = menuFor;
                 if (name === null) return;
                 setMenuFor(null);
-                startDownload(name, joinPath(cwdRef.current, name));
+                // The listing already carries the size, so the progress bar
+                // has a denominator from the first byte.
+                const entry = entries?.find(e => e.name === name);
+                startDownload(
+                  name,
+                  joinPath(cwdRef.current, name),
+                  entry !== undefined && entry.size > 0 ? entry.size : -1,
+                );
               }}
             >
               <Icon name="file-down" />
