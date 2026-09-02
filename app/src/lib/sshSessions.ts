@@ -520,13 +520,20 @@ export function resizeSshHost(
   const first = !e.sized;
   e.size = size;
   e.sized = true;
-  // The first measurement unblocks opening; nothing is connected yet, so
-  // there is no resize to send.
-  if (first) {
-    notify(e);
-    return;
-  }
+  // The sized flag is read through useSyncExternalStore, so the first real
+  // measurement has to wake its subscribers.
+  if (first) notify(e);
   if (hostId === '') return;
+  // Every open tab is corrected, including on the host's first measurement.
+  //
+  // The viewport only mounts once a tab exists, so the first real grid always
+  // arrives after that tab has already connected at the 80x24 placeholder.
+  // Skipping the resize here left the remote pty at 80 columns for the life of
+  // the session: zsh then sized its partial-line marker to a width the screen
+  // does not have, wrapping it and stranding a `%` on the first prompt.
+  //
+  // Tabs with no runtime yet are not connected, so resizing them is a no-op on
+  // the native side rather than an error.
   for (const tab of e.state.tabs) {
     void remotlySsh
       .resize(hostId, tab.sessionId, size.cols, size.rows)
