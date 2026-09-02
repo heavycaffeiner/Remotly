@@ -141,6 +141,16 @@ func (s *Server) serveAttach(conn net.Conn, r io.Reader, sess *session.Session) 
 		}
 	}()
 
+	// The output stream ending means the session's process exited. Closing the
+	// connection wakes the input loop below, which is otherwise blocked on a
+	// client that has no reason to send anything: without this the client sat
+	// waiting on a session that was already gone, showing a dead screen it
+	// could not leave.
+	go func() {
+		<-done
+		_ = conn.Close()
+	}()
+
 	// Input runs on this goroutine. A read error means the client is gone,
 	// which ends the attach but never the session: the whole point is that
 	// the process outlives whoever is looking at it.
@@ -170,7 +180,8 @@ input:
 	// goroutine alone. The deferred Close above is idempotent.
 	at.Close()
 	<-done
-	// Best effort: the client may already be gone, which is the common case.
+	// Best effort: the client may already be gone, which is the common case,
+	// and the connection is closed outright when the session exited.
 	_ = WriteFrame(conn, FrameExit, nil)
 }
 

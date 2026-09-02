@@ -23,6 +23,15 @@ const detachLead = 0x01
 // detachHint is the sequence as shown to the user.
 const detachHint = "Ctrl-A d"
 
+// The alternate screen buffer. An attach runs on it so the session's output,
+// including any clear-screen it emits on the way out, never touches the
+// scrollback of the terminal the user launched from. 1049 saves the cursor
+// and switches in one sequence, and restores both on the way back.
+const (
+	enterAltScreen = "\x1b[?1049h"
+	leaveAltScreen = "\x1b[?1049l"
+)
+
 // attachTerminal runs a session on this terminal until the user detaches or
 // the process exits.
 //
@@ -49,6 +58,18 @@ func attachTerminal(path, sessionID string) (exited bool, err error) {
 		// Restoring is not optional: leaving the terminal raw makes the shell
 		// unusable after this returns, including on the error paths.
 		defer func() { _ = term.Restore(stdin, state) }()
+
+		// The session draws on the alternate screen, so its output is its own
+		// and the terminal is restored on the way out.
+		//
+		// Without this the session's bytes act on the user's terminal
+		// directly: a shell exiting emits a clear-screen and a
+		// clear-scrollback, which wiped the terminal the user was working in
+		// and left them staring at nothing. Leaving the alternate screen
+		// restores what was there before the attach, whatever the session
+		// wrote.
+		_, _ = os.Stdout.WriteString(enterAltScreen)
+		defer func() { _, _ = os.Stdout.WriteString(leaveAltScreen) }()
 	}
 
 	cols, rows := localctl.TerminalSize(os.Stdout, term.GetSize)
