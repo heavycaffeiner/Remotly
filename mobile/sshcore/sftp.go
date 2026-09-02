@@ -3,6 +3,7 @@ package sshcore
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net"
@@ -56,6 +57,26 @@ type Sftp struct {
 	clientMu  sync.Mutex
 	sshClient *ssh.Client
 	client    *sftp.Client
+}
+
+// guard converts a panic into an error.
+//
+// These methods are called from Java threads through gomobile. A panic that
+// unwinds out of an exported function crosses the JNI boundary and aborts the
+// whole process, so the app dies with no diagnosis instead of the transfer
+// failing. That is reachable in practice: closing the connection while a
+// download goroutine is still inside a read leaves pkg/sftp reading from a
+// closed client, and a library panic there is indistinguishable from a crash
+// in the app itself.
+//
+// Recovering here does not make the operation succeed; it reports it as a
+// failure the caller can surface. Callers use it with a named error return:
+//
+//	func (s *Sftp) Op() (err error) { defer guard(&err); ... }
+func guard(err *error) {
+	if r := recover(); r != nil {
+		*err = fmt.Errorf("sftp: internal failure: %v", r)
+	}
 }
 
 // NewSftp creates a handle for an SFTP connection without connecting.
@@ -139,7 +160,8 @@ func (s *Sftp) DecideHostKey(accept bool) {
 // directory-encoding documented in this package (see encodeEntries). Names are
 // passed through untouched as UTF-8 bytes, so NFD names round-trip unchanged.
 // The caller (Kotlin) decodes the bytes into SftpEntry values.
-func (s *Sftp) List(path string) ([]byte, error) {
+func (s *Sftp) List(path string) (out []byte, err error) {
+	defer guard(&err)
 	c := s.sftpClient()
 	if c == nil {
 		return nil, errors.New("sftp not connected")
@@ -156,7 +178,8 @@ func (s *Sftp) List(path string) ([]byte, error) {
 }
 
 // Lstat stats a path without following a final symlink.
-func (s *Sftp) Lstat(path string) (*SftpEntry, error) {
+func (s *Sftp) Lstat(path string) (out *SftpEntry, err error) {
+	defer guard(&err)
 	c := s.sftpClient()
 	if c == nil {
 		return nil, errors.New("sftp not connected")
@@ -170,7 +193,8 @@ func (s *Sftp) Lstat(path string) (*SftpEntry, error) {
 }
 
 // Mkdir creates a directory.
-func (s *Sftp) Mkdir(path string) error {
+func (s *Sftp) Mkdir(path string) (err error) {
+	defer guard(&err)
 	c := s.sftpClient()
 	if c == nil {
 		return errors.New("sftp not connected")
@@ -179,7 +203,8 @@ func (s *Sftp) Mkdir(path string) error {
 }
 
 // Rename moves or renames a path.
-func (s *Sftp) Rename(oldPath, newPath string) error {
+func (s *Sftp) Rename(oldPath, newPath string) (err error) {
+	defer guard(&err)
 	c := s.sftpClient()
 	if c == nil {
 		return errors.New("sftp not connected")
@@ -188,7 +213,8 @@ func (s *Sftp) Rename(oldPath, newPath string) error {
 }
 
 // RemoveFile removes a file. Directories use RemoveDir.
-func (s *Sftp) RemoveFile(path string) error {
+func (s *Sftp) RemoveFile(path string) (err error) {
+	defer guard(&err)
 	c := s.sftpClient()
 	if c == nil {
 		return errors.New("sftp not connected")
@@ -197,7 +223,8 @@ func (s *Sftp) RemoveFile(path string) error {
 }
 
 // RemoveDir removes an empty directory. Non-recursive.
-func (s *Sftp) RemoveDir(path string) error {
+func (s *Sftp) RemoveDir(path string) (err error) {
+	defer guard(&err)
 	c := s.sftpClient()
 	if c == nil {
 		return errors.New("sftp not connected")
@@ -206,7 +233,8 @@ func (s *Sftp) RemoveDir(path string) error {
 }
 
 // OpenRead opens a file for chunked reading.
-func (s *Sftp) OpenRead(path string) (*SftpFile, error) {
+func (s *Sftp) OpenRead(path string) (out *SftpFile, err error) {
+	defer guard(&err)
 	c := s.sftpClient()
 	if c == nil {
 		return nil, errors.New("sftp not connected")
@@ -223,7 +251,8 @@ func (s *Sftp) OpenRead(path string) (*SftpFile, error) {
 // This is what makes an interrupted upload resumable: the bytes already on the
 // server are kept and writing continues after them. Returns the offset to
 // resume from through the file's Offset method.
-func (s *Sftp) OpenAppend(path string) (*SftpFile, error) {
+func (s *Sftp) OpenAppend(path string) (out *SftpFile, err error) {
+	defer guard(&err)
 	c := s.sftpClient()
 	if c == nil {
 		return nil, errors.New("sftp not connected")
@@ -242,7 +271,8 @@ func (s *Sftp) OpenAppend(path string) (*SftpFile, error) {
 
 // OpenWrite opens a file for chunked writing. truncate empties an existing
 // file; exclusive fails if the file already exists.
-func (s *Sftp) OpenWrite(path string, truncate, exclusive bool) (*SftpFile, error) {
+func (s *Sftp) OpenWrite(path string, truncate, exclusive bool) (out *SftpFile, err error) {
+	defer guard(&err)
 	c := s.sftpClient()
 	if c == nil {
 		return nil, errors.New("sftp not connected")
@@ -266,16 +296,31 @@ func (s *Sftp) Close() {
 	s.closeOnce.Do(func() {
 		close(s.closeCh)
 		s.clientMu.Lock()
+		// Deferred, not unlocked at the end of the block: closeSafely can
+		// return after a recovered panic, and an unlock that is skipped on
+		// that path would leave every later sftpClient call blocked forever.
+		// A hang is worse than the crash the recover is there to prevent.
+		defer s.clientMu.Unlock()
 		if s.client != nil {
-			_ = s.client.Close()
+			closeSafely(s.client)
 			s.client = nil
 		}
 		if s.sshClient != nil {
-			_ = s.sshClient.Close()
+			closeSafely(s.sshClient)
 			s.sshClient = nil
 		}
-		s.clientMu.Unlock()
 	})
+}
+
+// closeSafely closes c, absorbing a panic.
+//
+// Close races the transfer goroutines by design: the caller cancels them
+// first, but one can still be inside a read, and a library panic on that path
+// would otherwise cross the JNI boundary and abort the process. Scoped to the
+// single call so a recover cannot skip the caller's remaining cleanup.
+func closeSafely(c io.Closer) {
+	defer func() { _ = recover() }()
+	_ = c.Close()
 }
 
 func (s *Sftp) sftpClient() *sftp.Client {
@@ -314,11 +359,12 @@ func (f *SftpFile) Offset() int64 { return f.offset }
 
 // SeekTo moves the read position, so a download can resume from what is
 // already on disk rather than starting over.
-func (f *SftpFile) SeekTo(offset int64) error {
+func (f *SftpFile) SeekTo(offset int64) (err error) {
+	defer guard(&err)
 	if offset < 0 {
 		return errors.New("offset must not be negative")
 	}
-	_, err := f.f.Seek(offset, io.SeekStart)
+	_, err = f.f.Seek(offset, io.SeekStart)
 	if err != nil {
 		return err
 	}
@@ -327,7 +373,8 @@ func (f *SftpFile) SeekTo(offset int64) error {
 }
 
 // Size returns the file size in bytes.
-func (f *SftpFile) Size() (int64, error) {
+func (f *SftpFile) Size() (size int64, err error) {
+	defer guard(&err)
 	fi, err := f.f.Stat()
 	if err != nil {
 		return 0, err
@@ -351,7 +398,10 @@ func (f *SftpFile) Read(p []byte) (int, error) { return f.f.Read(p) }
 // This exists because a []byte parameter crosses the binding as a copy. The
 // download path used Read and wrote the caller's untouched buffer to disk,
 // producing a file of the right length full of zero bytes.
-func (f *SftpFile) ReadChunk(max int) ([]byte, error) {
+// A download spends nearly all of its time here, so this is also where a
+// connection torn down underneath the transfer surfaces.
+func (f *SftpFile) ReadChunk(max int) (out []byte, err error) {
+	defer guard(&err)
 	if max <= 0 {
 		return nil, errors.New("chunk size must be positive")
 	}
@@ -375,10 +425,16 @@ func (f *SftpFile) ReadChunk(max int) ([]byte, error) {
 //
 // Safe across the binding: the bytes travel into Go and nothing is expected to
 // come back in the caller's slice.
-func (f *SftpFile) Write(p []byte) (int, error) { return f.f.Write(p) }
+func (f *SftpFile) Write(p []byte) (n int, err error) {
+	defer guard(&err)
+	return f.f.Write(p)
+}
 
 // Close closes the handle.
-func (f *SftpFile) Close() error { return f.f.Close() }
+func (f *SftpFile) Close() (err error) {
+	defer guard(&err)
+	return f.f.Close()
+}
 
 // sftpAuthMethods builds the auth methods for an SFTP connect.
 func sftpAuthMethods(cfg *Config, signer ssh.Signer) []ssh.AuthMethod {
