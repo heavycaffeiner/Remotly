@@ -61,18 +61,47 @@ func TestDevicePairAndVerify(t *testing.T) {
 	}
 }
 
-func TestDevicePairDuplicate(t *testing.T) {
+// Re-pairing a device that is already paired refreshes it instead of failing.
+// A user who reinstalled the app scans a fresh token with the same key, and
+// rejecting that left them with no way back in.
+func TestDeviceRepairRefreshes(t *testing.T) {
+	s := testDeviceStore(t)
+	pub := pubByte(1)
+	first, err := s.Pair(pub, "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := s.Pair(pub, "phone-2")
+	if err != nil {
+		t.Fatalf("re-pair = %v, want success", err)
+	}
+	if again.Name != "phone-2" {
+		t.Fatalf("name = %q, want the name from the new pairing", again.Name)
+	}
+	if again.PairedAt.Before(first.PairedAt) {
+		t.Fatal("re-pair moved PairedAt backwards")
+	}
+	// Still one device: the same key must not be stored twice.
+	if got := s.ActiveCount(); got != 1 {
+		t.Fatalf("ActiveCount = %d, want 1", got)
+	}
+	if got, err := s.Verify(pub); err != nil || got.Name != "phone-2" {
+		t.Fatalf("Verify after re-pair = %+v, %v", got, err)
+	}
+}
+
+// A revoked device must not be able to re-pair itself.
+func TestDeviceRevokedCannotRepair(t *testing.T) {
 	s := testDeviceStore(t)
 	pub := pubByte(1)
 	if _, err := s.Pair(pub, "phone"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Pair(pub, "phone-2"); !errors.Is(err, ErrDeviceDuplicate) {
-		t.Fatalf("second Pair = %v, want ErrDeviceDuplicate", err)
+	if err := s.Revoke(pub); err != nil {
+		t.Fatal(err)
 	}
-	// The original record is untouched.
-	if got, err := s.Verify(pub); err != nil || got.Name != "phone" {
-		t.Fatalf("Verify after duplicate = %+v, %v", got, err)
+	if _, err := s.Pair(pub, "phone"); !errors.Is(err, ErrDeviceRevoked) {
+		t.Fatalf("re-pair after revoke = %v, want ErrDeviceRevoked", err)
 	}
 }
 

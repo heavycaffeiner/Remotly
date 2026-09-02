@@ -22,12 +22,11 @@ const (
 
 // Errors returned by the device store. Callers match them with errors.Is and
 // map them to the protocol close reasons: ErrDeviceUnknown -> device_unknown,
-// ErrDeviceRevoked -> device_revoked, ErrDeviceDuplicate -> device_duplicate.
+// ErrDeviceRevoked -> device_revoked.
 var (
-	ErrDeviceUnknown   = errors.New("pairing: device unknown")
-	ErrDeviceRevoked   = errors.New("pairing: device revoked")
-	ErrDeviceDuplicate = errors.New("pairing: device already paired")
-	ErrDeviceLimit     = errors.New("pairing: device store limit reached")
+	ErrDeviceUnknown = errors.New("pairing: device unknown")
+	ErrDeviceRevoked = errors.New("pairing: device revoked")
+	ErrDeviceLimit   = errors.New("pairing: device store limit reached")
 )
 
 // Device is one paired-device record. Public is the app's long-term X25519
@@ -112,9 +111,16 @@ func LoadDeviceStore(dir string) (*DeviceStore, error) {
 	return s, nil
 }
 
-// Pair records a newly paired device. It rejects a key that is already paired
-// (ErrDeviceDuplicate) or revoked (ErrDeviceRevoked), and rejects when the
-// store is at capacity (ErrDeviceLimit). On success it persists the store.
+// Pair records a newly paired device. It rejects a revoked key
+// (ErrDeviceRevoked) and rejects when the store is at capacity
+// (ErrDeviceLimit). On success it persists the store.
+//
+// Re-pairing a device that is already paired succeeds and refreshes its name
+// and timestamp. The user reached a pairing screen and scanned a fresh
+// one-time token, which is the same proof of physical access that the first
+// pairing required; the key is unchanged, so there is nothing to conflict
+// with. Refusing it stranded anyone who reinstalled the app or cleared its
+// storage, with no way back in short of revoking the device from the CLI.
 func (s *DeviceStore) Pair(pub [32]byte, name string) (Device, error) {
 	if err := validateName(name, maxDeviceName); err != nil {
 		return Device{}, fmt.Errorf("pairing: device name: %w", err)
@@ -125,7 +131,12 @@ func (s *DeviceStore) Pair(pub [32]byte, name string) (Device, error) {
 		if existing.Revoked {
 			return Device{}, ErrDeviceRevoked
 		}
-		return Device{}, ErrDeviceDuplicate
+		existing.Name = name
+		existing.PairedAt = s.now()
+		if err := s.saveLocked(); err != nil {
+			return Device{}, err
+		}
+		return *existing, nil
 	}
 	if len(s.devices) >= maxDevices {
 		return Device{}, ErrDeviceLimit

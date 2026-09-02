@@ -441,8 +441,6 @@ func (c *conn) authClose(err error) ctrlFail {
 		return ctrlFail{closeError{code: protocol.CloseAuth, reason: "device_unknown"}}
 	case errors.Is(err, pairing.ErrDeviceRevoked):
 		return ctrlFail{closeError{code: protocol.CloseAuth, reason: "device_revoked"}}
-	case errors.Is(err, pairing.ErrDeviceDuplicate):
-		return ctrlFail{closeError{code: protocol.CloseAuth, reason: "device_duplicate"}}
 	default:
 		return ctrlFail{closeError{code: protocol.CloseLimit, reason: "device limit"}}
 	}

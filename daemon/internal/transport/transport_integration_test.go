@@ -283,7 +283,10 @@ func TestCloseDeviceUnknownKeyIsNoOp(t *testing.T) {
 	e.srv.CloseDevice(none)
 }
 
-func TestPairDuplicateDevice(t *testing.T) {
+// A phone that is already paired can pair again with a fresh token. This is
+// the recovery path after an app reinstall: same device key, new one-time
+// token, and it must connect rather than be refused.
+func TestPairExistingDevice(t *testing.T) {
 	e := newEnv(t, envCfg{})
 	app := newAppKey(t)
 
@@ -292,10 +295,8 @@ func TestPairDuplicateDevice(t *testing.T) {
 	c1.close(t, websocket.StatusNormalClosure, "bye")
 
 	c2 := e.newClientPair(t, app, e.tokens.Create())
-	if err := c2.sendFrame(protocol.ChannelCtrl, 0, helloFrame(1, app)); err != nil {
-		t.Fatalf("send hello: %v", err)
-	}
-	c2.expectClose(t, protocol.CloseAuth, "device_duplicate")
+	c2.hello(t, e, "phone")
+	c2.close(t, websocket.StatusNormalClosure, "bye")
 }
 
 func TestBadHello(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -283,8 +284,12 @@ func relayID(id *pairing.Identity) [16]byte {
 	return out
 }
 
-// lanHints returns the daemon's reachable LAN addresses plus the LAN port. It
+// lanHints returns the daemon's reachable addresses plus the LAN port,
+// ordered so the address a phone is most likely to reach comes first. It
 // returns no hints when LAN exposure is disabled.
+//
+// Interfaces are walked individually rather than through net.InterfaceAddrs
+// so a container or VM bridge can be recognised by name and skipped.
 func (a *App) lanHints() []pairing.Hint {
 	if !a.cfg.Listen.LAN {
 		return nil
@@ -294,63 +299,116 @@ func (a *App) lanHints() []pairing.Hint {
 	if hn := daemonName(); hn != "" {
 		hints = append(hints, pairing.Hint{Kind: pairing.HintName, Addr: hn, Port: port})
 	}
-	addrs, err := net.InterfaceAddrs()
+
+	type ranked struct {
+		hint pairing.Hint
+		rank int
+	}
+	var found []ranked
+	ifaces, err := net.Interfaces()
 	if err == nil {
-		for _, addr := range addrs {
-			ipn, ok := addr.(*net.IPNet)
-			if !ok {
+		for _, iface := range ifaces {
+			if iface.Flags&net.FlagUp == 0 || virtualInterface(iface.Name) {
 				continue
 			}
-			ip := ipn.IP
-			if !dialableHint(ip) {
+			addrs, err := iface.Addrs()
+			if err != nil {
 				continue
 			}
-			if ip4 := ip.To4(); ip4 != nil {
-				hints = append(hints, pairing.Hint{Kind: pairing.HintIPv4, Addr: ip4.String(), Port: port})
-			} else {
-				hints = append(hints, pairing.Hint{Kind: pairing.HintIPv6, Addr: ip.String(), Port: port})
+			for _, addr := range addrs {
+				ipn, ok := addr.(*net.IPNet)
+				if !ok {
+					continue
+				}
+				rank, keep := dialableHint(ipn.IP)
+				if !keep {
+					continue
+				}
+				h := pairing.Hint{Kind: pairing.HintIPv6, Addr: ipn.IP.String(), Port: port}
+				if ip4 := ipn.IP.To4(); ip4 != nil {
+					h = pairing.Hint{Kind: pairing.HintIPv4, Addr: ip4.String(), Port: port}
+				}
+				found = append(found, ranked{hint: h, rank: rank})
 			}
 		}
 	}
+	// Stable, so addresses of equal rank keep the order the kernel reported.
+	sort.SliceStable(found, func(i, j int) bool { return found[i].rank < found[j].rank })
+	for _, r := range found {
+		hints = append(hints, r.hint)
+	}
+
 	if len(hints) > pairing.MaxURIHints {
 		hints = hints[:pairing.MaxURIHints]
 	}
 	return hints
 }
 
+// Dial order for an advertised address: lower is dialed first. The app tries
+// hints in turn, so the address most likely to answer belongs at the front.
+const (
+	rankOverlay  = 0 // Tailscale and similar: works off-LAN, needs no firewall hole
+	rankLAN      = 1 // ordinary LAN or routable v4: works on the same network
+	rankGlobalV6 = 2 // global IPv6: usually present, rarely the shortest path
+)
+
 // dialableHint reports whether an interface address is worth advertising to a
-// phone on the same network.
+// phone, and how early to advertise it.
 //
-// A pairing URI carries every hint the daemon offers and the app dials them
-// until one answers, so an address the phone cannot route to costs a full
-// connect timeout. A developer machine typically has several: container and
-// VM bridges, a VPN's carrier-grade NAT range, unique-local IPv6 from a
-// container manager. None of those reach a phone on the LAN, and advertising
-// them made pairing look like it had hung.
+// A pairing URI carries every hint the daemon offers and the app dials them in
+// turn, so an address the phone cannot route to costs a connect timeout before
+// the next one is tried. A developer machine typically has several that go
+// nowhere: container and VM bridges, unique-local IPv6 from a container
+// manager. Those are dropped.
 //
-// Only ordinary private LAN addresses are kept. A public address is kept too:
-// a daemon on a routable address is reachable, and refusing it would break
-// that setup to tidy up a developer laptop.
-func dialableHint(ip net.IP) bool {
+// The carrier-grade NAT range (100.64.0.0/10) is what Tailscale and similar
+// overlays assign. An earlier version dropped it as unroutable, which was
+// wrong: when the phone is on the same tailnet that address is the one that
+// works, and often the only one, since it needs no inbound firewall rule. It
+// is advertised first.
+func dialableHint(ip net.IP) (int, bool) {
 	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
 		ip.IsUnspecified() || ip.IsMulticast() {
-		return false
+		return 0, false
 	}
 	if ip4 := ip.To4(); ip4 != nil {
-		// 100.64.0.0/10, the carrier-grade NAT range Tailscale and similar
-		// overlays use. Reachable only through that overlay, never over the
-		// LAN the app is pairing on.
 		if ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
-			return false
+			return rankOverlay, true
 		}
-		return true
+		return rankLAN, true
 	}
-	// Unique-local IPv6 (fc00::/7). Container and VM managers hand these out
-	// per host, and they do not route to anything else on the network.
+	// Tailscale's own IPv6 range (fd7a:115c:a1e0::/48). It is unique-local,
+	// but it is the overlay's address and reaches the phone over the tailnet.
+	if len(ip) == net.IPv6len && ip[0] == 0xfd && ip[1] == 0x7a &&
+		ip[2] == 0x11 && ip[3] == 0x5c && ip[4] == 0xa1 && ip[5] == 0xe0 {
+		return rankOverlay, true
+	}
+	// Other unique-local IPv6 (fc00::/7). A host gets these from a container
+	// manager or a router that hands out ULA alongside a real prefix; neither
+	// is a better route to the phone than the addresses above.
 	if len(ip) == net.IPv6len && ip[0]&0xfe == 0xfc {
-		return false
+		return 0, false
 	}
-	return true
+	return rankGlobalV6, true
+}
+
+// virtualInterface reports whether an interface belongs to a container or VM
+// manager rather than a real network.
+//
+// The host holds the gateway address of a network that exists only on this
+// machine, so a phone never reaches it, and advertising one costs a connect
+// timeout on every pairing. Matching on the name is how these are identified:
+// the address ranges they use are ordinary private ranges that a real LAN uses
+// too, so the address alone cannot tell them apart.
+func virtualInterface(name string) bool {
+	for _, p := range [...]string{
+		"docker", "virbr", "incusbr", "lxcbr", "lxdbr", "br-", "veth", "vmnet", "vboxnet",
+	} {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // daemonName returns a sanitized host name for display in pairing URIs and

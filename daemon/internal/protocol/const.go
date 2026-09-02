@@ -180,7 +180,6 @@ const (
 	CodeCursorOutOfRange = "cursor_out_of_range"
 	CodeDeviceUnknown    = "device_unknown"
 	CodeDeviceRevoked    = "device_revoked"
-	CodeDeviceDuplicate  = "device_duplicate"
 	CodeTokenUnknown     = "token_unknown"
 	CodeTokenExpired     = "token_expired"
 	CodeTokenUsed        = "token_used"
