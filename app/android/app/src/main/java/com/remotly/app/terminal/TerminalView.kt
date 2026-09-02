@@ -124,6 +124,14 @@ class TerminalView @JvmOverloads constructor(
   /** The size the terminal is actually running at, matching the pty. */
   private var appliedCols = 0
   private var appliedRows = 0
+  /**
+   * Scrollbar total and viewport height from before a height shrink, held
+   * until the height comes back. A shrink can push rows the screen was
+   * showing into the scrollback, and the matching grow pads with blanks
+   * instead of pulling them back; this is what the correction is measured
+   * against. Null when no shrink is outstanding.
+   */
+  private var preShrink: LongArray? = null
   private var inputConnection: TerminalInputConnection? = null
   private var sessionReady = false
   private var startupErrorReported = false
@@ -1015,17 +1023,57 @@ class TerminalView @JvmOverloads constructor(
    *
    * Called once the remote has the same dimensions, so the coordinates an
    * application sends are interpreted against the grid it is drawing for.
+   *
+   * Shrinking the height moves rows off the screen. When the cursor sits above
+   * the last row, which is where a program that redraws its own output leaves
+   * it, there are no trailing blanks to drop and real rows are pushed into the
+   * scrollback instead. Growing back appends blank rows rather than pulling
+   * those back down, so the screen ends up padded with blanks while the newest
+   * output sits just above the viewport: the keyboard opening and closing left
+   * the output looking cut off with no way to scroll down to it.
+   *
+   * The rows are not lost, only re-partitioned, and the count is exactly how
+   * much the total grew while the visible height stayed the same. Scrolling up
+   * by that much puts the newest real row back at the bottom of the view.
    */
   fun applyRemoteSize(remoteCols: Int, remoteRows: Int) {
     if (handle == 0L || remoteCols <= 0 || remoteRows <= 0) return
     if (remoteCols == appliedCols && remoteRows == appliedRows) return
+    val shrinking = remoteRows < appliedRows
+    // Captured on the way down and held until the height comes back: the two
+    // resizes are separate calls, and comparing within either one on its own
+    // sees no change to correct.
+    if (shrinking && preShrink == null && atBottom()) {
+      val bar = RemotlyTerminal.nativeScrollbar(handle)
+      if (bar != null && bar.size >= 3) preShrink = longArrayOf(bar[0], bar[2])
+    }
     appliedCols = remoteCols
     appliedRows = remoteRows
-    // The viewport needs no correction: libghostty keeps it on the active
-    // area across a resize, and forcing it overrode an application drawing
-    // above the last row.
     RemotlyTerminal.nativeResize(handle, remoteCols, remoteRows, cellWidthPx, cellHeightPx)
+    compensateStrandedRows()
     invalidate()
+  }
+
+  /**
+   * Scrolls back over rows the shrink pushed into the scrollback.
+   *
+   * Runs when the viewport height returns to what it was before the shrink,
+   * which is the keyboard closing again. Any growth in the total across the
+   * pair is padding appended below content that used to be on screen, so
+   * scrolling up by that much restores the view. Output that arrived while the
+   * keyboard was open also grows the total, and scrolling back over it is the
+   * same correction: those rows are above the padding too.
+   */
+  private fun compensateStrandedRows() {
+    val held = preShrink ?: return
+    val after = RemotlyTerminal.nativeScrollbar(handle) ?: return
+    if (after.size < 3) return
+    // Still shrunk: wait for the height to come back.
+    if (after[2] != held[1]) return
+    preShrink = null
+    val stranded = after[0] - held[0]
+    if (stranded <= 0 || stranded >= after[2]) return
+    RemotlyTerminal.nativeScrollViewport(handle, -stranded.toInt())
   }
 
   private fun createTerminal() {

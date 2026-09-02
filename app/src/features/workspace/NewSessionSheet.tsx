@@ -4,7 +4,7 @@
 // The app never assembles a command string of its own and sends it to a remote
 // shell.
 
-import React, { useState } from 'react';
+import React from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import {
   Dialog,
@@ -34,12 +34,13 @@ export function NewSessionSheet({
   onDismiss,
   onCreate,
 }: NewSessionSheetProps): React.ReactElement {
-  const [pending, setPending] = useState<string | null>(null);
-  const locked = busy || pending !== null;
-
+  // `busy` is the only guard against a double tap. It is owned by the screen,
+  // which sets it around the create and clears it in a finally, so it is
+  // false again for the next session. A local latch here was never cleared:
+  // the dialog stays mounted across open and close, so after one session the
+  // sheet refused every later tap and only one session could be created.
   const start = (kind: 'shell' | 'agent', preset?: Preset) => {
-    if (locked) return;
-    setPending(preset?.name ?? 'shell');
+    if (busy) return;
     onCreate(kind, preset);
   };
 
@@ -54,7 +55,7 @@ export function NewSessionSheet({
             title="Shell"
             description="Your login shell, with your full environment."
             icon="terminal"
-            disabled={locked}
+            disabled={busy}
             onPress={() => start('shell')}
           />
           {presets.map(p => (
@@ -62,7 +63,7 @@ export function NewSessionSheet({
               key={p.name}
               title={p.name}
               icon="bot"
-              disabled={locked}
+              disabled={busy}
               onPress={() => start('agent', p)}
             />
           ))}
