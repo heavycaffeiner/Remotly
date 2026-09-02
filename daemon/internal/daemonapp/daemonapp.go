@@ -195,6 +195,13 @@ func (a *App) Run(ctx context.Context) error {
 			a.transport.NotifyGate()
 		}
 	})
+	// A rename from the CLI or the TUI is a metadata change like any other:
+	// every connected app shows the session list and needs the new name.
+	a.local.SetOnSessionUpdate(func(m session.Metadata) {
+		if a.transport != nil {
+			a.transport.NotifySessionUpdate(m)
+		}
+	})
 	if err := a.local.Start(); err != nil {
 		return err
 	}

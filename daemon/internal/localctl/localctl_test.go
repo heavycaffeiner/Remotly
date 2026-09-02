@@ -26,6 +26,7 @@ type testEnv struct {
 	tokens   *pairing.TokenManager
 	devices  *pairing.DeviceStore
 	sessions *session.Manager
+	srv      *Server
 }
 
 // startServer boots a localctl server over real pairing state and an empty
@@ -66,6 +67,7 @@ func startServer(t *testing.T) *testEnv {
 		sessions: sessions,
 	}
 	srv := NewServer(env.path, nil, tokens, devices, sessions, buildURI)
+	env.srv = srv
 	if err := srv.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}

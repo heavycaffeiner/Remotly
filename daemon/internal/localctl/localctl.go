@@ -133,6 +133,12 @@ type Server struct {
 	// next safety poll.
 	onTokenIssued func()
 
+	// onSessionUpdate, if set, is called after a change to a session's
+	// metadata made through this channel. Connected apps show the session
+	// list, so a rename here has to reach them the same way one made from a
+	// phone does.
+	onSessionUpdate func(m session.Metadata)
+
 	mu sync.Mutex
 	ln net.Listener
 }
@@ -147,6 +153,12 @@ func (s *Server) SetOnDevicesChanged(f func(pub [32]byte)) {
 // minted. It is safe to call before Start.
 func (s *Server) SetOnTokenIssued(f func()) {
 	s.onTokenIssued = f
+}
+
+// SetOnSessionUpdate installs the callback fired after a session's metadata
+// changes through this channel. It is safe to call before Start.
+func (s *Server) SetOnSessionUpdate(f func(m session.Metadata)) {
+	s.onSessionUpdate = f
 }
 
 // NewServer assembles a local control server over the given state. log may be
@@ -340,8 +352,13 @@ func (s *Server) dispatch(req Request) Response {
 		if err != nil {
 			return Response{OK: false, Err: err.Error()}
 		}
-		if _, err := sess.SetTitle(req.Title); err != nil {
+		m, err := sess.SetTitle(req.Title)
+		if err != nil {
 			return Response{OK: false, Err: err.Error()}
+		}
+		// A phone showing the session list has to see the new name too.
+		if s.onSessionUpdate != nil {
+			s.onSessionUpdate(m)
 		}
 		return Response{OK: true}
 	case "session_create":

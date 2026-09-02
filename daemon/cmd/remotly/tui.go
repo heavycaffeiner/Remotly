@@ -110,10 +110,18 @@ func (t *tui) refreshLoop(stop <-chan struct{}) {
 			return
 		case <-tick.C:
 			sessions, err := loadSessions(t.path)
-			if err != nil || sameSessions(sessions, t.sessions) {
+			if err != nil {
 				continue
 			}
-			t.app.QueueUpdateDraw(func() { t.setSessions(sessions) })
+			// The comparison runs on the UI goroutine because that is the one
+			// that owns t.sessions: reading it here would race the redraw
+			// that writes it.
+			t.app.QueueUpdateDraw(func() {
+				if sameSessions(sessions, t.sessions) {
+					return
+				}
+				t.setSessions(sessions)
+			})
 		}
 	}
 }
