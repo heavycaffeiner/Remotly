@@ -60,14 +60,31 @@ const HINT_LABELS: Record<number, string> = {
 };
 
 /**
- * How many pairing targets are dialed at once.
+ * How long one pairing target may take before the next is tried.
  *
- * The transport hub caps the total number of hosts, and each in-flight dial
- * holds one of those slots, so this stays well under that cap to leave room
- * for the hosts the user already has connected. Three is enough to hide the
- * connect timeout of two dead addresses behind the one that answers.
+ * A pairing token is single-use, so the targets cannot be raced: they are
+ * dialed in turn, and this bounds what an unreachable address costs. The
+ * transport's own connect timeout is longer and covers a reachable host that
+ * is merely slow; this is the budget for deciding an address is dead.
  */
-const MAX_PARALLEL_DIALS = 3;
+const DIAL_TIMEOUT_MS = 3000;
+
+/**
+ * Rejects when a promise has not settled within ms.
+ *
+ * The underlying dial keeps running: the transport is closed by the caller,
+ * which is what releases the connection slot it holds.
+ */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  const { promise, reject } = Promise.withResolvers<never>();
+  const timer = setTimeout(
+    () => reject(new Error('pairing: no answer from this address')),
+    ms,
+  );
+  return Promise.race([p, promise]).finally(() =>
+    clearTimeout(timer),
+  ) as Promise<T>;
+}
 
 export function PairingScreen({
   route,
@@ -192,82 +209,45 @@ export function PairingScreen({
       let connected = false;
       let lastError: unknown = null;
 
-      // Targets are dialed by a small pool of workers rather than one after
-      // another. A daemon advertises every address it has and some are
-      // unreachable from the phone; each of those costs the full connect
-      // timeout, so a strict sequence made pairing sit on "Connecting" for
-      // minutes before it reported anything.
+      // Targets are dialed one at a time. A pairing token is single-use: the
+      // first handshake to reach the daemon claims it and every other one is
+      // refused with token_used, so two dials racing the same token cannot
+      // both succeed and may both fail. Concurrency here is not an
+      // optimisation with a cost, it is incorrect.
       //
-      // The pool is bounded because the hub keys a connection by host id and
-      // caps the total at MAX_HOSTS: dialing every hint at once made each
-      // attempt past the cap fail with "too many hosts", so pairing failed
-      // outright on a machine advertising many addresses. A worker also
-      // closes its own failed attempt before taking the next target, so the
-      // slots it used do not accumulate.
-      if (preview.targets.length > 0) {
-        const attemptId = (i: number): string => `${id}-${i}`;
-        const targets = preview.targets;
-        let next = 0;
-        let winner: string | null = null;
-
-        const worker = async (): Promise<void> => {
-          for (;;) {
-            if (winner !== null) return;
-            const i = next++;
-            if (i >= targets.length) return;
-            try {
-              await getTransport().connect(attemptId(i), targets[i] as string, {
-                tokenID,
-                psk,
-              });
-            } catch (e) {
-              lastError = e;
-              // The hub keeps no entry for a failed connect, but closing is
-              // cheap and covers a failure that landed after the transport
-              // was registered.
-              void getTransport()
-                .close(attemptId(i))
-                .catch(() => undefined);
-              const err = toRemotlyError(e, 'network');
-              // A non-network failure means the payload itself is wrong, so
-              // no other address will do better.
-              if (err.kind !== 'network') throw e;
-              continue;
-            }
-            if (winner === null) {
-              winner = attemptId(i);
-            } else {
-              // Another worker won while this dial was in flight.
-              void getTransport()
-                .close(attemptId(i))
-                .catch(() => undefined);
-            }
-            return;
-          }
-        };
-
-        const pool = Math.min(MAX_PARALLEL_DIALS, targets.length);
-        const results = await Promise.allSettled(
-          Array.from({ length: pool }, worker),
-        );
-
-        if (winner !== null) {
-          tempHostId.current = winner;
+      // The slowness that made this look worth parallelising belongs to the
+      // connect timeout, which is bounded separately: a dead address gives up
+      // in DIAL_TIMEOUT_MS rather than the transport's full window.
+      for (let i = 0; i < preview.targets.length; i++) {
+        const target = preview.targets[i] as string;
+        const attemptId = `${id}-${i}`;
+        try {
+          await withTimeout(
+            getTransport().connect(attemptId, target, { tokenID, psk }),
+            DIAL_TIMEOUT_MS,
+          );
+          tempHostId.current = attemptId;
           connected = true;
-        } else {
-          const fatal = results.find(r => r.status === 'rejected');
-          if (fatal !== undefined) {
+          break;
+        } catch (e) {
+          lastError = e;
+          // The attempt may have registered a transport before failing, and a
+          // timed-out dial is still running inside the hub. Closing releases
+          // the slot either way.
+          void getTransport()
+            .close(attemptId)
+            .catch(() => undefined);
+          const err = toRemotlyError(e, 'network');
+          // Only a network failure is worth trying the next address for. An
+          // auth or protocol failure means this payload will not work
+          // anywhere, and a claimed token will not un-claim itself.
+          if (err.kind !== 'network') {
             await closeTemp();
             connecting.current = false;
             if (!disposed.current) {
               dispatch({
                 type: 'connectFailed',
-                message: userFacingMessage(
-                  toRemotlyError(
-                    (fatal as PromiseRejectedResult).reason,
-                    'network',
-                  ),
-                ),
+                message: userFacingMessage(err),
               });
             }
             return;
