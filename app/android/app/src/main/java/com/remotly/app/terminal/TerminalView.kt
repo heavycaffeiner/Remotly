@@ -921,13 +921,8 @@ class TerminalView @JvmOverloads constructor(
    * A geometry that cannot be read answers false, so the scroll is attempted
    * rather than snapped.
    */
-  private fun withinSnapOfBottom(rows: Int): Boolean {
-    val bar = scrollbar() ?: return false
-    val total = bar[0]
-    val visible = bar[2]
-    if (total <= visible) return false
-    return bar[1] + visible + rows >= total
-  }
+  private fun withinSnapOfBottom(rows: Int): Boolean =
+    ScrollGeometry.withinSnapOfBottom(scrollbar(), rows)
 
   /**
    * Pins the viewport back to the active area.
@@ -938,14 +933,15 @@ class TerminalView @JvmOverloads constructor(
    * overriding that broke applications that redraw in place by moving the
    * cursor up.
    *
-   * It does not check first. Asking whether the viewport is already at the
-   * bottom only decides whether to skip work, and a wrong answer there is
-   * exactly the state the user cannot escape: the affordance for getting back
-   * refuses to act because it believes it is already there. Pinning an
-   * already-pinned viewport costs nothing.
+   * Every committed key asks for this, so it returns without touching the
+   * terminal when the viewport is already on the active area. Stamping
+   * lastScrollAtMs unconditionally instead restarted the scrollbar fade on
+   * each key, and a fading bar posts its own frame callback: typing then held
+   * a repaint loop open for as long as the user kept typing, which is felt as
+   * the terminal lagging behind the keyboard.
    */
   fun scrollToBottom() {
-    if (handle == 0L) return
+    if (!ScrollGeometry.pinNeeded(handle, scrollbar())) return
     RemotlyTerminal.nativeScrollToBottom(handle)
     lastScrollAtMs = SystemClock.uptimeMillis()
     invalidate()
@@ -961,27 +957,8 @@ class TerminalView @JvmOverloads constructor(
    */
   fun isScrolledBack(): Boolean = handle != 0L && !atBottom()
 
-  /**
-   * True when the viewport already shows the active area.
-   *
-   * Scrolling to the bottom is not free: it moves the viewport to the newest
-   * row, which is wrong for an application drawing a block above the last one.
-   * Checking first means a keystroke only pulls the view back when the user
-   * had actually scrolled away.
-   *
-   * A geometry that cannot be read answers false. It used to answer true,
-   * which is the state that hands every scroll gesture to the application and
-   * refuses to scroll to the bottom, so a terminal whose handle was briefly
-   * unreadable came back unscrollable. Answering false only costs a redundant
-   * scroll-to-bottom.
-   */
-  private fun atBottom(): Boolean {
-    val bar = scrollbar() ?: return false
-    val total = bar[0]
-    val visible = bar[2]
-    if (total <= visible) return true
-    return bar[1] + visible >= total
-  }
+  /** True when the viewport already shows the active area. */
+  private fun atBottom(): Boolean = ScrollGeometry.atBottom(scrollbar())
 
   /**
    * True when rows exist above the active area.
@@ -989,10 +966,7 @@ class TerminalView @JvmOverloads constructor(
    * The alternate screen keeps none, so a full-screen application is told
    * apart from a shell by this rather than by asking which screen is active.
    */
-  private fun hasScrollback(): Boolean {
-    val bar = scrollbar() ?: return false
-    return bar[0] > bar[2]
-  }
+  private fun hasScrollback(): Boolean = ScrollGeometry.hasScrollback(scrollbar())
 
   /**
    * Scrollbar geometry as (total, offset, visible), or null when the terminal
@@ -1001,10 +975,8 @@ class TerminalView @JvmOverloads constructor(
    * Read fresh on every call. The row count changes as output arrives, and a
    * cached total is exactly what made the bottom unreachable before.
    */
-  private fun scrollbar(): LongArray? {
-    val bar = RemotlyTerminal.nativeScrollbar(handle) ?: return null
-    return if (bar.size < 3) null else bar
-  }
+  private fun scrollbar(): LongArray? =
+    ScrollGeometry.of(RemotlyTerminal.nativeScrollbar(handle))
 
   // Routed through performClick so accessibility services can trigger the same
   // action they announce.
