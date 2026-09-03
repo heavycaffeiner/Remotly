@@ -14,12 +14,15 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import {
-  SafeAreaInsetsContext,
-  useSafeAreaInsets,
-} from 'react-native-safe-area-context';
+import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { cn } from '../../lib/utils';
 import { Text } from './text';
+
+const ZERO_INSETS = { top: 0, bottom: 0, left: 0, right: 0 };
+function useSafeInsets() {
+  const ctx = React.useContext(SafeAreaInsetsContext);
+  return ctx ?? ZERO_INSETS;
+}
 
 interface SheetProps {
   open: boolean;
@@ -48,7 +51,7 @@ function Sheet({
   // window, which is not a descendant of the SafeAreaProvider, so a hook read
   // inside it reports zero insets and the sheet's last row ends up behind the
   // gesture bar. The value is captured here and republished below.
-  const insets = useSafeAreaInsets();
+  const insets = useSafeInsets();
 
   // The sheet is measured rather than assumed. A fixed travel distance starts
   // a short sheet off-screen and only catches up at the end, which reads as a
@@ -133,7 +136,7 @@ function SheetContent({
   className?: string;
   children: React.ReactNode;
 }): React.ReactElement {
-  const insets = useSafeAreaInsets();
+  const insets = useSafeInsets();
   return (
     <View
       // The gesture bar sits under the sheet's own bottom edge, so the inset is
@@ -173,7 +176,7 @@ function SheetToast({
 }: {
   message: string;
 }): React.ReactElement | null {
-  const insets = useSafeAreaInsets();
+  const insets = useSafeInsets();
   if (message === '') return null;
   return (
     <View

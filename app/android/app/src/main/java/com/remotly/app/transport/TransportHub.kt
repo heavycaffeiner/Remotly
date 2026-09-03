@@ -120,22 +120,61 @@ object TransportHub {
     private class ReplayBuffer {
         val chunks = ArrayList<ByteArray>()
         var totalBytes = 0
+        var targetOffset: Long? = null
+        var replayedFrom: Long = 0L
+        var droppedGap: Boolean = false
     }
     private val replayBuffers = ConcurrentHashMap<Pair<String, Long>, ReplayBuffer>()
+    private val earlyChannelChunks = ConcurrentHashMap<Pair<String, Long>, ArrayList<ByteArray>>()
     private const val NATIVE_REPLAY_CAP = 1024 * 1024
+    private val sessionSizes = ConcurrentHashMap<Pair<String, String>, Pair<Int, Int>>()
 
-    fun bindTermChannel(hostId: String, channelId: Long, sessionId: String) {
+    fun bindTermChannel(hostId: String, channelId: Long, sessionId: String, replayedFrom: Long = 0L) {
         val key = hostId to channelId
         if (sessionId.isEmpty()) {
             channelToSession.remove(key)
             replayingChannels.remove(key)
             replayBuffers.remove(key)
+            earlyChannelChunks.remove(key)
         } else {
             channelToSession[key] = sessionId
             replayingChannels.add(key)
-            replayBuffers[key] = ReplayBuffer()
+            val buf = ReplayBuffer()
+            buf.replayedFrom = replayedFrom
+            val early = earlyChannelChunks.remove(key)
+            if (early != null) {
+                synchronized(early) {
+                    for (chunk in early) {
+                        buf.chunks.add(chunk)
+                        buf.totalBytes += chunk.size
+                    }
+                }
+            }
+            replayBuffers[key] = buf
         }
     }
+    private fun flushReplayBuffer(key: Pair<String, Long>, sessionId: String) {
+        replayingChannels.remove(key)
+        val buf = replayBuffers.remove(key) ?: return
+        val combined = synchronized(buf) {
+            if (buf.chunks.isEmpty()) {
+                null
+            } else {
+                val out = ByteArray(buf.totalBytes)
+                var at = 0
+                for (chunk in buf.chunks) {
+                    System.arraycopy(chunk, 0, out, at, chunk.size)
+                    at += chunk.size
+                }
+                out
+            }
+        }
+        if (combined != null && combined.isNotEmpty()) {
+            val size = sessionSizes[key.first to sessionId]
+            TerminalStore.feed(sessionId, combined, size?.first ?: 80, size?.second ?: 24) {}
+        }
+    }
+
 
     // Binds (or clears) the event sink for one host. The calling bridge
     // method sets it so events reach the container that owns the connection.
@@ -365,6 +404,11 @@ object TransportHub {
                 wasConnected.remove(hostId)
                 plans.remove(hostId)
                 paramsMap.remove(hostId)
+                replayingChannels.removeIf { it.first == hostId }
+                replayBuffers.keys.filter { it.first == hostId }.forEach { replayBuffers.remove(it) }
+                earlyChannelChunks.keys.filter { it.first == hostId }.forEach { earlyChannelChunks.remove(it) }
+                channelToSession.keys.filter { it.first == hostId }.forEach { channelToSession.remove(it) }
+                sessionSizes.keys.filter { it.first == hostId }.forEach { sessionSizes.remove(it) }
                 val pendingEntry = pending.remove(hostId)
                 if (pendingEntry != null) safe { pendingEntry.onFailure(code, reason) }
                 cur.transport
@@ -394,11 +438,42 @@ object TransportHub {
         }
         t.send(request) { result ->
             result.getOrNull()?.let { resp ->
-                if (resp.error == null && request.type == ControlType.SESSION_ATTACH) {
-                    val sid = request.sessionId
-                    val cid = resp.channelId
-                    if (sid != null && cid != null) {
-                        bindTermChannel(hostId, cid, sid)
+                if (resp.error == null) {
+                    when (request.type) {
+                        ControlType.SESSION_ATTACH -> {
+                            val sid = request.sessionId
+                            val cid = resp.channelId
+                            val continuity = resp.continuity
+                            val replayedFrom = resp.replayedFrom ?: 0L
+                            if (sid != null && cid != null) {
+                                if (continuity == "full" || continuity == "gap") {
+                                    TerminalStore.release(sid)
+                                }
+                                bindTermChannel(hostId, cid, sid, replayedFrom)
+                            }
+                        }
+                        ControlType.SESSION_RESIZE -> {
+                            val sid = request.sessionId
+                            val cols = request.cols
+                            val rows = request.rows
+                            if (sid != null && cols != null && rows != null) {
+                                sessionSizes[hostId to sid] = cols to rows
+                            }
+                        }
+                        ControlType.SESSION_CREATE -> {
+                            val sid = resp.session?.id ?: request.sessionId
+                            val cols = resp.session?.cols ?: request.cols
+                            val rows = resp.session?.rows ?: request.rows
+                            if (sid != null && cols != null && rows != null) {
+                                sessionSizes[hostId to sid] = cols to rows
+                            }
+                        }
+                        ControlType.SESSION_KILL -> {
+                            request.sessionId?.let { sid ->
+                                sessionSizes.remove(hostId to sid)
+                            }
+                        }
+                        else -> {}
                     }
                 }
             }
@@ -459,7 +534,11 @@ object TransportHub {
             wasConnected.remove(hostId)
             plans.remove(hostId)
             paramsMap.remove(hostId)
+            replayingChannels.removeIf { it.first == hostId }
+            replayBuffers.keys.filter { it.first == hostId }.forEach { replayBuffers.remove(it) }
+            earlyChannelChunks.keys.filter { it.first == hostId }.forEach { earlyChannelChunks.remove(it) }
             channelToSession.keys.filter { it.first == hostId }.forEach { channelToSession.remove(it) }
+            sessionSizes.keys.filter { it.first == hostId }.forEach { sessionSizes.remove(it) }
             completionNotices.removeAll { it.startsWith("$hostId:") }
         }
     }
@@ -472,8 +551,10 @@ object TransportHub {
             channelToSession.clear()
             replayingChannels.clear()
             replayBuffers.clear()
+            earlyChannelChunks.clear()
             pending.clear()
             states.clear()
+            sessionSizes.clear()
             daemonNames.clear()
             daemonPubs.clear()
             vias.clear()
@@ -610,6 +691,7 @@ object TransportHub {
             }
 
             override fun onSessionUpdate(session: SessionMeta) {
+                sessionSizes[hostId to session.id] = session.cols to session.rows
                 post {
                     emit(hostId, "sessionUpdate", mapOf("session" to sessionToMap(session)))
                     postCompletionNotice(hostId, session)
@@ -624,32 +706,11 @@ object TransportHub {
             override fun onTermData(channelId: Long, data: ByteArray) {
                 val key = hostId to channelId
                 val sessionId = channelToSession[key]
-                val useFastPath = sessionId != null && TerminalStore.has(sessionId)
-                if (useFastPath && sessionId != null) {
-                    if (replayingChannels.contains(key)) {
-                        // history is batched into one settled block on replayComplete.
-                        val buf = replayBuffers[key]
-                        if (buf != null) {
-                            synchronized(buf) {
-                                buf.chunks.add(data)
-                                buf.totalBytes += data.size
-                                while (buf.totalBytes > NATIVE_REPLAY_CAP && buf.chunks.size > 1) {
-                                    val dropped = buf.chunks.removeAt(0)
-                                    buf.totalBytes -= dropped.size
-                                }
-                            }
-                        }
-                        post {
-                            emit(
-                                hostId,
-                                "termData",
-                                mapOf("channelId" to channelId, "length" to data.size, "data" to "", "fastPath" to true),
-                            )
-                        }
-                        return
+                if (sessionId == null) {
+                    val list = earlyChannelChunks.computeIfAbsent(key) { ArrayList() }
+                    synchronized(list) {
+                        list.add(data)
                     }
-                    // Live output: direct fast-path feed to native terminal
-                    TerminalStore.feed(sessionId, data, 80, 24) {}
                     post {
                         emit(
                             hostId,
@@ -659,11 +720,49 @@ object TransportHub {
                     }
                     return
                 }
+
+                if (replayingChannels.contains(key)) {
+                    val buf = replayBuffers[key]
+                    var shouldFlush = false
+                    if (buf != null) {
+                        synchronized(buf) {
+                            buf.chunks.add(data)
+                            buf.totalBytes += data.size
+                            while (buf.totalBytes > NATIVE_REPLAY_CAP && buf.chunks.size > 1) {
+                                val dropped = buf.chunks.removeAt(0)
+                                buf.totalBytes -= dropped.size
+                                buf.droppedGap = true
+                            }
+                            val target = buf.targetOffset
+                            if (target != null) {
+                                val targetBytes = target - buf.replayedFrom
+                                if (buf.totalBytes >= targetBytes) {
+                                    shouldFlush = true
+                                }
+                            }
+                        }
+                    }
+                    if (shouldFlush) {
+                        flushReplayBuffer(key, sessionId)
+                    }
+                    post {
+                        emit(
+                            hostId,
+                            "termData",
+                            mapOf("channelId" to channelId, "length" to data.size, "data" to "", "fastPath" to true),
+                        )
+                    }
+                    return
+                }
+
+                // Live output: direct fast-path feed to native terminal
+                val size = sessionSizes[hostId to sessionId]
+                TerminalStore.feed(sessionId, data, size?.first ?: 80, size?.second ?: 24) {}
                 post {
                     emit(
                         hostId,
                         "termData",
-                        mapOf("channelId" to channelId, "length" to data.size, "data" to Base64Std.encode(data), "fastPath" to false),
+                        mapOf("channelId" to channelId, "length" to data.size, "data" to "", "fastPath" to true),
                     )
                 }
             }
@@ -682,28 +781,33 @@ object TransportHub {
             override fun onReplayComplete(channelId: Long, offset: Long) {
                 val key = hostId to channelId
                 val sessionId = channelToSession[key]
-                replayingChannels.remove(key)
-                val buf = replayBuffers.remove(key)
-                if (sessionId != null && buf != null) {
-                    val combined = synchronized(buf) {
-                        if (buf.chunks.isEmpty()) {
-                            null
-                        } else {
-                            val out = ByteArray(buf.totalBytes)
-                            var at = 0
-                            for (chunk in buf.chunks) {
-                                System.arraycopy(chunk, 0, out, at, chunk.size)
-                                at += chunk.size
-                            }
-                            out
+                val buf = replayBuffers[key]
+                var shouldFlush = false
+                var hasGap = false
+                if (buf != null) {
+                    synchronized(buf) {
+                        buf.targetOffset = offset
+                        hasGap = buf.droppedGap
+                        val targetBytes = offset - buf.replayedFrom
+                        if (buf.totalBytes >= targetBytes || targetBytes <= 0) {
+                            shouldFlush = true
                         }
                     }
-                    if (combined != null && combined.isNotEmpty()) {
-                        TerminalStore.feed(sessionId, combined, 80, 24) {}
-                    }
+                } else {
+                    shouldFlush = true
                 }
-                post { emit(hostId, "replayComplete", mapOf("channelId" to channelId, "offset" to offset)) }
+                if (shouldFlush && sessionId != null) {
+                    flushReplayBuffer(key, sessionId)
+                }
+                post {
+                    emit(
+                        hostId,
+                        "replayComplete",
+                        mapOf("channelId" to channelId, "offset" to offset, "gap" to hasGap),
+                    )
+                }
             }
+
 
 
             override fun onSessionEvent(event: SessionEvent) {

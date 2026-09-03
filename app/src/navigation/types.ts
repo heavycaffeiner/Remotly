@@ -12,7 +12,7 @@ export type RootStackParamList = {
   // `d` is the base64url pairing payload from the remotly://pair?d=... deep
   // link (see navigation/linking.ts); the screen rebuilds the full URI.
   Pairing: { d?: string };
-  Workspace: { hostId: string };
+  Workspace: { hostId: string; sessionId?: string };
   SshTerminal: { hostId: string };
   /** Omit `hostId` to create a host; pass it to edit an existing one. */
   SshHostEditor: { hostId?: string } | undefined;

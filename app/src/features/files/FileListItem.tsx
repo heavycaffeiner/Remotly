@@ -36,9 +36,16 @@ export function FileListItem({
       accessibilityLabel={entryAccessibilityLabel(entry)}
       onPress={open}
       onLongPress={menu}
-      className="min-h-14 flex-row items-center gap-3 px-4 py-2 active:bg-accent"
+      android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
+      className="min-h-14 flex-row items-center gap-3.5 px-4 py-2.5 active:bg-surface-variant/40"
     >
-      <Icon name={entryIcon(entry)} className="text-muted-foreground" />
+      <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
+        <Icon
+          name={entryIcon(entry)}
+          size={20}
+          className="text-on-secondary-container"
+        />
+      </View>
       <View className="flex-1 gap-0.5">
         <Text numberOfLines={1}>{entry.name}</Text>
         <Text variant="caption" numberOfLines={1}>

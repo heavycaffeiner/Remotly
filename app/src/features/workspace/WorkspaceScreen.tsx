@@ -54,6 +54,7 @@ export function WorkspaceScreen(): React.ReactElement {
   const navigation = useNavigation<Nav>();
   const route = useRoute<RouteProp<RootStackParamList, 'Workspace'>>();
   const hostId = route.params?.hostId ?? '';
+  const initialSessionId = route.params?.sessionId;
   const { settings, update } = useSettings();
 
   const terminal = useRef<TerminalScreenHandle | null>(null);
@@ -70,6 +71,7 @@ export function WorkspaceScreen(): React.ReactElement {
 
   const ws = useWorkspaceConnection({
     hostId,
+    initialSessionId,
     write,
     notifyEnabled: settings.notifyEnabled,
   });

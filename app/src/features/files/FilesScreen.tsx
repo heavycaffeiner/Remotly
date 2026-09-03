@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FlatList, View } from 'react-native';
+import { FlatList, Pressable, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
@@ -58,6 +58,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../../components/ui/dialog';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '../../components/ui/sheet';
 import { Field } from '../../components/Form';
 import { Icon } from '../../components/ui/icon';
 import { Progress } from '../../components/ui/progress';
@@ -1382,60 +1388,63 @@ export function FilesScreen({
           The choice is the user's: overwriting silently is destructive, and
           renaming silently is what the system picker does and why a
           collision used to pass unnoticed. */}
-      <Dialog open={nameClash !== null} onClose={() => setNameClash(null)}>
-        <DialogHeader>
-          <DialogTitle>{nameClash?.name ?? ''} already exists</DialogTitle>
-        </DialogHeader>
-        <DialogContent className="pb-5">
-          <Text variant="muted">
+      <Sheet open={nameClash !== null} onClose={() => setNameClash(null)}>
+        <SheetHeader>
+          <SheetTitle>{nameClash?.name ?? ''} already exists</SheetTitle>
+        </SheetHeader>
+        <SheetContent className="gap-2 pb-6">
+          <Text variant="muted" className="px-1 pb-1">
             A file with this name is already in your download folder.
           </Text>
-          <Button
-            variant="ghost"
-            className="justify-start"
+          <Pressable
+            role="button"
             onPress={resolveKeepBoth}
+            android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
+            className="h-14 flex-row items-center gap-4 rounded-2xl px-4 active:bg-surface-variant/40"
           >
-            <Icon name="copy" />
-            <Text>Keep both</Text>
-          </Button>
-          <Button
-            variant="ghost"
-            className="justify-start"
+            <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
+              <Icon
+                name="copy"
+                size={20}
+                className="text-on-secondary-container"
+              />
+            </View>
+            <Text className="text-base font-medium flex-1">Keep both</Text>
+          </Pressable>
+          <Pressable
+            role="button"
             onPress={resolveReplace}
+            android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
+            className="h-14 flex-row items-center gap-4 rounded-2xl px-4 active:bg-surface-variant/40"
           >
-            <Icon name="refresh" />
-            <Text>Replace</Text>
-          </Button>
-          <Button
-            variant="ghost"
-            className="justify-start"
-            onPress={() => setNameClash(null)}
-          >
-            <Icon name="x" />
-            <Text>Cancel</Text>
-          </Button>
-        </DialogContent>
-      </Dialog>
+            <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
+              <Icon
+                name="refresh"
+                size={20}
+                className="text-on-secondary-container"
+              />
+            </View>
+            <Text className="text-base font-medium flex-1">Replace</Text>
+          </Pressable>
+        </SheetContent>
+      </Sheet>
 
       {/* Entry action menu. */}
-      <Dialog
+      <Sheet
         open={menuFor !== null && prompt === null}
         onClose={() => setMenuFor(null)}
       >
-        <DialogHeader>
-          <DialogTitle numberOfLines={1}>{menuFor ?? ''}</DialogTitle>
-        </DialogHeader>
-        <DialogContent className="pb-5">
+        <SheetHeader>
+          <SheetTitle>{menuFor ?? ''}</SheetTitle>
+        </SheetHeader>
+        <SheetContent className="gap-1 pb-6">
           {canTransfer ? (
-            <Button
-              variant="ghost"
-              className="justify-start"
+            <Pressable
+              role="button"
               onPress={() => {
                 const name = menuFor;
                 if (name === null) return;
                 setMenuFor(null);
-                // The listing already carries the size, so the progress bar
-                // has a denominator from the first byte.
                 const entry = entries?.find(e => e.name === name);
                 startDownload(
                   name,
@@ -1443,33 +1452,53 @@ export function FilesScreen({
                   entry !== undefined && entry.size > 0 ? entry.size : -1,
                 );
               }}
+              android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
+              className="h-14 flex-row items-center gap-4 rounded-2xl px-4 active:bg-surface-variant/40"
             >
-              <Icon name="file-down" />
-              <Text>Download</Text>
-            </Button>
+              <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
+                <Icon
+                  name="file-down"
+                  size={20}
+                  className="text-on-secondary-container"
+                />
+              </View>
+              <Text className="text-base font-medium flex-1">Download</Text>
+            </Pressable>
           ) : null}
-          <Button
-            variant="ghost"
-            className="justify-start"
+          <Pressable
+            role="button"
             onPress={() => {
               if (menuFor !== null) beginRename(menuFor);
             }}
+            android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
+            className="h-14 flex-row items-center gap-4 rounded-2xl px-4 active:bg-surface-variant/40"
           >
-            <Icon name="pencil" />
-            <Text>Rename</Text>
-          </Button>
-          <Button
-            variant="ghost"
-            className="justify-start"
+            <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
+              <Icon
+                name="pencil"
+                size={20}
+                className="text-on-secondary-container"
+              />
+            </View>
+            <Text className="text-base font-medium flex-1">Rename</Text>
+          </Pressable>
+          <Pressable
+            role="button"
             onPress={() => {
               if (menuFor !== null) beginRemove(menuFor);
             }}
+            android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
+            className="h-14 flex-row items-center gap-4 rounded-2xl px-4 active:bg-surface-variant/40"
           >
-            <Icon name="trash" className="text-destructive" />
-            <Text className="text-destructive">Delete</Text>
-          </Button>
-        </DialogContent>
-      </Dialog>
+            <View className="h-10 w-10 items-center justify-center rounded-full bg-destructive-container">
+              <Icon name="trash" size={20} className="text-destructive" />
+            </View>
+            <Text className="text-base font-medium text-destructive flex-1">
+              Delete
+            </Text>
+          </Pressable>
+        </SheetContent>
+      </Sheet>
 
       {/* Text prompt: new folder, rename, or a delete confirm. */}
       <Dialog open={prompt !== null} onClose={cancelPrompt}>

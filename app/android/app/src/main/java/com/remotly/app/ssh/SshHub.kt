@@ -141,6 +141,7 @@ object SshHub {
     }
 
     fun close(hostId: String, sessionId: String) {
+        TerminalStore.release(sessionId)
         closeLocked(sessionKey(hostId, sessionId))
     }
 
@@ -198,13 +199,11 @@ object SshHub {
      * what lib/sshSessions buffers and writes once one exists.
      */
     private fun deliverTerminal(hostId: String, sessionId: String, data: ByteArray) {
-        if (TerminalStore.has(sessionId)) {
-            val size = sizes[sessionKey(hostId, sessionId)]
-            TerminalStore.feed(sessionId, data, size?.first ?: 0, size?.second ?: 0) {}
-            emit(hostId, sessionId, "data", mapOf("data" to "", "length" to data.size, "fastPath" to true))
-            return
-        }
-        emit(hostId, sessionId, "data", mapOf("data" to Base64Std.encode(data), "length" to data.size, "fastPath" to false))
+        val size = sizes[sessionKey(hostId, sessionId)]
+        val cols = size?.first ?: 80
+        val rows = size?.second ?: 24
+        TerminalStore.feed(sessionId, data, cols, rows) {}
+        emit(hostId, sessionId, "data", mapOf("data" to "", "length" to data.size, "fastPath" to true))
     }
 
     private fun emit(hostId: String, sessionId: String, name: String, data: Map<String, Any?>) {

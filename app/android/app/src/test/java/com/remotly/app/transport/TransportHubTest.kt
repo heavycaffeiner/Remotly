@@ -359,7 +359,7 @@ class TransportHubTest {
     // --- terminal ---
 
     @Test
-    fun termDataEventCarriesChannelAndBase64() {
+    fun termDataEventCarriesChannelAndFastPath() {
         connectAndAwait()
         val ch = attach()
         daemon.pushTerm(ch, byteArrayOf(0x01, 0x02, 0xFF.toByte()))
@@ -367,7 +367,8 @@ class TransportHubTest {
         val data = eventsOf("termData").single().second
         assertEquals(ch, data["channelId"])
         assertEquals(hostA, data["hostId"])
-        assertEquals(Base64Std.encode(byteArrayOf(0x01, 0x02, 0xFF.toByte())), data["data"])
+        assertEquals(3, data["length"])
+        assertEquals(true, data["fastPath"])
     }
 
     // Attaches a session on one host and returns the channel the daemon

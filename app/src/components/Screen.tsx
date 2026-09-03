@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cn } from '../lib/utils';
 import { Icon, type IconName } from './ui/icon';
 import { Text } from './ui/text';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 
 export interface ScreenAction {
   key: string;
@@ -110,11 +110,11 @@ export function Screen({
 
       {children}
 
-      <Dialog open={menuOpen} onClose={() => setMenuOpen(false)}>
-        <DialogHeader>
-          <DialogTitle>Actions</DialogTitle>
-        </DialogHeader>
-        <DialogContent className="pb-5">
+      <Sheet open={menuOpen} onClose={() => setMenuOpen(false)}>
+        <SheetHeader>
+          <SheetTitle>Actions</SheetTitle>
+        </SheetHeader>
+        <SheetContent className="gap-1 pb-6">
           {menuActions.map(a => (
             <Pressable
               key={a.key}
@@ -125,28 +125,37 @@ export function Screen({
                 setMenuOpen(false);
                 a.onPress();
               }}
+              android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
               className={cn(
-                'h-12 flex-row items-center gap-3 rounded-md px-3 active:bg-accent',
-                a.disabled === true && 'opacity-50',
+                'h-14 flex-row items-center gap-4 rounded-2xl px-4 overflow-hidden active:bg-surface-variant/40',
+                a.disabled === true && 'opacity-40',
               )}
             >
-              <Icon
-                name={a.icon}
-                className={
+              <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
+                <Icon
+                  name={a.icon}
+                  size={22}
+                  className={
+                    a.destructive === true
+                      ? 'text-destructive'
+                      : 'text-on-secondary-container'
+                  }
+                />
+              </View>
+              <Text
+                className={cn(
+                  'text-base font-medium flex-1',
                   a.destructive === true
                     ? 'text-destructive'
-                    : 'text-foreground'
-                }
-              />
-              <Text
-                className={a.destructive === true ? 'text-destructive' : ''}
+                    : 'text-on-surface',
+                )}
               >
                 {a.title}
               </Text>
             </Pressable>
           ))}
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
     </View>
   );
 }

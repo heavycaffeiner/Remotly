@@ -7,13 +7,11 @@
 import React from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../../components/ui/dialog';
-import { Button } from '../../components/ui/button';
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '../../components/ui/sheet';
 import { Icon } from '../../components/ui/icon';
 import { Text } from '../../components/ui/text';
 import { cn } from '../../lib/utils';
@@ -45,11 +43,11 @@ export function NewSessionSheet({
   };
 
   return (
-    <Dialog open={visible} onClose={onDismiss} dismissable={!busy}>
-      <DialogHeader>
-        <DialogTitle>New session</DialogTitle>
-      </DialogHeader>
-      <DialogContent>
+    <Sheet open={visible} onClose={onDismiss}>
+      <SheetHeader>
+        <SheetTitle>New session</SheetTitle>
+      </SheetHeader>
+      <SheetContent className="gap-1 pb-6">
         <ScrollView className="max-h-80">
           <Row
             title="Shell"
@@ -68,13 +66,8 @@ export function NewSessionSheet({
             />
           ))}
         </ScrollView>
-      </DialogContent>
-      <DialogFooter>
-        <Button variant="ghost" disabled={busy} onPress={onDismiss}>
-          <Text>Cancel</Text>
-        </Button>
-      </DialogFooter>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -98,14 +91,17 @@ function Row({
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
+      android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
       className={cn(
-        'min-h-14 flex-row items-center gap-3 rounded-md px-3 py-2 active:bg-accent',
-        disabled && 'opacity-50',
+        'min-h-14 flex-row items-center gap-4 rounded-2xl px-3 py-2.5 active:bg-surface-variant/40',
+        disabled && 'opacity-40',
       )}
     >
-      <Icon name={icon} className="text-muted-foreground" />
+      <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
+        <Icon name={icon} size={20} className="text-on-secondary-container" />
+      </View>
       <View className="flex-1 gap-0.5">
-        <Text>{title}</Text>
+        <Text className="text-base font-medium">{title}</Text>
         {description === undefined ? null : (
           <Text variant="caption">{description}</Text>
         )}

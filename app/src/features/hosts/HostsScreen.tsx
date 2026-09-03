@@ -23,13 +23,12 @@ import {
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { Toast } from '../../components/Toast';
 import { Badge } from '../../components/ui/badge';
-import { Button } from '../../components/ui/button';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '../../components/ui/dialog';
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '../../components/ui/sheet';
 import { Icon } from '../../components/ui/icon';
 import { Input } from '../../components/ui/input';
 import { Text } from '../../components/ui/text';
@@ -373,35 +372,61 @@ export function HostsScreen(): React.ReactElement {
         </View>
       ) : null}
 
-      <Dialog open={addOpen} onClose={() => setAddOpen(false)}>
-        <DialogHeader>
-          <DialogTitle>Add a host</DialogTitle>
-        </DialogHeader>
-        <DialogContent className="pb-5">
-          <Button
-            variant="ghost"
-            className="justify-start"
+      <Sheet open={addOpen} onClose={() => setAddOpen(false)}>
+        <SheetHeader>
+          <SheetTitle>Add a host</SheetTitle>
+        </SheetHeader>
+        <SheetContent className="gap-2 pb-6">
+          <Pressable
+            role="button"
+            accessibilityLabel="Pair Remotly host"
             onPress={() => {
               setAddOpen(false);
               navigation.navigate('Pairing', {});
             }}
+            android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
+            className="flex-row items-center gap-4 rounded-2xl p-4 active:bg-surface-variant/40"
           >
-            <Icon name="qr-code" />
-            <Text>Pair Remotly host</Text>
-          </Button>
-          <Button
-            variant="ghost"
-            className="justify-start"
+            <View className="h-11 w-11 items-center justify-center rounded-full bg-secondary-container">
+              <Icon
+                name="qr-code"
+                size={24}
+                className="text-on-secondary-container"
+              />
+            </View>
+            <View className="flex-1">
+              <Text className="text-base font-medium">Pair Remotly host</Text>
+              <Text variant="caption">
+                Connect your development machine via QR code
+              </Text>
+            </View>
+          </Pressable>
+          <Pressable
+            role="button"
+            accessibilityLabel="Add SSH host"
             onPress={() => {
               setAddOpen(false);
               navigation.navigate('SshHostEditor');
             }}
+            android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
+            className="flex-row items-center gap-4 rounded-2xl p-4 active:bg-surface-variant/40"
           >
-            <Icon name="terminal" />
-            <Text>Add SSH host</Text>
-          </Button>
-        </DialogContent>
-      </Dialog>
+            <View className="h-11 w-11 items-center justify-center rounded-full bg-secondary-container">
+              <Icon
+                name="terminal"
+                size={24}
+                className="text-on-secondary-container"
+              />
+            </View>
+            <View className="flex-1">
+              <Text className="text-base font-medium">Add SSH host</Text>
+              <Text variant="caption">
+                Connect to any remote server with standard SSH
+              </Text>
+            </View>
+          </Pressable>
+        </SheetContent>
+      </Sheet>
 
       <HostActionsMenu
         entry={menuFor}
@@ -456,12 +481,12 @@ function HostRow({ entry, onOpen, onMenu }: HostRowProps): React.ReactElement {
       onPress={handleOpen}
       onLongPress={handleMenu}
       android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
-      className="flex-row items-center gap-3.5 rounded-2xl bg-card p-4 overflow-hidden active:bg-surface-variant/40"
+      className="flex-row items-center gap-3.5 rounded-2xl border border-outline-variant/30 bg-card p-4 overflow-hidden active:bg-surface-variant/40"
     >
-      <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary">
+      <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
         <Icon
           name={entry.kind === 'daemon' ? 'server' : 'terminal'}
-          className="text-secondary-foreground"
+          className="text-on-secondary-container"
         />
       </View>
       <View className="flex-1 gap-0.5">
@@ -477,7 +502,7 @@ function HostRow({ entry, onOpen, onMenu }: HostRowProps): React.ReactElement {
           <Icon
             name="terminal"
             size={12}
-            className="text-secondary-foreground"
+            className="text-on-secondary-container"
           />
           <Text>{String(entry.sessions)}</Text>
         </Badge>
@@ -516,50 +541,77 @@ function HostActionsMenu({
 }: HostActionsMenuProps): React.ReactElement | null {
   if (entry === null) return null;
   return (
-    <Dialog open onClose={onDismiss}>
-      <DialogHeader>
-        <DialogTitle>{entry.name}</DialogTitle>
-      </DialogHeader>
-      <DialogContent className="pb-5">
-        <Button
-          variant="ghost"
-          className="justify-start"
+    <Sheet open onClose={onDismiss}>
+      <SheetHeader>
+        <SheetTitle>{entry.name}</SheetTitle>
+      </SheetHeader>
+      <SheetContent className="gap-1 pb-6">
+        <Pressable
+          role="button"
           onPress={() => onOpen(entry)}
+          android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
+          className="h-14 flex-row items-center gap-4 rounded-2xl px-4 active:bg-surface-variant/40"
         >
-          <Icon
-            name={entry.kind === 'daemon' ? 'layout-dashboard' : 'terminal'}
-          />
-          <Text>
+          <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
+            <Icon
+              name={entry.kind === 'daemon' ? 'layout-dashboard' : 'terminal'}
+              size={22}
+              className="text-on-secondary-container"
+            />
+          </View>
+          <Text className="text-base font-medium flex-1">
             {entry.kind === 'daemon' ? 'Open workspace' : 'Open terminal'}
           </Text>
-        </Button>
-        <Button
-          variant="ghost"
-          className="justify-start"
+        </Pressable>
+
+        <Pressable
+          role="button"
           onPress={() => onFiles(entry)}
+          android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
+          className="h-14 flex-row items-center gap-4 rounded-2xl px-4 active:bg-surface-variant/40"
         >
-          <Icon name="folder" />
-          <Text>Files</Text>
-        </Button>
+          <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
+            <Icon
+              name="folder"
+              size={22}
+              className="text-on-secondary-container"
+            />
+          </View>
+          <Text className="text-base font-medium flex-1">Files</Text>
+        </Pressable>
+
         {entry.kind === 'ssh' ? (
-          <Button
-            variant="ghost"
-            className="justify-start"
+          <Pressable
+            role="button"
             onPress={() => onEdit(entry)}
+            android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
+            className="h-14 flex-row items-center gap-4 rounded-2xl px-4 active:bg-surface-variant/40"
           >
-            <Icon name="pencil" />
-            <Text>Edit</Text>
-          </Button>
+            <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
+              <Icon
+                name="pencil"
+                size={22}
+                className="text-on-secondary-container"
+              />
+            </View>
+            <Text className="text-base font-medium flex-1">Edit</Text>
+          </Pressable>
         ) : null}
-        <Button
-          variant="ghost"
-          className="justify-start"
+
+        <Pressable
+          role="button"
           onPress={() => onRemove(entry)}
+          android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
+          className="h-14 flex-row items-center gap-4 rounded-2xl px-4 active:bg-surface-variant/40"
         >
-          <Icon name="trash" className="text-destructive" />
-          <Text className="text-destructive">Remove</Text>
-        </Button>
-      </DialogContent>
-    </Dialog>
+          <View className="h-10 w-10 items-center justify-center rounded-full bg-destructive-container">
+            <Icon name="trash" size={22} className="text-destructive" />
+          </View>
+          <Text className="text-base font-medium text-destructive flex-1">
+            Remove
+          </Text>
+        </Pressable>
+      </SheetContent>
+    </Sheet>
   );
 }

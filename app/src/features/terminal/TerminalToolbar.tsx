@@ -11,11 +11,11 @@ import { IconButton } from '../../components/Screen';
 import { Icon, type IconName } from '../../components/ui/icon';
 import { Text } from '../../components/ui/text';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '../../components/ui/dialog';
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '../../components/ui/sheet';
 
 export interface TerminalMenuAction {
   key: string;
@@ -85,11 +85,11 @@ export function TerminalToolbar({
         )}
       </View>
 
-      <Dialog open={open} onClose={() => setOpen(false)}>
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-        </DialogHeader>
-        <DialogContent className="pb-5">
+      <Sheet open={open} onClose={() => setOpen(false)}>
+        <SheetHeader>
+          <SheetTitle>{title}</SheetTitle>
+        </SheetHeader>
+        <SheetContent className="gap-1 pb-6">
           {actions.map(a => (
             <Pressable
               key={a.key}
@@ -100,29 +100,44 @@ export function TerminalToolbar({
                 setOpen(false);
                 a.onPress();
               }}
+              android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
               className={cn(
-                'h-12 flex-row items-center gap-3 rounded-md px-3 active:bg-accent',
-                a.disabled === true && 'opacity-50',
-                a.destructive === true && 'mt-1 border-t border-border',
+                'h-14 flex-row items-center gap-4 rounded-2xl px-4 active:bg-surface-variant/40',
+                a.disabled === true && 'opacity-40',
               )}
             >
-              <Icon
-                name={a.icon}
-                className={
+              <View
+                className={cn(
+                  'h-10 w-10 items-center justify-center rounded-full',
+                  a.destructive === true
+                    ? 'bg-destructive-container'
+                    : 'bg-secondary-container',
+                )}
+              >
+                <Icon
+                  name={a.icon}
+                  size={20}
+                  className={
+                    a.destructive === true
+                      ? 'text-destructive'
+                      : 'text-on-secondary-container'
+                  }
+                />
+              </View>
+              <Text
+                className={cn(
+                  'text-base font-medium flex-1',
                   a.destructive === true
                     ? 'text-destructive'
-                    : 'text-foreground'
-                }
-              />
-              <Text
-                className={a.destructive === true ? 'text-destructive' : ''}
+                    : 'text-on-surface',
+                )}
               >
                 {a.title}
               </Text>
             </Pressable>
           ))}
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
     </View>
   );
 }

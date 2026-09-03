@@ -94,27 +94,12 @@ export interface WorkspaceNotice {
 
 type TimerHandle = ReturnType<typeof setTimeout>;
 
-/** Buffered output cap: a stuck mount cannot grow memory without bound. */
-const PENDING_CAP = 1024 * 1024;
-
-/** Joins buffered chunks into one block, in arrival order. */
-function concatChunks(chunks: readonly Uint8Array[]): Uint8Array {
-  if (chunks.length === 1) return chunks[0];
-  let total = 0;
-  for (const c of chunks) total += c.length;
-  const out = new Uint8Array(total);
-  let at = 0;
-  for (const c of chunks) {
-    out.set(c, at);
-    at += c.length;
-  }
-  return out;
-}
 const NOTICE_MS = 5000;
 const CURSOR_TICK_MS = 2000;
 
 export interface WorkspaceConnectionOptions {
   hostId: string;
+  initialSessionId?: string;
   /** Writes output into the terminal. */
   write: (bytes: Uint8Array) => void;
   /** True once the terminal can accept bytes. */
@@ -158,6 +143,7 @@ export interface WorkspaceController {
 
 export function useWorkspaceConnection({
   hostId,
+  initialSessionId,
   write,
   notifyEnabled,
 }: WorkspaceConnectionOptions): WorkspaceController {
@@ -171,14 +157,15 @@ export function useWorkspaceConnection({
   const [errorText, setErrorText] = useState('');
   const [notice, setNotice] = useState<WorkspaceNotice | null>(null);
 
+  const initialSessionIdRef = useRef(initialSessionId);
+  initialSessionIdRef.current = initialSessionId;
+
   const wsRef = useRef<WorkspaceState | null>(null);
   const hostRef = useRef<HostRecord | null>(null);
   const activeRef = useRef<ActiveAttachment | null>(null);
   const phaseRef = useRef<WorkspacePhase>('init');
   const notifyRef = useRef(notifyEnabled);
   const readyRef = useRef(false);
-  const pending = useRef<Uint8Array[]>([]);
-  const pendingBytes = useRef(0);
   const size = useRef<{ cols: number; rows: number } | null>(null);
   const deduper = useRef(new EventDeduper());
   const backoff = useRef(new Backoff());
@@ -186,8 +173,6 @@ export function useWorkspaceConnection({
   const reconnectTimer = useRef<TimerHandle | null>(null);
   const overflowTimer = useRef<TimerHandle | null>(null);
   const overflowRetries = useRef(new Map<string, number>());
-  const liveQueue = useRef<Uint8Array[]>([]);
-  const liveDraining = useRef(false);
   const disposed = useRef(false);
   const noticeSeq = useRef(0);
   const writeRef = useRef(write);
@@ -241,43 +226,6 @@ export function useWorkspaceConnection({
     return () => clearInterval(t);
   }, [phase, active, commitWs]);
 
-  // Buffered output is written as one block. Attach replays the scrollback in
-  // many small chunks, and a write per chunk crosses the bridge that many
-  // times before anything is drawn.
-  //
-  // Nothing is written before the viewport reports ready: the native view is
-  // not attached yet, so the write is rejected and those bytes are gone. The
-  // queue is kept instead and onViewportReady flushes it.
-  const flushPending = useCallback(() => {
-    if (!readyRef.current) return;
-    const queued = pending.current;
-    if (queued.length === 0) return;
-    pending.current = [];
-    pendingBytes.current = 0;
-    writeRef.current(concatChunks(queued));
-  }, []);
-
-  const drainLiveQueue = useCallback(() => {
-    if (!readyRef.current) return;
-    const queued = liveQueue.current;
-    if (queued.length === 0) return;
-    liveQueue.current = [];
-    writeRef.current(concatChunks(queued));
-  }, []);
-
-  const pushLiveChunk = useCallback(
-    (chunk: Uint8Array) => {
-      liveQueue.current.push(chunk);
-      if (liveDraining.current) return;
-      liveDraining.current = true;
-      queueMicrotask(() => {
-        liveDraining.current = false;
-        drainLiveQueue();
-      });
-    },
-    [drainLiveQueue],
-  );
-
   const scheduleResizeFor = useCallback(
     (hid: string, sessionId: string, cols: number, rows: number) => {
       void resizeSession(hid, sessionId, cols, rows).catch(() => undefined);
@@ -296,15 +244,16 @@ export function useWorkspaceConnection({
     async (h: HostRecord | null) => {
       const cur = activeRef.current;
       if (cur === null) return;
+      const w = wsRef.current;
+      if (w !== null) {
+        commitWs(setCursor(w, cur.sessionId, cursorOf(cur.track)));
+      }
       setActiveAttachment(null);
-      pending.current = [];
-      pendingBytes.current = 0;
-      liveQueue.current = [];
       if (h !== null) {
         await detachChannel(h.id, cur.track.channelId).catch(() => undefined);
       }
     },
-    [setActiveAttachment],
+    [commitWs, setActiveAttachment],
   );
 
   // Attaches with a cursor, retrying once without it when the cursor fell out
@@ -421,7 +370,7 @@ export function useWorkspaceConnection({
           running: s.running,
         })),
       );
-      const reconciled = reconcile(
+      let reconciled = reconcile(
         adopted,
         sessions.map(s => ({
           sessionId: s.id,
@@ -430,6 +379,10 @@ export function useWorkspaceConnection({
           preview: s.preview,
         })),
       );
+      const initSid = initialSessionIdRef.current;
+      if (initSid !== undefined && findTab(reconciled, initSid) !== null) {
+        reconciled = setActive(reconciled, initSid);
+      }
       commitWs(reconciled);
       try {
         setPresets(await listPresets(h.id));
@@ -550,15 +503,13 @@ export function useWorkspaceConnection({
     (next: { cols: number; rows: number }) => {
       size.current = next;
       readyRef.current = true;
-      flushPending();
-      drainLiveQueue();
       const cur = activeRef.current;
       const h = hostRef.current;
       if (cur !== null && h !== null) {
         scheduleResizeFor(h.id, cur.sessionId, next.cols, next.rows);
       }
     },
-    [drainLiveQueue, flushPending, scheduleResizeFor],
+    [scheduleResizeFor],
   );
 
   const resize = useCallback(
@@ -611,6 +562,17 @@ export function useWorkspaceConnection({
     },
     [commitWs, detachActive, attachActiveTab],
   );
+  useEffect(() => {
+    if (initialSessionId === undefined || initialSessionId === '') return;
+    const w = wsRef.current;
+    if (
+      w !== null &&
+      w.activeSessionId !== initialSessionId &&
+      findTab(w, initialSessionId) !== null
+    ) {
+      selectTab(initialSessionId);
+    }
+  }, [initialSessionId, selectTab]);
 
   const renameTabById = useCallback(
     (sessionId: string, title: string) => {
@@ -828,57 +790,17 @@ export function useWorkspaceConnection({
         const h = hostRef.current;
         if (h === null || cur === null || e.hostId !== h.id) return;
         if (e.channelId !== cur.track.channelId) return;
-        const chunkLen = e.length ?? e.data.length;
+        const chunkLen = e.length ?? e.data?.length ?? 0;
         cur.track.receivedBytes += chunkLen;
-        if (e.fastPath === true) {
-          return;
-        }
-        // Replay arrives as a long run of small chunks. Writing each one as it
-        // lands makes the user watch the history scroll past, so it is held
-        // until replayComplete and written as a single block. Live output,
-        // after replay, goes straight through.
-        if (readyRef.current && cur.track.replayDone) {
-          pushLiveChunk(e.data);
-          return;
-        }
-        pending.current.push(e.data);
-        pendingBytes.current += e.data.length;
-        // Over the cap the oldest chunks go, not the newest. Clearing the
-        // whole queue threw away the screen the user is about to see and left
-        // the terminal blank until the next write; dropping from the front
-        // costs only history that no longer fits.
-        let dropped = false;
-        while (
-          pendingBytes.current > PENDING_CAP &&
-          pending.current.length > 1
-        ) {
-          const gone = pending.current.shift();
-          if (gone === undefined) break;
-          pendingBytes.current -= gone.length;
-          dropped = true;
-        }
-        // Output discarded here leaves the same hole in the history as the
-        // daemon's own dropped window, so it is reported the same way. Without
-        // this the gap was silent: the banner only ever saw what attach
-        // reported.
-        if (dropped && cur.track.continuity !== 'gap') {
-          cur.track.continuity = 'gap';
-          setActiveAttachment({
-            sessionId: cur.sessionId,
-            track: { ...cur.track },
-          });
-        }
       }),
       transport.onEvent('replayComplete', e => {
         const cur = activeRef.current;
         const h = hostRef.current;
         if (h === null || cur === null || e.hostId !== h.id) return;
         if (e.channelId !== cur.track.channelId) return;
-        // The whole replayed screen is written at once while replayDone is
-        // still false, so any automated query responses (such as CPR) emitted
-        // during this flush are suppressed from the live PTY.
-        flushPending();
-        drainLiveQueue();
+        if (e.gap === true && cur.track.continuity !== 'gap') {
+          cur.track.continuity = 'gap';
+        }
         cur.track.replayDone = true;
         overflowRetries.current.delete(cur.sessionId);
         setActiveAttachment({
@@ -957,6 +879,19 @@ export function useWorkspaceConnection({
 
     return () => {
       disposed.current = true;
+      const cur = activeRef.current;
+      const w = wsRef.current;
+      if (cur !== null && w !== null && hostId !== '') {
+        const next = setCursor(w, cur.sessionId, cursorOf(cur.track));
+        wsRef.current = next;
+        void saveWorkspaceDocument(hostId, serializeWorkspace(next)).catch(
+          e => {
+            log.error('failed to save workspace on unmount', {
+              message: userFacingMessage(toRemotlyError(e, 'storage')),
+            });
+          },
+        );
+      }
       clearTimeout(noticeTimer.current ?? undefined);
       clearTimeout(reconnectTimer.current ?? undefined);
       clearTimeout(overflowTimer.current ?? undefined);
@@ -978,9 +913,6 @@ export function useWorkspaceConnection({
     onSessionEvent,
     scheduleReconnect,
     retryNow,
-    flushPending,
-    drainLiveQueue,
-    pushLiveChunk,
     attachActiveTab,
   ]);
 

@@ -19,10 +19,10 @@ const BUTTON_CONTAINER_STYLES: Record<ButtonVariant, string> = {
   default: 'bg-primary',
   destructive: 'bg-destructive',
   outline: 'border border-outline bg-transparent',
-  secondary: 'bg-secondary',
-  tonal: 'bg-secondary',
-  elevated: 'bg-card shadow-sm',
-  ghost: 'bg-transparent active:bg-accent',
+  secondary: 'bg-secondary-container',
+  tonal: 'bg-secondary-container',
+  elevated: 'bg-surface-container-low shadow-sm',
+  ghost: 'bg-transparent active:bg-surface-variant/40',
   link: '',
 };
 
@@ -34,11 +34,11 @@ const BUTTON_SIZE_STYLES: Record<ButtonSize, string> = {
 };
 
 const BUTTON_TEXT_STYLES: Record<ButtonVariant, string> = {
-  default: 'text-primary-foreground',
+  default: 'text-on-primary',
   destructive: 'text-destructive-foreground',
   outline: 'text-primary',
-  secondary: 'text-secondary-foreground',
-  tonal: 'text-secondary-foreground',
+  secondary: 'text-on-secondary-container',
+  tonal: 'text-on-secondary-container',
   elevated: 'text-primary',
   ghost: 'text-primary',
   link: 'text-primary underline',

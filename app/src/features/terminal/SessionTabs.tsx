@@ -157,14 +157,23 @@ export function SessionTabs({
                 key={k.key}
                 role="button"
                 accessibilityLabel={k.label}
-                className="flex-row items-center gap-3 rounded-md px-2 py-3 active:bg-accent"
+                android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
+                className="flex-row items-center gap-4 rounded-2xl px-4 py-3 active:bg-surface-variant/40"
                 onPress={() => {
                   setPicking(false);
                   k.onPress();
                 }}
               >
-                <Icon name={k.icon} size={20} className="text-foreground" />
-                <Text className="text-base text-foreground">{k.label}</Text>
+                <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
+                  <Icon
+                    name={k.icon}
+                    size={20}
+                    className="text-on-secondary-container"
+                  />
+                </View>
+                <Text className="text-base font-medium text-foreground">
+                  {k.label}
+                </Text>
               </Pressable>
             ))}
           </SheetContent>
@@ -225,13 +234,13 @@ function Tab({
   );
   const rename = useCallback(() => onRename?.(tab), [onRename, tab]);
   const icon = tab.icon ?? STATUS_ICON[tab.status];
-  const fg = active ? 'text-primary-foreground' : 'text-secondary-foreground';
+  const fg = active ? 'text-on-primary' : 'text-on-secondary-container';
 
   return (
     <View
       className={cn(
         'h-11 max-w-[220px] flex-row items-center rounded-full pl-3',
-        active ? 'bg-primary' : 'bg-secondary',
+        active ? 'bg-primary' : 'bg-secondary-container',
       )}
     >
       <Pressable

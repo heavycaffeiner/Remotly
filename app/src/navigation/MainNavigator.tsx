@@ -202,13 +202,13 @@ function NavItem({
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
           style={{ opacity: grow, transform: [{ scaleX: grow }] }}
-          className="absolute inset-0 rounded-full bg-secondary"
+          className="absolute inset-0 rounded-full bg-secondary-container"
         />
         <Icon
           name={tab.icon}
           size={24}
           className={
-            selected ? 'text-secondary-foreground' : 'text-on-surface-variant'
+            selected ? 'text-on-secondary-container' : 'text-on-surface-variant'
           }
         />
       </View>
@@ -216,7 +216,7 @@ function NavItem({
         className={cn(
           'mt-1 text-xs tracking-tight',
           selected
-            ? 'font-semibold text-foreground'
+            ? 'font-semibold text-on-surface'
             : 'text-on-surface-variant font-medium',
         )}
       >

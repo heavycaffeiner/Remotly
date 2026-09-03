@@ -182,11 +182,14 @@ export function SessionsScreen(): React.ReactElement {
   // The hub allows one connection per host id, so hand the slot to the
   // workspace, which reconnects on demand.
   const openWorkspace = useCallback(
-    (h: HostRecord) => {
+    (h: HostRecord, sessionId?: string) => {
       void getTransport()
         .close(h.id)
         .catch(() => undefined);
-      navigation.navigate('Workspace', { hostId: h.id });
+      navigation.navigate('Workspace', {
+        hostId: h.id,
+        ...(sessionId ? { sessionId } : {}),
+      });
     },
     [navigation],
   );
@@ -298,7 +301,7 @@ export function SessionsScreen(): React.ReactElement {
                   running={s.running}
                   age={relativeAge(s.lastActivity, nowSec)}
                   hostName={h.daemonName}
-                  onPress={() => openWorkspace(h)}
+                  onPress={() => openWorkspace(h, s.sessionId)}
                 />
               ))}
             </View>
@@ -346,12 +349,12 @@ function SessionRow({
       }, ${age}`}
       onPress={onPress}
       android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
-      className="mx-4 my-1 flex-row items-center gap-3.5 rounded-2xl bg-card p-3.5 overflow-hidden active:bg-surface-variant/40"
+      className="mx-4 my-1 flex-row items-center gap-3.5 rounded-2xl border border-outline-variant/30 bg-card p-3.5 overflow-hidden active:bg-surface-variant/40"
     >
-      <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary">
+      <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
         <Icon
           name={kind === 'shell' ? 'terminal' : 'bot'}
-          className="text-secondary-foreground"
+          className="text-on-secondary-container"
         />
       </View>
       <View className="flex-1 gap-0.5">

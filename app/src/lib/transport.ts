@@ -121,7 +121,12 @@ export interface TransportEvents {
    * priority, so this may arrive before the final replay bytes: clients
    * track the cursor as replayed_from plus the term bytes received.
    */
-  replayComplete: { hostId: string; channelId: number; offset: number };
+  replayComplete: {
+    hostId: string;
+    channelId: number;
+    offset: number;
+    gap?: boolean;
+  };
   termData: {
     hostId: string;
     channelId: number;
@@ -448,6 +453,12 @@ function normalizeEvent<K extends keyof TransportEvents>(
         hostId,
         channelId: toSafeInt(data.channelId),
         offset: toSafeInt(data.offset),
+        ...(typeof data === 'object' &&
+        data !== null &&
+        'gap' in data &&
+        data.gap === true
+          ? { gap: true }
+          : {}),
       } as TransportEvents[K];
     case 'sessionEvent':
       return {

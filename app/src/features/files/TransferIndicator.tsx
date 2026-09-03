@@ -75,15 +75,13 @@ export function TransferIndicator(): React.ReactElement | null {
         // survives navigation. Kept clear of the gesture bar, and of the tab
         // bar the main shell draws there.
         style={{ bottom: insets.bottom + TAB_BAR_HEIGHT }}
-        className="absolute inset-x-0 z-10 border-t border-border bg-card px-4 py-2 active:bg-accent"
+        className="absolute inset-x-0 z-10 border-t border-outline-variant/30 bg-surface-container-high px-4 py-2.5 active:bg-surface-variant/40"
       >
-        <View className="flex-row items-center gap-2">
+        <View className="flex-row items-center gap-2.5">
           <Icon
             name={running > 0 ? 'arrow-down-up' : 'circle-alert'}
-            size={16}
-            className={
-              running > 0 ? 'text-muted-foreground' : 'text-destructive'
-            }
+            size={18}
+            className={running > 0 ? 'text-primary' : 'text-destructive'}
           />
           <Text className="flex-1 text-sm text-foreground" numberOfLines={1}>
             {label}

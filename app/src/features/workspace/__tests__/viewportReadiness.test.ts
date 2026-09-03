@@ -31,41 +31,47 @@ describe('workspace viewport readiness', () => {
     expect(source).not.toMatch(/readyRef\.current\s*=\s*false/);
   });
 
-  it('holds buffered output until the viewport is ready', () => {
-    const flush =
-      /const flushPending = useCallback\(\(\) => \{([\s\S]*?)\}, \[\]\);/.exec(
-        source,
-      );
-
-    expect(flush).not.toBeNull();
-    expect(flush?.[1]).toMatch(/if \(!readyRef\.current\) return;/);
-  });
-
-  /**
-   * Over the cap the oldest chunks go. Clearing the whole queue discarded the
-   * screen about to be drawn and left the terminal blank until the next write.
-   */
-  it('drops the oldest buffered output rather than all of it', () => {
-    expect(source).toMatch(/pending\.current\.shift\(\)/);
-    expect(source).not.toMatch(
-      /pending\.current = \[\];\s*\n\s*pendingBytes\.current = 0;\s*\n\s*\}\s*\n\s*\}\),/,
+  it('schedules resize when viewport becomes ready', () => {
+    expect(source).toMatch(
+      /scheduleResizeFor\(h\.id, cur\.sessionId, next\.cols, next\.rows\)/,
     );
   });
 
+  it('tracks terminal data received bytes natively', () => {
+    expect(source).toMatch(/cur\.track\.receivedBytes \+= chunkLen;/);
+  });
+
   /**
-   * Locally dropped output leaves the same hole as the daemon's own dropped
-   * window, so it has to reach the banner the same way. Setting the flag
-   * without republishing the attachment would leave the screen showing the
-   * stale track, so both are required.
+   * Dropped output leaves a hole in history, so it has to reach the banner.
+   * Setting the flag and republishing the attachment ensures the banner updates.
    */
-  it('reports locally dropped output as a gap', () => {
+  it('reports replay gap and republishes active attachment', () => {
     expect(source).toMatch(/cur\.track\.continuity = 'gap';/);
 
-    const handler = /transport\.onEvent\('termData',([\s\S]*?)\n {6}\}\),/.exec(
-      source,
-    );
+    const handler =
+      /transport\.onEvent\('replayComplete',([\s\S]*?)\n {6}\}\),/.exec(source);
 
     expect(handler).not.toBeNull();
     expect(handler?.[1]).toMatch(/setActiveAttachment\(/);
+  });
+
+  /**
+   * Cursor must be committed immediately on detach to prevent replay duplication
+   * when returning to a retained terminal before the periodic timer ticks.
+   */
+  it('persists cursor on detachActive before clearing active attachment', () => {
+    const detach = /const detachActive = useCallback\([\s\S]*?\n {2}\);/.exec(
+      source,
+    );
+    expect(detach).not.toBeNull();
+    expect(detach?.[0]).toMatch(
+      /commitWs\(setCursor\(w, cur\.sessionId, cursorOf\(cur\.track\)\)\);/,
+    );
+  });
+
+  it('persists workspace document with updated cursor on unmount cleanup', () => {
+    expect(source).toMatch(
+      /saveWorkspaceDocument\(hostId, serializeWorkspace\(next\)\)/,
+    );
   });
 });
