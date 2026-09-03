@@ -53,6 +53,11 @@ export interface TerminalScreenProps {
   onBack: () => void;
   /** Sends user input bytes to the session. */
   onSend: (bytes: Uint8Array) => void;
+  /**
+   * Forwards automated terminal responses (such as cursor position reports)
+   * back to the session. When omitted, falls back to onSend.
+   */
+  onPtyWrite?: (bytes: Uint8Array) => void;
   /** Sends a new grid size to the session. Already debounced and deduped. */
   onResize: (size: GridSize) => void;
   /** Identifies the live session. Changing it resets resize state. */
@@ -158,7 +163,10 @@ export const TerminalScreen = forwardRef<
     onBell,
     onTitle,
     onFontSizeChange,
+    onPtyWrite: customPtyWrite,
   } = props;
+  const customPtyWriteRef = useRef(customPtyWrite);
+  customPtyWriteRef.current = customPtyWrite;
 
   const insets = useSafeAreaInsets();
   const viewport = useRef<TerminalViewportHandle | null>(null);
@@ -252,6 +260,10 @@ export const TerminalScreen = forwardRef<
    * program, not the user typing.
    */
   const handlePtyWrite = useCallback((bytes: Uint8Array) => {
+    if (customPtyWriteRef.current !== undefined) {
+      customPtyWriteRef.current(bytes);
+      return;
+    }
     sendRef.current(bytes);
   }, []);
 

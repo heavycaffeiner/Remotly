@@ -5,6 +5,8 @@ import com.google.gson.Gson
 import com.remotly.app.identity.Identity
 import com.remotly.app.notify.EventNotifier
 import com.remotly.app.settings.SettingsModule
+import com.remotly.app.terminal.TerminalStore
+import java.util.concurrent.ConcurrentHashMap
 
 // Owns the set of active daemon connections, one per host id, and exposes
 // them to the bridge layer.
@@ -112,6 +114,28 @@ object TransportHub {
     // a daemon retransmission must never alert twice. Session ids are unique;
     // keep a bounded process-local set so this cannot grow with daemon uptime.
     private val completionNotices = LinkedHashSet<String>()
+    // Channel to session id mapping for native direct terminal feed.
+    private val channelToSession = ConcurrentHashMap<Pair<String, Long>, String>()
+    private val replayingChannels = ConcurrentHashMap.newKeySet<Pair<String, Long>>()
+    private class ReplayBuffer {
+        val chunks = ArrayList<ByteArray>()
+        var totalBytes = 0
+    }
+    private val replayBuffers = ConcurrentHashMap<Pair<String, Long>, ReplayBuffer>()
+    private const val NATIVE_REPLAY_CAP = 1024 * 1024
+
+    fun bindTermChannel(hostId: String, channelId: Long, sessionId: String) {
+        val key = hostId to channelId
+        if (sessionId.isEmpty()) {
+            channelToSession.remove(key)
+            replayingChannels.remove(key)
+            replayBuffers.remove(key)
+        } else {
+            channelToSession[key] = sessionId
+            replayingChannels.add(key)
+            replayBuffers[key] = ReplayBuffer()
+        }
+    }
 
     // Binds (or clears) the event sink for one host. The calling bridge
     // method sets it so events reach the container that owns the connection.
@@ -369,6 +393,15 @@ object TransportHub {
             return
         }
         t.send(request) { result ->
+            result.getOrNull()?.let { resp ->
+                if (resp.error == null && request.type == ControlType.SESSION_ATTACH) {
+                    val sid = request.sessionId
+                    val cid = resp.channelId
+                    if (sid != null && cid != null) {
+                        bindTermChannel(hostId, cid, sid)
+                    }
+                }
+            }
             post {
                 safe {
                     cb(
@@ -426,6 +459,7 @@ object TransportHub {
             wasConnected.remove(hostId)
             plans.remove(hostId)
             paramsMap.remove(hostId)
+            channelToSession.keys.filter { it.first == hostId }.forEach { channelToSession.remove(it) }
             completionNotices.removeAll { it.startsWith("$hostId:") }
         }
     }
@@ -435,6 +469,9 @@ object TransportHub {
         synchronized(lock) {
             conns.values.forEach { runCatching { it.transport.close() } }
             conns.clear()
+            channelToSession.clear()
+            replayingChannels.clear()
+            replayBuffers.clear()
             pending.clear()
             states.clear()
             daemonNames.clear()
@@ -580,15 +617,53 @@ object TransportHub {
             }
 
             override fun onChannelClose(channelId: Long, reason: String) {
+                bindTermChannel(hostId, channelId, "")
                 post { emit(hostId, "channelClose", mapOf("channelId" to channelId, "reason" to reason)) }
             }
 
             override fun onTermData(channelId: Long, data: ByteArray) {
+                val key = hostId to channelId
+                val sessionId = channelToSession[key]
+                val useFastPath = sessionId != null && TerminalStore.has(sessionId)
+                if (useFastPath && sessionId != null) {
+                    if (replayingChannels.contains(key)) {
+                        // history is batched into one settled block on replayComplete.
+                        val buf = replayBuffers[key]
+                        if (buf != null) {
+                            synchronized(buf) {
+                                buf.chunks.add(data)
+                                buf.totalBytes += data.size
+                                while (buf.totalBytes > NATIVE_REPLAY_CAP && buf.chunks.size > 1) {
+                                    val dropped = buf.chunks.removeAt(0)
+                                    buf.totalBytes -= dropped.size
+                                }
+                            }
+                        }
+                        post {
+                            emit(
+                                hostId,
+                                "termData",
+                                mapOf("channelId" to channelId, "length" to data.size, "data" to "", "fastPath" to true),
+                            )
+                        }
+                        return
+                    }
+                    // Live output: direct fast-path feed to native terminal
+                    TerminalStore.feed(sessionId, data, 80, 24) {}
+                    post {
+                        emit(
+                            hostId,
+                            "termData",
+                            mapOf("channelId" to channelId, "length" to data.size, "data" to "", "fastPath" to true),
+                        )
+                    }
+                    return
+                }
                 post {
                     emit(
                         hostId,
                         "termData",
-                        mapOf("channelId" to channelId, "data" to Base64Std.encode(data)),
+                        mapOf("channelId" to channelId, "length" to data.size, "data" to Base64Std.encode(data), "fastPath" to false),
                     )
                 }
             }
@@ -605,8 +680,31 @@ object TransportHub {
             }
 
             override fun onReplayComplete(channelId: Long, offset: Long) {
+                val key = hostId to channelId
+                val sessionId = channelToSession[key]
+                replayingChannels.remove(key)
+                val buf = replayBuffers.remove(key)
+                if (sessionId != null && buf != null) {
+                    val combined = synchronized(buf) {
+                        if (buf.chunks.isEmpty()) {
+                            null
+                        } else {
+                            val out = ByteArray(buf.totalBytes)
+                            var at = 0
+                            for (chunk in buf.chunks) {
+                                System.arraycopy(chunk, 0, out, at, chunk.size)
+                                at += chunk.size
+                            }
+                            out
+                        }
+                    }
+                    if (combined != null && combined.isNotEmpty()) {
+                        TerminalStore.feed(sessionId, combined, 80, 24) {}
+                    }
+                }
                 post { emit(hostId, "replayComplete", mapOf("channelId" to channelId, "offset" to offset)) }
             }
+
 
             override fun onSessionEvent(event: SessionEvent) {
                 // Text is terminal content; it crosses to the container but is

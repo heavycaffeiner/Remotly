@@ -112,12 +112,14 @@ object TerminalStore {
      */
     fun retain(sessionId: String, handle: Long) {
         if (sessionId.isEmpty() || handle == 0L) return
+        synchronized(lock) {
+            // Re-inserted synchronously so take() and has() immediately see it.
+            handles.remove(sessionId)
+            handles[sessionId] = handle
+        }
         onMain {
             val evicted = ArrayList<Long>()
             synchronized(lock) {
-                // Re-inserted so the cap evicts by least recently used.
-                handles.remove(sessionId)
-                handles[sessionId] = handle
                 while (handles.size > MAX_RETAINED) {
                     // A session with a view on it is not a detached terminal,
                     // whatever its position in the LRU order. Destroying its

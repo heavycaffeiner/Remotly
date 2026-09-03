@@ -918,18 +918,15 @@ class TerminalView @JvmOverloads constructor(
   /**
    * True when scrolling down by rows would land at or past the last row.
    *
-   * Read from the terminal each time rather than tracked here: the row count
-   * changes as output arrives, and a cached total is exactly what made the
-   * bottom unreachable.
+   * A geometry that cannot be read answers false, so the scroll is attempted
+   * rather than snapped.
    */
   private fun withinSnapOfBottom(rows: Int): Boolean {
-    val bar = RemotlyTerminal.nativeScrollbar(handle) ?: return false
-    if (bar.size < 3) return false
+    val bar = scrollbar() ?: return false
     val total = bar[0]
-    val offset = bar[1]
     val visible = bar[2]
     if (total <= visible) return false
-    return offset + visible + rows >= total
+    return bar[1] + visible + rows >= total
   }
 
   /**
@@ -940,9 +937,15 @@ class TerminalView @JvmOverloads constructor(
    * libghostty already keeps the viewport on the active area as it writes, and
    * overriding that broke applications that redraw in place by moving the
    * cursor up.
+   *
+   * It does not check first. Asking whether the viewport is already at the
+   * bottom only decides whether to skip work, and a wrong answer there is
+   * exactly the state the user cannot escape: the affordance for getting back
+   * refuses to act because it believes it is already there. Pinning an
+   * already-pinned viewport costs nothing.
    */
   fun scrollToBottom() {
-    if (handle == 0L || atBottom()) return
+    if (handle == 0L) return
     RemotlyTerminal.nativeScrollToBottom(handle)
     lastScrollAtMs = SystemClock.uptimeMillis()
     invalidate()
@@ -965,15 +968,19 @@ class TerminalView @JvmOverloads constructor(
    * row, which is wrong for an application drawing a block above the last one.
    * Checking first means a keystroke only pulls the view back when the user
    * had actually scrolled away.
+   *
+   * A geometry that cannot be read answers false. It used to answer true,
+   * which is the state that hands every scroll gesture to the application and
+   * refuses to scroll to the bottom, so a terminal whose handle was briefly
+   * unreadable came back unscrollable. Answering false only costs a redundant
+   * scroll-to-bottom.
    */
   private fun atBottom(): Boolean {
-    val bar = RemotlyTerminal.nativeScrollbar(handle) ?: return true
-    if (bar.size < 3) return true
+    val bar = scrollbar() ?: return false
     val total = bar[0]
-    val offset = bar[1]
     val visible = bar[2]
     if (total <= visible) return true
-    return offset + visible >= total
+    return bar[1] + visible >= total
   }
 
   /**
@@ -983,9 +990,20 @@ class TerminalView @JvmOverloads constructor(
    * apart from a shell by this rather than by asking which screen is active.
    */
   private fun hasScrollback(): Boolean {
-    val bar = RemotlyTerminal.nativeScrollbar(handle) ?: return false
-    if (bar.size < 3) return false
+    val bar = scrollbar() ?: return false
     return bar[0] > bar[2]
+  }
+
+  /**
+   * Scrollbar geometry as (total, offset, visible), or null when the terminal
+   * cannot report it: no handle yet, or one released under a tab switch.
+   *
+   * Read fresh on every call. The row count changes as output arrives, and a
+   * cached total is exactly what made the bottom unreachable before.
+   */
+  private fun scrollbar(): LongArray? {
+    val bar = RemotlyTerminal.nativeScrollbar(handle) ?: return null
+    return if (bar.size < 3) null else bar
   }
 
   // Routed through performClick so accessibility services can trigger the same
@@ -1090,6 +1108,9 @@ class TerminalView @JvmOverloads constructor(
       return
     }
     handle = h
+    if (sessionId.isNotEmpty()) {
+      TerminalStore.retain(sessionId, h)
+    }
     TerminalStore.bindRenderer(sessionId, this)
     if (adopted) {
       // An adopted terminal is already running at the size its pty was told,

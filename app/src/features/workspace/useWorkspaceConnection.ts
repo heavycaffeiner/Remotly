@@ -92,6 +92,8 @@ export interface WorkspaceNotice {
   text: string;
 }
 
+type TimerHandle = ReturnType<typeof setTimeout>;
+
 /** Buffered output cap: a stuck mount cannot grow memory without bound. */
 const PENDING_CAP = 1024 * 1024;
 
@@ -133,6 +135,7 @@ export interface WorkspaceController {
   onViewportReady: (size: { cols: number; rows: number }) => void;
   resize: (size: { cols: number; rows: number }) => void;
   send: (bytes: Uint8Array) => void;
+  onPtyWrite: (bytes: Uint8Array) => void;
   selectTab: (sessionId: string) => void;
   closeTabById: (sessionId: string) => void;
   createNew: (kind: 'shell' | 'agent', preset?: Preset) => Promise<void>;
@@ -179,8 +182,12 @@ export function useWorkspaceConnection({
   const size = useRef<{ cols: number; rows: number } | null>(null);
   const deduper = useRef(new EventDeduper());
   const backoff = useRef(new Backoff());
-  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noticeTimer = useRef<TimerHandle | null>(null);
+  const reconnectTimer = useRef<TimerHandle | null>(null);
+  const overflowTimer = useRef<TimerHandle | null>(null);
+  const overflowRetries = useRef(new Map<string, number>());
+  const liveQueue = useRef<Uint8Array[]>([]);
+  const liveDraining = useRef(false);
   const disposed = useRef(false);
   const noticeSeq = useRef(0);
   const writeRef = useRef(write);
@@ -250,6 +257,27 @@ export function useWorkspaceConnection({
     writeRef.current(concatChunks(queued));
   }, []);
 
+  const drainLiveQueue = useCallback(() => {
+    if (!readyRef.current) return;
+    const queued = liveQueue.current;
+    if (queued.length === 0) return;
+    liveQueue.current = [];
+    writeRef.current(concatChunks(queued));
+  }, []);
+
+  const pushLiveChunk = useCallback(
+    (chunk: Uint8Array) => {
+      liveQueue.current.push(chunk);
+      if (liveDraining.current) return;
+      liveDraining.current = true;
+      queueMicrotask(() => {
+        liveDraining.current = false;
+        drainLiveQueue();
+      });
+    },
+    [drainLiveQueue],
+  );
+
   const scheduleResizeFor = useCallback(
     (hid: string, sessionId: string, cols: number, rows: number) => {
       void resizeSession(hid, sessionId, cols, rows).catch(() => undefined);
@@ -269,6 +297,9 @@ export function useWorkspaceConnection({
       const cur = activeRef.current;
       if (cur === null) return;
       setActiveAttachment(null);
+      pending.current = [];
+      pendingBytes.current = 0;
+      liveQueue.current = [];
       if (h !== null) {
         await detachChannel(h.id, cur.track.channelId).catch(() => undefined);
       }
@@ -507,6 +538,9 @@ export function useWorkspaceConnection({
     if (h === null) return;
     clearTimeout(reconnectTimer.current ?? undefined);
     reconnectTimer.current = null;
+    clearTimeout(overflowTimer.current ?? undefined);
+    overflowTimer.current = null;
+    overflowRetries.current.clear();
     backoff.current.reset();
     setReconnecting(false);
     void connectRef.current(h);
@@ -517,13 +551,14 @@ export function useWorkspaceConnection({
       size.current = next;
       readyRef.current = true;
       flushPending();
+      drainLiveQueue();
       const cur = activeRef.current;
       const h = hostRef.current;
       if (cur !== null && h !== null) {
         scheduleResizeFor(h.id, cur.sessionId, next.cols, next.rows);
       }
     },
-    [flushPending, scheduleResizeFor],
+    [drainLiveQueue, flushPending, scheduleResizeFor],
   );
 
   const resize = useCallback(
@@ -549,6 +584,17 @@ export function useWorkspaceConnection({
         });
       });
   }, []);
+
+  const onPtyWrite = useCallback(
+    (bytes: Uint8Array) => {
+      const cur = activeRef.current;
+      // Automated queries (such as CPR) during history replay must not be
+      // sent to the live session PTY.
+      if (cur === null || !cur.track.replayDone) return;
+      send(bytes);
+    },
+    [send],
+  );
 
   const selectTab = useCallback(
     (sessionId: string) => {
@@ -689,6 +735,9 @@ export function useWorkspaceConnection({
   }, []);
 
   const leave = useCallback(() => {
+    clearTimeout(overflowTimer.current ?? undefined);
+    overflowTimer.current = null;
+    overflowRetries.current.clear();
     disconnect();
   }, [disconnect]);
 
@@ -779,13 +828,17 @@ export function useWorkspaceConnection({
         const h = hostRef.current;
         if (h === null || cur === null || e.hostId !== h.id) return;
         if (e.channelId !== cur.track.channelId) return;
-        cur.track.receivedBytes += e.data.length;
+        const chunkLen = e.length ?? e.data.length;
+        cur.track.receivedBytes += chunkLen;
+        if (e.fastPath === true) {
+          return;
+        }
         // Replay arrives as a long run of small chunks. Writing each one as it
         // lands makes the user watch the history scroll past, so it is held
         // until replayComplete and written as a single block. Live output,
         // after replay, goes straight through.
         if (readyRef.current && cur.track.replayDone) {
-          writeRef.current(e.data);
+          pushLiveChunk(e.data);
           return;
         }
         pending.current.push(e.data);
@@ -821,10 +874,13 @@ export function useWorkspaceConnection({
         const h = hostRef.current;
         if (h === null || cur === null || e.hostId !== h.id) return;
         if (e.channelId !== cur.track.channelId) return;
-        cur.track.replayDone = true;
-        // The whole replayed screen is written at once, so the terminal draws
-        // the settled state rather than every intermediate line.
+        // The whole replayed screen is written at once while replayDone is
+        // still false, so any automated query responses (such as CPR) emitted
+        // during this flush are suppressed from the live PTY.
         flushPending();
+        drainLiveQueue();
+        cur.track.replayDone = true;
+        overflowRetries.current.delete(cur.sessionId);
         setActiveAttachment({
           sessionId: cur.sessionId,
           track: { ...cur.track },
@@ -836,11 +892,34 @@ export function useWorkspaceConnection({
         if (h === null || cur === null || e.hostId !== h.id) return;
         if (e.channelId !== cur.track.channelId) return;
         const sessionId = cur.sessionId;
+        const resumeCursor = cursorOf(cur.track);
         setActiveAttachment(null);
         if (e.reason === 'session_exited') {
+          overflowRetries.current.delete(sessionId);
           commitWs(
             markExited(wsRef.current ?? createWorkspace(h.id), sessionId, null),
           );
+          return;
+        }
+        if (e.reason === 'overflow') {
+          const retries = overflowRetries.current.get(sessionId) ?? 0;
+          if (retries < 3) {
+            overflowRetries.current.set(sessionId, retries + 1);
+            const delay = 150 * Math.pow(2, retries);
+            const w = commitWs(
+              setCursor(
+                wsRef.current ?? createWorkspace(h.id),
+                sessionId,
+                resumeCursor,
+              ),
+            );
+            clearTimeout(overflowTimer.current ?? undefined);
+            overflowTimer.current = setTimeout(() => {
+              void attachActiveTab(h, w);
+            }, delay);
+            return;
+          }
+          setErrorText('Output throughput limit reached. Tap to retry.');
         }
       }),
       transport.onEvent('sessionUpdate', e => {
@@ -880,6 +959,8 @@ export function useWorkspaceConnection({
       disposed.current = true;
       clearTimeout(noticeTimer.current ?? undefined);
       clearTimeout(reconnectTimer.current ?? undefined);
+      clearTimeout(overflowTimer.current ?? undefined);
+      overflowTimer.current = null;
       appState.remove();
       for (const off of unsubs) off();
       const h = hostRef.current;
@@ -898,6 +979,9 @@ export function useWorkspaceConnection({
     scheduleReconnect,
     retryNow,
     flushPending,
+    drainLiveQueue,
+    pushLiveChunk,
+    attachActiveTab,
   ]);
 
   return {
@@ -914,6 +998,7 @@ export function useWorkspaceConnection({
     onViewportReady,
     resize,
     send,
+    onPtyWrite,
     selectTab,
     closeTabById,
     createNew,

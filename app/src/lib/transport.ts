@@ -122,7 +122,13 @@ export interface TransportEvents {
    * track the cursor as replayed_from plus the term bytes received.
    */
   replayComplete: { hostId: string; channelId: number; offset: number };
-  termData: { hostId: string; channelId: number; data: Uint8Array };
+  termData: {
+    hostId: string;
+    channelId: number;
+    data: Uint8Array;
+    length?: number;
+    fastPath?: boolean;
+  };
   /** Raw file-channel frame for one transfer channel (a download chunk the
    *  daemon pumped). The base64 the bridge carries is already decoded here. */
   fileData: { hostId: string; channelId: number; data: Uint8Array };
@@ -408,12 +414,23 @@ function normalizeEvent<K extends keyof TransportEvents>(
 ): TransportEvents[K] {
   const hostId = toHostId(data.hostId);
   switch (name) {
-    case 'termData':
+    case 'termData': {
+      const b64 = typeof data.data === 'string' ? data.data : '';
+      const fastPath = data.fastPath === true;
+      const length =
+        typeof data.length === 'number'
+          ? data.length
+          : b64 === ''
+          ? 0
+          : decodeBase64(b64).length;
       return {
         hostId,
         channelId: toSafeInt(data.channelId),
-        data: decodeBase64(typeof data.data === 'string' ? data.data : ''),
+        data: fastPath || b64 === '' ? new Uint8Array(0) : decodeBase64(b64),
+        length,
+        fastPath,
       } as TransportEvents[K];
+    }
     case 'fileData':
       return {
         hostId,

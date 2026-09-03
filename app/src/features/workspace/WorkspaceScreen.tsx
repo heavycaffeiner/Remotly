@@ -292,6 +292,7 @@ export function WorkspaceScreen(): React.ReactElement {
         {...(subtitle ? { subtitle } : {})}
         onBack={goBack}
         onSend={ws.send}
+        onPtyWrite={ws.onPtyWrite}
         onResize={ws.resize}
         sessionKey={activeTab?.sessionId ?? ''}
         {...(activeTab ? { sessionId: activeTab.sessionId } : {})}
