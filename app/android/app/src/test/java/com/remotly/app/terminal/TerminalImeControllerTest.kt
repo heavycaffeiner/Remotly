@@ -120,6 +120,68 @@ class TerminalImeControllerTest {
     }
 
     @Test
+    fun autocompleteSuggestionReplacesTypoPrefixOnCommit() {
+        // User types 안뎡하세요 (typo)
+        ime.onComposingText("안", 1)
+        ime.onComposingText("안뎡", 1)
+        ime.onComposingText("안뎡하", 1)
+        ime.onComposingText("안뎡하세", 1)
+        ime.onComposingText("안뎡하세요", 1)
+
+        // Terminal already received 안, 뎡, 하, 세
+        assertEquals(listOf("안", "뎡", "하", "세"), sink.sentText)
+
+        // User taps Gboard suggestion 안녕하세요
+        sink.sentText.clear()
+        sink.sentKeys.clear()
+        ime.onCommitText("안녕하세요")
+
+        // Must retract 뎡, 하, 세 (3 DEL keys) and send 녕하세요
+        assertEquals(3, sink.sentKeys.size)
+        assertFalse(sink.sentKeys.any { it.second })
+        assertEquals(listOf("녕하세요"), sink.sentText)
+        assertFalse(ime.isComposing)
+    }
+
+    @Test
+    fun autocompleteSuggestionReplacesTypoPrefixOnComposingText() {
+        ime.onComposingText("안", 1)
+        ime.onComposingText("안뎡", 1)
+        ime.onComposingText("안뎡하", 1)
+        ime.onComposingText("안뎡하세", 1)
+        ime.onComposingText("안뎡하세요", 1)
+
+        // IME replaces composing text with 안녕하세요 before commit
+        sink.sentText.clear()
+        sink.sentKeys.clear()
+        ime.onComposingText("안녕하세요", 1)
+
+        // Retracts 3 clusters and releases 녕하세, holding 요 in preedit
+        assertEquals(3, sink.sentKeys.size)
+        assertFalse(sink.sentKeys.any { it.second })
+        assertEquals(listOf("녕하세"), sink.sentText)
+        assertEquals("요", ime.composition.text)
+    }
+
+    @Test
+    fun autocompleteSuggestionWithZeroPrefixReplacesAllReleased() {
+        ime.onComposingText("안", 1)
+        ime.onComposingText("안뎡", 1)
+        ime.onComposingText("안뎡하", 1)
+        ime.onComposingText("안뎡하세", 1)
+        ime.onComposingText("안뎡하세요", 1)
+
+        sink.sentText.clear()
+        sink.sentKeys.clear()
+        ime.onCommitText("반갑습니다")
+
+        // Zero common prefix: must retract all 4 released clusters
+        assertEquals(4, sink.sentKeys.size)
+        assertFalse(sink.sentKeys.any { it.second })
+        assertEquals(listOf("반갑습니다"), sink.sentText)
+    }
+
+    @Test
     fun aSecondWordStartsFromNothing() {
         ime.onComposingText("안", 1)
         ime.onComposingText("안녕", 1)
@@ -281,6 +343,7 @@ class TerminalImeControllerTest {
         assertTrue(ime.onCommitText("글"))
 
         assertEquals(listOf("한", "글"), sink.sentText)
+        assertEquals(0, sink.sentKeys.size)
     }
 
     @Test
