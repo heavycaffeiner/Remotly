@@ -22,7 +22,7 @@ import { formatSize } from './filePresentation';
  * above. Screens without a tab bar show it a little higher than strictly
  * needed, which reads as a margin rather than a defect.
  */
-export const TAB_BAR_HEIGHT = 56;
+export const TAB_BAR_HEIGHT = 80;
 
 /**
  * The indicator's own height, in pixels.

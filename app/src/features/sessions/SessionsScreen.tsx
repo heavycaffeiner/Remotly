@@ -345,12 +345,15 @@ function SessionRow({
         running ? 'running' : 'exited'
       }, ${age}`}
       onPress={onPress}
-      className="flex-row items-center gap-3 px-4 py-3 active:bg-accent"
+      android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
+      className="mx-4 my-1 flex-row items-center gap-3.5 rounded-2xl bg-card p-3.5 overflow-hidden active:bg-surface-variant/40"
     >
-      <Icon
-        name={kind === 'shell' ? 'terminal' : 'bot'}
-        className="text-muted-foreground"
-      />
+      <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary">
+        <Icon
+          name={kind === 'shell' ? 'terminal' : 'bot'}
+          className="text-secondary-foreground"
+        />
+      </View>
       <View className="flex-1 gap-0.5">
         <Text numberOfLines={2}>{title}</Text>
         <Text variant="caption" numberOfLines={2}>

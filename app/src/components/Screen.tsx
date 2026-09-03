@@ -55,7 +55,7 @@ export function Screen({
     <View className="flex-1 bg-background">
       {bare ? (
         actions.length === 0 ? null : (
-          <View className="flex-row items-center justify-end border-b border-border bg-card px-1 py-1">
+          <View className="flex-row items-center justify-end bg-surface-container-low px-2 py-1">
             {actions.map(a => (
               <IconButton
                 key={a.key}
@@ -68,16 +68,18 @@ export function Screen({
           </View>
         )
       ) : (
-        <View
-          style={{ paddingTop: insets.top }}
-          className="border-b border-border bg-card"
-        >
-          <View className="h-14 flex-row items-center px-1">
+        <View style={{ paddingTop: insets.top }} className="bg-surface">
+          <View className="h-16 flex-row items-center px-2">
             {onBack === undefined ? null : (
               <IconButton icon="arrow-left" label="Go back" onPress={onBack} />
             )}
-            <View className={cn('flex-1', onBack === undefined && 'ml-3')}>
-              <Text variant="title" numberOfLines={1}>
+            <View
+              className={cn('flex-1', onBack === undefined ? 'ml-3' : 'ml-1')}
+            >
+              <Text
+                className="text-xl font-normal text-foreground tracking-tight"
+                numberOfLines={1}
+              >
                 {title}
               </Text>
               {subtitle === undefined ? null : (
@@ -172,9 +174,14 @@ export function IconButton({
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
+      android_ripple={{
+        color: 'rgba(0, 0, 0, 0.12)',
+        borderless: true,
+        radius: 24,
+      }}
       className={cn(
-        'h-12 w-12 items-center justify-center rounded-full active:bg-accent',
-        disabled && 'opacity-50',
+        'h-12 w-12 items-center justify-center rounded-full active:bg-surface-variant/40',
+        disabled && 'opacity-38',
         className,
       )}
     >

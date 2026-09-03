@@ -287,7 +287,7 @@ export function HostsScreen(): React.ReactElement {
               accessibilityLabel="Search hosts"
               autoCapitalize="none"
               autoCorrect={false}
-              className="mb-2"
+              className="mb-3 h-12 rounded-full border-outline/30 bg-surface-container-high px-4"
             />
           ) : null}
 
@@ -300,25 +300,25 @@ export function HostsScreen(): React.ReactElement {
                 accessibilityState={{ selected: filter === f.value }}
                 onPress={() => setFilter(f.value)}
                 className={cn(
-                  'h-11 flex-row items-center gap-1.5 rounded-full border px-4',
+                  'h-8 flex-row items-center gap-1.5 rounded-lg border px-3',
                   filter === f.value
-                    ? 'border-primary bg-primary'
-                    : 'border-border bg-secondary',
+                    ? 'border-transparent bg-secondary'
+                    : 'border-outline/30 bg-transparent',
                 )}
               >
                 {filter === f.value ? (
                   <Icon
                     name="check"
-                    size={15}
-                    className="text-primary-foreground"
+                    size={14}
+                    className="text-secondary-foreground"
                   />
                 ) : null}
                 <Text
                   className={cn(
-                    'text-sm font-medium',
+                    'text-xs font-medium',
                     filter === f.value
-                      ? 'text-primary-foreground'
-                      : 'text-secondary-foreground',
+                      ? 'font-semibold text-secondary-foreground'
+                      : 'text-foreground',
                   )}
                 >
                   {f.label}
@@ -348,7 +348,12 @@ export function HostsScreen(): React.ReactElement {
           role="button"
           accessibilityLabel="Add a host"
           onPress={() => setAddOpen(true)}
-          className="absolute bottom-6 right-6 h-14 w-14 items-center justify-center rounded-lg bg-primary active:opacity-80"
+          android_ripple={{
+            color: 'rgba(255, 255, 255, 0.2)',
+            borderless: true,
+            radius: 28,
+          }}
+          className="absolute bottom-6 right-6 h-14 w-14 items-center justify-center rounded-2xl bg-primary shadow-lg overflow-hidden active:opacity-90"
         >
           <Icon name="plus" size={26} className="text-primary-foreground" />
         </Pressable>
@@ -436,7 +441,8 @@ function HostRow({ entry, onOpen, onMenu }: HostRowProps): React.ReactElement {
       accessibilityLabel={entry.accessibilityLabel}
       onPress={handleOpen}
       onLongPress={handleMenu}
-      className="flex-row items-center gap-3 rounded-lg border border-border bg-card p-3 active:bg-accent"
+      android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
+      className="flex-row items-center gap-3.5 rounded-2xl bg-card p-4 overflow-hidden active:bg-surface-variant/40"
     >
       <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary">
         <Icon

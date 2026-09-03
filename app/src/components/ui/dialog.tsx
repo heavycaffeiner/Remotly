@@ -6,21 +6,14 @@ import { Text } from './text';
 
 interface DialogProps {
   open: boolean;
-  /** Called for a back-button press or a scrim tap. */
   onClose: () => void;
-  /**
-   * Blocks dismissal. Used where the user must make an explicit choice, such
-   * as a host key prompt, so there is no path that continues by accident.
-   */
+  /** Disallows dismissing by tapping outside or with the back button. */
   dismissable?: boolean;
   children: React.ReactNode;
 }
 
 /**
- * A modal dialog.
- *
- * Built on RN's Modal rather than a portal, so Android's back button and the
- * platform's own focus trapping apply without reimplementing either.
+ * A modal dialog following Material Design 3 specifications (28dp radius, no border).
  */
 function Dialog({
   open,
@@ -37,11 +30,7 @@ function Dialog({
       navigationBarTranslucent
       onRequestClose={dismissable ? onClose : undefined}
     >
-      {/* Several dialogs hold a text field (rename, new folder, the pairing
-          code). A Modal is its own window, so the screen behind it resizing
-          for the keyboard does nothing here and the IME drew straight over
-          the field. Lifting by the measured overlap keeps it visible. */}
-      <KeyboardLifted className="flex-1 items-center justify-center bg-black/50 p-6">
+      <KeyboardLifted className="flex-1 items-center justify-center bg-black/60 p-6">
         {dismissable ? (
           <Pressable
             className="absolute inset-0"
@@ -49,7 +38,7 @@ function Dialog({
             onPress={onClose}
           />
         ) : null}
-        <View className="w-full max-w-md rounded-lg border border-border bg-popover">
+        <View className="w-full max-w-md rounded-[28px] bg-popover shadow-xl overflow-hidden">
           {children}
         </View>
       </KeyboardLifted>
@@ -58,7 +47,7 @@ function Dialog({
 }
 
 function DialogHeader({ className, ...props }: ViewProps): React.ReactElement {
-  return <View className={cn('gap-2 p-5 pb-3', className)} {...props} />;
+  return <View className={cn('gap-3 p-6 pb-4', className)} {...props} />;
 }
 
 function DialogTitle({
@@ -68,8 +57,11 @@ function DialogTitle({
   return (
     <Text
       role="heading"
-      variant="title"
-      className={cn('text-popover-foreground', className)}
+      variant="h3"
+      className={cn(
+        'text-2xl font-normal text-foreground tracking-tight',
+        className,
+      )}
       {...props}
     />
   );
@@ -79,17 +71,23 @@ function DialogDescription({
   className,
   ...props
 }: React.ComponentProps<typeof Text>): React.ReactElement {
-  return <Text variant="muted" className={className} {...props} />;
+  return (
+    <Text
+      variant="muted"
+      className={cn('text-sm leading-relaxed', className)}
+      {...props}
+    />
+  );
 }
 
 function DialogContent({ className, ...props }: ViewProps): React.ReactElement {
-  return <View className={cn('gap-3 px-5 pb-3', className)} {...props} />;
+  return <View className={cn('gap-4 px-6 pb-4', className)} {...props} />;
 }
 
 function DialogFooter({ className, ...props }: ViewProps): React.ReactElement {
   return (
     <View
-      className={cn('flex-row justify-end gap-2 p-5 pt-3', className)}
+      className={cn('flex-row justify-end gap-2 px-6 pb-6 pt-2', className)}
       {...props}
     />
   );

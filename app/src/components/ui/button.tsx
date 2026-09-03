@@ -5,23 +5,24 @@ import { cn } from '../../lib/utils';
 import { TextClassContext } from './text';
 
 const buttonVariants = cva(
-  'group flex flex-row items-center justify-center gap-2 rounded-md active:opacity-80',
+  'group flex flex-row items-center justify-center gap-2 rounded-full overflow-hidden active:opacity-85',
   {
     variants: {
       variant: {
         default: 'bg-primary',
         destructive: 'bg-destructive',
-        outline: 'border border-input bg-background',
+        outline: 'border border-outline bg-transparent',
         secondary: 'bg-secondary',
-        ghost: 'active:bg-accent',
+        tonal: 'bg-secondary',
+        elevated: 'bg-card shadow-sm',
+        ghost: 'bg-transparent active:bg-accent',
         link: '',
       },
       size: {
-        // Every size clears the 44dp minimum touch target.
-        default: 'h-12 px-5 py-3',
-        sm: 'h-11 rounded-md px-3',
-        lg: 'h-14 rounded-md px-8',
-        icon: 'h-12 w-12',
+        default: 'h-11 px-6 py-2.5',
+        sm: 'h-9 px-4',
+        lg: 'h-12 px-8',
+        icon: 'h-11 w-11 p-0',
       },
     },
     defaultVariants: { variant: 'default', size: 'default' },
@@ -29,17 +30,19 @@ const buttonVariants = cva(
 );
 
 /** Label colors, applied through TextClassContext so children inherit them. */
-const buttonTextVariants = cva('text-base font-medium', {
+const buttonTextVariants = cva('text-sm font-medium tracking-wide', {
   variants: {
     variant: {
       default: 'text-primary-foreground',
       destructive: 'text-destructive-foreground',
-      outline: 'text-foreground',
+      outline: 'text-primary',
       secondary: 'text-secondary-foreground',
-      ghost: 'text-foreground',
+      tonal: 'text-secondary-foreground',
+      elevated: 'text-primary',
+      ghost: 'text-primary',
       link: 'text-primary underline',
     },
-    size: { default: '', sm: 'text-sm', lg: 'text-lg', icon: '' },
+    size: { default: '', sm: 'text-xs', lg: 'text-base', icon: '' },
   },
   defaultVariants: { variant: 'default', size: 'default' },
 });
@@ -53,16 +56,20 @@ function Button({
   disabled,
   ...props
 }: ButtonProps): React.ReactElement {
+  const isFilled = variant === 'default' || variant === 'destructive';
   return (
     <TextClassContext.Provider value={buttonTextVariants({ variant, size })}>
       <Pressable
         role="button"
         disabled={disabled ?? false}
-        // Announced as disabled rather than only looking dimmed.
         accessibilityState={{ disabled: disabled ?? false }}
+        android_ripple={{
+          color: isFilled ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.08)',
+          borderless: false,
+        }}
         className={cn(
           buttonVariants({ variant, size }),
-          disabled === true && 'opacity-50',
+          disabled === true && 'opacity-38',
           className,
         )}
         {...props}

@@ -25,7 +25,7 @@ export default function App(): React.ReactElement {
 // a light or a dark final theme.
 function StartupPlaceholder(): React.ReactElement {
   return (
-    <View className="flex-1 items-center justify-center bg-[#7f8489]">
+    <View className="flex-1 items-center justify-center bg-surface">
       <ActivityIndicator accessibilityLabel="Starting" />
     </View>
   );

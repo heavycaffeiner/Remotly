@@ -17,10 +17,7 @@ interface SegmentedProps<T extends string> {
 }
 
 /**
- * A single-choice segmented control.
- *
- * Exposed as a radiogroup: each segment reports its own selected state, so the
- * choice is legible without relying on the highlight.
+ * A single-choice segmented button following Material Design 3 specifications.
  */
 function Segmented<T extends string>({
   value,
@@ -30,7 +27,7 @@ function Segmented<T extends string>({
   return (
     <View
       accessibilityRole="radiogroup"
-      className="flex-row rounded-md border border-border bg-secondary p-1"
+      className="flex-row rounded-full border border-outline/40 bg-surface p-1"
     >
       {options.map(option => {
         const selected = option.value === value;
@@ -42,16 +39,18 @@ function Segmented<T extends string>({
             accessibilityLabel={option.accessibilityLabel ?? option.label}
             onPress={() => onChange(option.value)}
             className={cn(
-              'h-10 flex-1 items-center justify-center rounded',
-              selected ? 'bg-primary' : 'active:bg-accent',
+              'h-10 flex-1 items-center justify-center rounded-full overflow-hidden',
+              selected
+                ? 'bg-secondary'
+                : 'bg-transparent active:bg-surface-variant/40',
             )}
           >
             <Text
               className={cn(
                 'text-sm font-medium',
                 selected
-                  ? 'text-primary-foreground'
-                  : 'text-secondary-foreground',
+                  ? 'text-secondary-foreground font-semibold'
+                  : 'text-foreground',
               )}
             >
               {option.label}

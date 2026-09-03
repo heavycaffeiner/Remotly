@@ -15,13 +15,11 @@ const Input = React.forwardRef<
     <TextInput
       ref={ref}
       accessibilityState={{ disabled: props.editable === false }}
-      // The placeholder is not a label. Callers pass an explicit
-      // accessibilityLabel; this only keeps the color readable.
       placeholderClassName="text-muted-foreground"
       className={cn(
-        'h-12 rounded-md border bg-background px-3 text-base text-foreground',
-        invalid ? 'border-destructive' : 'border-input',
-        props.editable === false && 'opacity-50',
+        'h-12 rounded-lg border bg-surface px-4 text-base text-foreground',
+        invalid ? 'border-2 border-destructive' : 'border-outline/50',
+        props.editable === false && 'opacity-38',
         className,
       )}
       {...props}

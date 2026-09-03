@@ -114,7 +114,7 @@ function NavigationBar({ active, onSelect }: NavProps): React.ReactElement {
     <View
       accessibilityRole="tablist"
       style={{ paddingBottom: insets.bottom }}
-      className="flex-row border-t border-border bg-card"
+      className="h-20 flex-row bg-surface-container"
     >
       {TABS.map(tab => (
         <NavItem
@@ -135,7 +135,7 @@ function NavigationRail({ active, onSelect }: NavProps): React.ReactElement {
     <View
       accessibilityRole="tablist"
       style={{ paddingTop: insets.top + 16, paddingBottom: insets.bottom }}
-      className="gap-2 border-r border-border bg-card px-2"
+      className="w-20 gap-3 bg-surface-container px-2"
     >
       {TABS.map(tab => (
         <NavItem
@@ -143,7 +143,7 @@ function NavigationRail({ active, onSelect }: NavProps): React.ReactElement {
           tab={tab}
           selected={active === tab.key}
           onSelect={onSelect}
-          className="w-[72px]"
+          className="w-16"
         />
       ))}
     </View>
@@ -190,16 +190,15 @@ function NavItem({
       accessibilityRole="tab"
       accessibilityLabel={tab.title}
       accessibilityState={{ selected }}
-      // No ripple: it filled the whole tab cell, which reads as the bar itself
-      // flashing rather than the tab responding. The pill and the label carry
-      // the press state.
-      android_ripple={null}
-      className={cn('min-h-14 items-center justify-center py-1.5', className)}
+      android_ripple={{
+        color: 'rgba(0, 0, 0, 0.08)',
+        borderless: true,
+        radius: 28,
+      }}
+      className={cn('h-20 items-center justify-center py-2', className)}
     >
       <View className="h-8 w-16 items-center justify-center overflow-hidden rounded-full">
         <Animated.View
-          // Purely decorative: the label and accessibilityState carry the
-          // selection, so this is hidden from assistive technology.
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
           style={{ opacity: grow, transform: [{ scaleX: grow }] }}
@@ -207,14 +206,18 @@ function NavItem({
         />
         <Icon
           name={tab.icon}
-          size={22}
-          className={selected ? 'text-primary' : 'text-muted-foreground'}
+          size={24}
+          className={
+            selected ? 'text-secondary-foreground' : 'text-on-surface-variant'
+          }
         />
       </View>
       <Text
         className={cn(
-          'text-xs',
-          selected ? 'font-medium text-primary' : 'text-muted-foreground',
+          'mt-1 text-xs tracking-tight',
+          selected
+            ? 'font-semibold text-foreground'
+            : 'text-on-surface-variant font-medium',
         )}
       >
         {tab.title}

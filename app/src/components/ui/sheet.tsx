@@ -141,15 +141,15 @@ function SheetContent({
       // row is drawn behind the navigation bar and cannot be reached.
       style={{ paddingBottom: insets.bottom + 24 }}
       className={cn(
-        'max-h-[85%] rounded-t-2xl border-t border-border bg-card p-4',
+        'max-h-[85%] rounded-t-[28px] bg-card p-5 shadow-2xl',
         className,
       )}
     >
-      {/* The grabber marks the sheet as draggable-looking; it is decorative. */}
+      {/* M3 bottom sheet drag handle pill */}
       <View
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
-        className="mb-3 h-1 w-10 self-center rounded-full bg-muted"
+        className="mb-4 h-1 w-8 self-center rounded-full bg-outline/40"
       />
       {children}
     </View>
@@ -179,7 +179,7 @@ function SheetToast({
     <View
       pointerEvents="none"
       style={{ bottom: insets.bottom + 16 }}
-      className="absolute inset-x-4 rounded-md bg-foreground px-4 py-3"
+      className="absolute inset-x-4 rounded-xl bg-foreground px-4 py-3 shadow-lg"
       accessibilityLiveRegion="polite"
     >
       <Text className="text-background" numberOfLines={2}>
@@ -203,7 +203,10 @@ function SheetTitle({
   children: React.ReactNode;
 }): React.ReactElement {
   return (
-    <Text role="heading" className="text-lg font-semibold text-foreground">
+    <Text
+      role="heading"
+      className="text-xl font-medium text-foreground tracking-tight"
+    >
       {children}
     </Text>
   );

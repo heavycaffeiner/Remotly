@@ -3,76 +3,130 @@
 @tailwind utilities;
 
 /*
- * Theme tokens. The only place in the app where a raw color is written.
+ * Material Design 3 Theme tokens.
  *
  * Values are unwrapped HSL channels so Tailwind can compose them with an
  * alpha, as in `bg-primary/10`.
  */
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
-
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-
-    --primary: 204 100% 31%;
+    /* Primary */
+    --primary: 204 100% 32%;
     --primary-foreground: 0 0% 100%;
+    --primary-container: 213 100% 91%;
+    --on-primary-container: 215 100% 15%;
 
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
+    /* Secondary */
+    --secondary: 214 60% 91%;
+    --secondary-foreground: 217 38% 17%;
+    --secondary-container: 214 60% 91%;
+    --on-secondary-container: 217 38% 17%;
 
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 42%;
+    /* Tertiary */
+    --tertiary: 175 45% 35%;
+    --tertiary-foreground: 0 0% 100%;
+    --tertiary-container: 175 60% 88%;
+    --on-tertiary-container: 175 100% 10%;
 
-    --accent: 210 40% 94%;
-    --accent-foreground: 222 47% 11%;
+    /* Surface and containers */
+    --surface: 210 20% 98%;
+    --on-surface: 220 20% 10%;
+    --surface-variant: 215 20% 90%;
+    --on-surface-variant: 215 15% 30%;
+    --surface-container-lowest: 0 0% 100%;
+    --surface-container-low: 210 25% 96%;
+    --surface-container: 210 20% 94%;
+    --surface-container-high: 210 18% 91%;
+    --surface-container-highest: 210 16% 88%;
 
-    --destructive: 0 72% 45%;
+    /* Outline */
+    --outline: 215 10% 46%;
+    --outline-variant: 215 15% 80%;
+
+    /* Destructive / Error */
+    --destructive: 0 75% 42%;
     --destructive-foreground: 0 0% 100%;
+    --destructive-container: 0 100% 93%;
+    --on-destructive-container: 0 100% 13%;
 
-    --border: 214 32% 88%;
-    --input: 214 32% 88%;
-    --ring: 204 100% 31%;
+    /* Aliases for backwards compatibility */
+    --background: var(--surface);
+    --foreground: var(--on-surface);
+    --card: var(--surface-container-low);
+    --card-foreground: var(--on-surface);
+    --popover: var(--surface-container-high);
+    --popover-foreground: var(--on-surface);
+    --muted: var(--surface-variant);
+    --muted-foreground: var(--on-surface-variant);
+    --accent: var(--surface-container-highest);
+    --accent-foreground: var(--on-surface);
+    --border: var(--outline-variant);
+    --input: var(--outline);
+    --ring: var(--primary);
 
+    /* Terminal chrome */
     --terminal: 222 47% 8%;
     --terminal-foreground: 210 40% 92%;
 
-    --radius: 10px;
+    --radius: 16px;
   }
 
   .dark:root {
-    --background: 222 47% 7%;
-    --foreground: 210 40% 92%;
-
-    --card: 222 40% 10%;
-    --card-foreground: 210 40% 92%;
-
-    --popover: 222 40% 10%;
-    --popover-foreground: 210 40% 92%;
-
+    /* Primary */
     --primary: 209 100% 76%;
-    --primary-foreground: 210 100% 14%;
+    --primary-foreground: 215 100% 16%;
+    --primary-container: 213 100% 26%;
+    --on-primary-container: 205 100% 90%;
 
-    --secondary: 217 33% 17%;
-    --secondary-foreground: 210 40% 92%;
+    /* Secondary */
+    --secondary: 216 30% 32%;
+    --secondary-foreground: 214 60% 91%;
+    --secondary-container: 216 30% 32%;
+    --on-secondary-container: 214 60% 91%;
 
-    --muted: 217 33% 17%;
-    --muted-foreground: 215 20% 65%;
+    /* Tertiary */
+    --tertiary: 175 40% 70%;
+    --tertiary-foreground: 175 100% 12%;
+    --tertiary-container: 175 60% 24%;
+    --on-tertiary-container: 175 60% 88%;
 
-    --accent: 217 33% 20%;
-    --accent-foreground: 210 40% 92%;
+    /* Surface and containers */
+    --surface: 220 20% 8%;
+    --on-surface: 210 20% 90%;
+    --surface-variant: 217 15% 25%;
+    --on-surface-variant: 215 15% 75%;
+    --surface-container-lowest: 220 20% 6%;
+    --surface-container-low: 220 18% 11%;
+    --surface-container: 220 16% 14%;
+    --surface-container-high: 220 14% 18%;
+    --surface-container-highest: 220 12% 22%;
 
-    --destructive: 0 63% 60%;
-    --destructive-foreground: 222 47% 11%;
+    /* Outline */
+    --outline: 215 12% 56%;
+    --outline-variant: 215 15% 28%;
 
-    --border: 217 33% 20%;
-    --input: 217 33% 22%;
-    --ring: 209 100% 76%;
+    /* Destructive / Error */
+    --destructive: 0 100% 78%;
+    --destructive-foreground: 0 100% 20%;
+    --destructive-container: 0 100% 30%;
+    --on-destructive-container: 0 100% 90%;
 
+    /* Aliases for backwards compatibility */
+    --background: var(--surface);
+    --foreground: var(--on-surface);
+    --card: var(--surface-container-low);
+    --card-foreground: var(--on-surface);
+    --popover: var(--surface-container-high);
+    --popover-foreground: var(--on-surface);
+    --muted: var(--surface-variant);
+    --muted-foreground: var(--on-surface-variant);
+    --accent: var(--surface-container-highest);
+    --accent-foreground: var(--on-surface);
+    --border: var(--outline-variant);
+    --input: var(--outline);
+    --ring: var(--primary);
+
+    /* Terminal chrome */
     --terminal: 222 47% 6%;
     --terminal-foreground: 210 40% 92%;
   }

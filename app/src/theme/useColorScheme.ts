@@ -25,21 +25,21 @@ export function useAppliedColorScheme(): 'light' | 'dark' {
 /** Raw values for the few APIs that cannot take a class name. */
 export const themeColors = {
   light: {
-    background: 'hsl(0 0% 100%)',
-    foreground: 'hsl(222 47% 11%)',
-    card: 'hsl(0 0% 100%)',
-    border: 'hsl(214 32% 88%)',
-    primary: 'hsl(204 100% 31%)',
-    muted: 'hsl(215 16% 42%)',
+    background: 'hsl(210 20% 98%)',
+    foreground: 'hsl(220 20% 10%)',
+    card: 'hsl(210 25% 96%)',
+    border: 'hsl(215 15% 80%)',
+    primary: 'hsl(204 100% 32%)',
+    muted: 'hsl(215 20% 90%)',
     terminal: 'hsl(222 47% 8%)',
   },
   dark: {
-    background: 'hsl(222 47% 7%)',
-    foreground: 'hsl(210 40% 92%)',
-    card: 'hsl(222 40% 10%)',
-    border: 'hsl(217 33% 20%)',
+    background: 'hsl(220 20% 8%)',
+    foreground: 'hsl(210 20% 90%)',
+    card: 'hsl(220 18% 11%)',
+    border: 'hsl(215 15% 28%)',
     primary: 'hsl(209 100% 76%)',
-    muted: 'hsl(215 20% 65%)',
+    muted: 'hsl(217 15% 25%)',
     terminal: 'hsl(222 47% 6%)',
   },
 } as const;

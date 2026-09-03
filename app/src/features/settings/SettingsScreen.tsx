@@ -198,7 +198,7 @@ export function SettingsScreen(): React.ReactElement {
               label="Decrease terminal font size"
               disabled={fontSize <= MIN_FONT_SIZE}
               onPress={() => stepFont(-1)}
-              className="border border-border"
+              className="bg-surface-variant/40"
             />
             <Text
               accessibilityLabel={`Terminal font size, ${fontSize} sp`}
@@ -211,7 +211,7 @@ export function SettingsScreen(): React.ReactElement {
               label="Increase terminal font size"
               disabled={fontSize >= MAX_FONT_SIZE}
               onPress={() => stepFont(1)}
-              className="border border-border"
+              className="bg-surface-variant/40"
             />
           </View>
         </View>
@@ -422,7 +422,8 @@ function SettingRow({
       role="button"
       accessibilityLabel={title}
       onPress={onPress}
-      className="min-h-14 flex-row items-center gap-3 px-4 py-3 active:bg-accent"
+      android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
+      className="min-h-14 flex-row items-center gap-3 px-4 py-3 active:bg-surface-variant/40"
     >
       {body}
     </Pressable>
