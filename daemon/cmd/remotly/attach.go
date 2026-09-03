@@ -12,16 +12,16 @@ import (
 	"github.com/heavycaffeiner/remotly/daemon/internal/localctl"
 )
 
-// detachLead is Ctrl-A, the prefix of the detach sequence (Ctrl-A then d).
+// detachLead is Ctrl-B, the prefix of the detach sequence (Ctrl-B then d).
 //
 // Ctrl-C, Ctrl-D, and Ctrl-Z all belong to the remote program, so detaching
 // needs a prefix that is claimed by the attach rather than passed straight
-// through. A lone Ctrl-A still reaches the session: it is held back only
+// through. A lone Ctrl-B still reaches the session: it is held back only
 // until the next byte says whether it began a detach.
-const detachLead = 0x01
+const detachLead = 0x02
 
 // detachHint is the sequence as shown to the user.
-const detachHint = "Ctrl-A d"
+const detachHint = "Ctrl-b d"
 
 // The alternate screen buffer. An attach runs on it so the session's output,
 // including any clear-screen it emits on the way out, never touches the
@@ -166,7 +166,7 @@ func filterDetach(in []byte, armed bool) (out []byte, detach bool, nextArmed boo
 	for _, b := range in {
 		if armed {
 			armed = false
-			if b == 'd' {
+			if b == 'd' || b == 'D' || b == 0x04 {
 				return out, true, false
 			}
 			if b == detachLead {

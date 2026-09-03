@@ -7,11 +7,10 @@
 // which tab strip is on screen feels broken.
 
 /** Horizontal travel before the gesture is taken from the child view. */
-export const SWIPE_CLAIM_PX = 14;
+export const SWIPE_CLAIM_PX = 28;
 
 /** How much more horizontal than vertical the drag has to be to count. */
-export const SWIPE_AXIS_RATIO = 1.15;
-
+export const SWIPE_AXIS_RATIO = 2.0;
 /** Travel that commits the switch on release. */
 export const SWIPE_COMMIT_PX = 44;
 

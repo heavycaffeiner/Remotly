@@ -93,7 +93,7 @@ func usage() {
        remotly -- <program> [args...]
 
 Running a program starts it as a daemon session on this terminal. The session
-outlives the terminal: detach with Ctrl-A d and the phone can attach to it.
+outlives the terminal: detach with Ctrl-b d and the phone can attach to it.
 
 A command name always wins, so use -- to run a program that shares one:
 `+"`remotly -- run htop`"+` runs htop rather than the daemon.

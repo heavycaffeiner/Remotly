@@ -1018,14 +1018,11 @@ class TerminalView @JvmOverloads constructor(
     ) {
       cols = newCols
       rows = newRows
-      // Only the measurement is published here. Resizing the local terminal
-      // now would leave it a different size from the pty until the debounced
-      // resize reaches the remote, and everything the application drew in
-      // that window was positioned for the size it still believed in: an
-      // absolute cursor move or a scroll region then lands in the wrong band
-      // and later output overwrites what came before it. The terminal is
-      // resized from applyRemoteSize, once both ends agree.
+      appliedCols = newCols
+      appliedRows = newRows
+      RemotlyTerminal.nativeResize(handle, newCols, newRows, cellWidthPx, cellHeightPx)
       host?.onResize(cols, rows)
+      invalidate()
     }
   }
 
@@ -1084,21 +1081,9 @@ class TerminalView @JvmOverloads constructor(
       TerminalStore.retain(sessionId, h)
     }
     TerminalStore.bindRenderer(sessionId, this)
-    if (adopted) {
-      // An adopted terminal is already running at the size its pty was told,
-      // with scrollback laid out for it. Resizing to this view's grid now
-      // reflows that history against a width the remote does not have yet,
-      // which rewraps every retained line and moves the viewport off the
-      // active area. applyRemoteSize does it once both ends agree.
-      appliedCols = RemotlyTerminal.nativeCols(h)
-      appliedRows = RemotlyTerminal.nativeRows(h)
-    } else {
-      // A fresh terminal has nothing drawn against an older grid, and the
-      // session is opened with this size.
-      appliedCols = cols
-      appliedRows = rows
-      RemotlyTerminal.nativeResize(h, cols, rows, cellWidthPx, cellHeightPx)
-    }
+    appliedCols = cols
+    appliedRows = rows
+    RemotlyTerminal.nativeResize(h, cols, rows, cellWidthPx, cellHeightPx)
     // An adopted terminal already holds a screen. Drawing it now is what makes
     // a tab switch show its content on the first frame rather than the next
     // time something happens to repaint.
@@ -1174,7 +1159,11 @@ class TerminalView @JvmOverloads constructor(
     // Re-announce the grid so the owning screen re-arms its data flow. The
     // terminal kept its scrollback across the detach, so this is a reattach
     // rather than a new session, and nothing is replayed into it.
-    if (handle != 0L && sessionReady) host?.onReady(cols, rows)
+    if (handle != 0L && sessionReady) {
+      host?.onReady(cols, rows)
+      host?.onResize(cols, rows)
+      onExternalWrite()
+    }
     // Only an explicit request made before attachment is replayed. Attachment
     // on its own never opens the keyboard.
     if (pendingKeyboard) {

@@ -313,6 +313,7 @@ func (t *tui) newShell() {
 func (t *tui) runOutsideUI(fn func()) {
 	t.app.Suspend(fn)
 	t.reload()
+	t.app.Draw()
 }
 
 func (t *tui) promptRename() {

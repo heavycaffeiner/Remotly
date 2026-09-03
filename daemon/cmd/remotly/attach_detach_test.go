@@ -7,9 +7,8 @@ import (
 
 // The detach sequence must never eat input that only looks like it.
 //
-// Ctrl-A is beginning-of-line in a shell and a prefix in tmux, so a lone
-// Ctrl-A has to reach the session intact. Only Ctrl-A immediately followed by
-// d detaches.
+// Ctrl-B is a prefix in tmux, so a lone Ctrl-B has to reach the session intact.
+// Only Ctrl-B immediately followed by d detaches.
 func TestFilterDetach(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -27,6 +26,16 @@ func TestFilterDetach(t *testing.T) {
 		{
 			name:       "sequence detaches and is not forwarded",
 			in:         []byte{detachLead, 'd'},
+			wantDetach: true,
+		},
+		{
+			name:       "sequence with uppercase D detaches",
+			in:         []byte{detachLead, 'D'},
+			wantDetach: true,
+		},
+		{
+			name:       "sequence with Ctrl-D detaches",
+			in:         []byte{detachLead, 0x04},
 			wantDetach: true,
 		},
 		{
