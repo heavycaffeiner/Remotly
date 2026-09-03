@@ -48,6 +48,9 @@ jest.mock('../../specs/NativeRemotlyTerminalStore', () => {
 });
 
 jest.mock('../ssh', () => {
+  // Untyped inside the factory on purpose: jest hoists it above the imports
+  // and rejects any name from outside its own scope, which a type annotation
+  // in a generic argument also trips. The typed view of it is `ssh` below.
   const handlers = new Map();
   return {
     __esModule: true,
@@ -60,20 +63,24 @@ jest.mock('../ssh', () => {
       close: jest.fn().mockResolvedValue(undefined),
       closeHost: jest.fn().mockResolvedValue(undefined),
       onState: jest.fn(() => () => undefined),
-      onData: jest.fn((h: any, s: any, handler: any) => {
+      onData: jest.fn((h: unknown, s: unknown, handler: unknown) => {
         handlers.set(`${h}:${s}`, handler);
         return () => handlers.delete(`${h}:${s}`);
       }),
-      __emit: (h: any, s: any, payload: any) => {
-        const handler = handlers.get(`${h}:${s}`);
-        if (handler !== undefined) handler(payload);
+      __emit: (h: unknown, s: unknown, payload: unknown, fastPath = false) => {
+        handlers.get(`${h}:${s}`)?.(payload, fastPath);
       },
     },
   };
 });
 
 type MockSsh = typeof remotlySsh & {
-  __emit: (hostId: string, sessionId: string, bytes: Uint8Array) => void;
+  __emit: (
+    hostId: string,
+    sessionId: string,
+    bytes: Uint8Array,
+    fastPath?: boolean,
+  ) => void;
 };
 const ssh = remotlySsh as MockSsh;
 
@@ -146,6 +153,42 @@ describe('output routing', () => {
     ssh.__emit(id, tab.sessionId, Uint8Array.from([1, 2]));
 
     expect(seen).toEqual([1, 2]);
+  });
+
+  /**
+   * The native side writes the bytes into the terminal itself and reports the
+   * event with no payload. Writing again from here would double every
+   * character on screen.
+   */
+  it('does not write fast-path output a second time', () => {
+    const id = freshHost();
+    const seen: number[] = [];
+    attachSshSink(id, b => seen.push(...b));
+    openSshTab(id);
+    const [tab] = sshHostState(id).tabs;
+
+    ssh.__emit(id, tab.sessionId, new Uint8Array(0), true);
+
+    expect(seen).toEqual([]);
+  });
+
+  /**
+   * A fast-path event must not queue either. Queuing an empty chunk would
+   * hand the next slow-path block to the drain instead of the sink, which is
+   * the round trip the fast path exists to avoid.
+   */
+  it('keeps delivering to the renderer after a fast-path event', () => {
+    const id = freshHost();
+    const seen: number[] = [];
+    attachSshSink(id, b => seen.push(...b));
+    openSshTab(id);
+    const [tab] = sshHostState(id).tabs;
+
+    ssh.__emit(id, tab.sessionId, new Uint8Array(0), true);
+    ssh.__emit(id, tab.sessionId, Uint8Array.from([7]));
+
+    expect(seen).toEqual([7]);
+    expect(terminalStore.feed).not.toHaveBeenCalled();
   });
 
   // Output that arrives while the user is elsewhere has to survive, or coming

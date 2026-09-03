@@ -194,12 +194,21 @@ function flushActive(hostId: string): void {
  * land before an earlier one. The screen then shows the newest output with
  * older output painted over it, which reads as truncated or stuck.
  *
+ * Output the native side already wrote is not queued at all: the bytes are in
+ * the terminal and writing them again would double them.
+ *
  * Nothing is discarded.
  */
-function receive(hostId: string, sessionId: string, bytes: Uint8Array): void {
+function receive(
+  hostId: string,
+  sessionId: string,
+  bytes: Uint8Array,
+  fastPath: boolean,
+): void {
   const e = entry(hostId);
   const rt = e.runtimes.get(sessionId);
   if (rt === undefined) return;
+  if (fastPath) return;
 
   // The tab being watched, with nothing queued ahead of it, goes straight to
   // the renderer. This is the common case and the one latency is felt in, so
@@ -342,8 +351,8 @@ function startSession(hostId: string, sessionId: string): void {
     existing.offData();
     existing.offState();
   }
-  const offData = remotlySsh.onData(hostId, sessionId, bytes =>
-    receive(hostId, sessionId, bytes),
+  const offData = remotlySsh.onData(hostId, sessionId, (bytes, fastPath) =>
+    receive(hostId, sessionId, bytes, fastPath),
   );
   const offState = remotlySsh.onState(hostId, sessionId, s =>
     applyState(hostId, sessionId, s),

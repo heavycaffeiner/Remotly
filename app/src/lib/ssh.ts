@@ -12,6 +12,9 @@ import NativeSsh from '../specs/NativeRemotlySsh';
 import { decodeBase64, encodeBase64 } from './base64';
 import { log } from './log';
 
+/** Handed to a data listener on the fast path, where the bytes went native. */
+const EMPTY_BYTES = new Uint8Array(0);
+
 export type SshStateKind =
   | 'disconnected'
   | 'connecting'
@@ -147,11 +150,17 @@ export interface RemotlySsh {
     sessionId: string,
     handler: (state: SshState) => void,
   ): () => void;
-  /** Subscribes to terminal output for one session. */
+  /**
+   * Subscribes to terminal output for one session.
+   *
+   * `bytes` is empty when the native side already wrote the output into the
+   * terminal; `fastPath` says which happened, so a caller writes only what it
+   * is actually handed.
+   */
   onData(
     hostId: string,
     sessionId: string,
-    handler: (bytes: Uint8Array) => void,
+    handler: (bytes: Uint8Array, fastPath: boolean) => void,
   ): () => void;
 }
 
@@ -265,8 +274,14 @@ export const remotlySsh: RemotlySsh = {
       sessionId,
       'data',
       event => {
+        if (event.fastPath === true) {
+          handler(EMPTY_BYTES, true);
+          return;
+        }
         const b64 = event.data;
-        if (typeof b64 === 'string' && b64 !== '') handler(decodeBase64(b64));
+        if (typeof b64 === 'string' && b64 !== '') {
+          handler(decodeBase64(b64), false);
+        }
       },
     );
   },

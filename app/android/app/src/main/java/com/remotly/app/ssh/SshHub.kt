@@ -1,6 +1,7 @@
 package com.remotly.app.ssh
 
 import android.util.Log
+import com.remotly.app.terminal.TerminalStore
 import com.remotly.app.transport.Base64Std
 import java.util.concurrent.ConcurrentHashMap
 
@@ -27,6 +28,9 @@ object SshHub {
     // Keyed by sessionKey(hostId, sessionId).
     private val sessions = ConcurrentHashMap<String, SshSession>()
     private val sinks = ConcurrentHashMap<String, SshEventSink?>()
+    // The grid each session runs at, so a terminal created for output that
+    // arrives before the view mounts is sized to the pty rather than guessed.
+    private val sizes = ConcurrentHashMap<String, Pair<Int, Int>>()
 
     // A buggy or hostile caller must not grow this map without bound; the
     // app's own tab strip stops well below this.
@@ -92,9 +96,10 @@ object SshHub {
                         retire(key, session)
                     }
                 },
-                onTerminal = { data -> emit(hostId, sessionId, "data", mapOf("data" to Base64Std.encode(data))) },
+                onTerminal = { data -> deliverTerminal(hostId, sessionId, data) },
             )
             sessions[key] = session
+            sizes[key] = cols to rows
             keepAliveStarted()
             // Debug only, and identifiers only: no hostname, username, or
             // terminal content ever reaches a log.
@@ -119,7 +124,9 @@ object SshHub {
     }
 
     fun resize(hostId: String, sessionId: String, cols: Int, rows: Int) {
-        sessions[sessionKey(hostId, sessionId)]?.resize(cols, rows)
+        val key = sessionKey(hostId, sessionId)
+        sizes[key] = cols to rows
+        sessions[key]?.resize(cols, rows)
     }
 
     // Answers a host-key prompt. decision is "accept" (first-use), "replace"
@@ -146,6 +153,7 @@ object SshHub {
     }
 
     private fun closeLocked(key: String) {
+        sizes.remove(key)
         sessions.remove(key)?.let { s ->
             try {
                 s.close()
@@ -161,6 +169,7 @@ object SshHub {
     // from a replaced connection can never stop its successor's service.
     private fun retire(key: String, session: SshSession) {
         if (!sessions.remove(key, session)) return
+        sizes.remove(key)
         session.release()
         keepAliveStoppedIfIdle()
     }
@@ -172,6 +181,30 @@ object SshHub {
     private fun keepAliveStoppedIfIdle() {
         if (sessions.isNotEmpty()) return
         SshModule.appContext?.let { SshSessionService.stop(it) }
+    }
+
+    /**
+     * Routes terminal output to the terminal that renders it.
+     *
+     * A tab with a terminal takes the native path: the bytes go straight into
+     * it and the bound view repaints, so no base64 round trip through JS is
+     * paid for output the user is watching. The event still crosses, carrying
+     * the length only, because the container tracks activity from it.
+     *
+     * SSH replays nothing, so unlike the daemon path there is no history to
+     * batch and no gate to hold output behind.
+     *
+     * A tab with no terminal yet falls back to the base64 event, which is
+     * what lib/sshSessions buffers and writes once one exists.
+     */
+    private fun deliverTerminal(hostId: String, sessionId: String, data: ByteArray) {
+        if (TerminalStore.has(sessionId)) {
+            val size = sizes[sessionKey(hostId, sessionId)]
+            TerminalStore.feed(sessionId, data, size?.first ?: 0, size?.second ?: 0) {}
+            emit(hostId, sessionId, "data", mapOf("data" to "", "length" to data.size, "fastPath" to true))
+            return
+        }
+        emit(hostId, sessionId, "data", mapOf("data" to Base64Std.encode(data), "length" to data.size, "fastPath" to false))
     }
 
     private fun emit(hostId: String, sessionId: String, name: String, data: Map<String, Any?>) {

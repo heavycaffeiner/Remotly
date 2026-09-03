@@ -40,8 +40,18 @@ export type SshDataEvent = {
   hostId: string;
   /** The terminal tab this output belongs to. */
   sessionId: string;
-  /** Standard base64 of the raw terminal output bytes. */
+  /**
+   * Standard base64 of the raw terminal output bytes. Empty on the fast path,
+   * where the bytes went straight into the native terminal instead.
+   */
   data: string;
+  /** Byte count of the output, carried on both paths. */
+  length?: number;
+  /**
+   * True when the bytes were written natively and must not be written again
+   * from JS. The event still crosses so the container can track activity.
+   */
+  fastPath?: boolean;
 };
 
 export interface Spec extends TurboModule {
