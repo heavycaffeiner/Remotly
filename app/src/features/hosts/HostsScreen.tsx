@@ -343,20 +343,34 @@ export function HostsScreen(): React.ReactElement {
         </View>
       ) : null}
 
-      {isFocused && phase === 'ready' && !empty ? (
-        <Pressable
-          role="button"
-          accessibilityLabel="Add a host"
-          onPress={() => setAddOpen(true)}
-          android_ripple={{
-            color: 'rgba(255, 255, 255, 0.2)',
-            borderless: true,
-            radius: 28,
+      {isFocused && phase === 'ready' ? (
+        <View
+          style={{
+            position: 'absolute',
+            bottom: 24,
+            right: 24,
+            zIndex: 10,
+            elevation: 6,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.28,
+            shadowRadius: 6,
           }}
-          className="absolute bottom-6 right-6 h-14 w-14 items-center justify-center rounded-2xl bg-primary shadow-lg overflow-hidden active:opacity-90"
+          className="h-14 w-14 rounded-2xl bg-primary-container"
         >
-          <Icon name="plus" size={26} className="text-primary-foreground" />
-        </Pressable>
+          <Pressable
+            role="button"
+            accessibilityLabel="Add a host"
+            onPress={() => setAddOpen(true)}
+            android_ripple={{
+              color: 'rgba(0, 0, 0, 0.12)',
+              borderless: false,
+            }}
+            className="h-full w-full items-center justify-center rounded-2xl overflow-hidden"
+          >
+            <Icon name="plus" size={28} className="text-on-primary-container" />
+          </Pressable>
+        </View>
       ) : null}
 
       <Dialog open={addOpen} onClose={() => setAddOpen(false)}>

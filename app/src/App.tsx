@@ -1,7 +1,6 @@
 import React from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { PortalHost } from '@rn-primitives/portal';
 
 import { RootNavigator } from './navigation/RootNavigator';
 import { SettingsProvider } from './theme/SettingsProvider';
@@ -15,7 +14,6 @@ export default function App(): React.ReactElement {
     <SafeAreaProvider>
       <SettingsProvider fallback={<StartupPlaceholder />}>
         <RootNavigator />
-        <PortalHost />
       </SettingsProvider>
     </SafeAreaProvider>
   );

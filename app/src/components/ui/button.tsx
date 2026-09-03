@@ -1,58 +1,91 @@
-import { cva, type VariantProps } from 'class-variance-authority';
 import * as React from 'react';
 import { Pressable, type PressableProps } from 'react-native';
 import { cn } from '../../lib/utils';
 import { TextClassContext } from './text';
 
-const buttonVariants = cva(
-  'group flex flex-row items-center justify-center gap-2 rounded-full overflow-hidden active:opacity-85',
-  {
-    variants: {
-      variant: {
-        default: 'bg-primary',
-        destructive: 'bg-destructive',
-        outline: 'border border-outline bg-transparent',
-        secondary: 'bg-secondary',
-        tonal: 'bg-secondary',
-        elevated: 'bg-card shadow-sm',
-        ghost: 'bg-transparent active:bg-accent',
-        link: '',
-      },
-      size: {
-        default: 'h-11 px-6 py-2.5',
-        sm: 'h-9 px-4',
-        lg: 'h-12 px-8',
-        icon: 'h-11 w-11 p-0',
-      },
-    },
-    defaultVariants: { variant: 'default', size: 'default' },
-  },
-);
+export type ButtonVariant =
+  | 'default'
+  | 'destructive'
+  | 'outline'
+  | 'secondary'
+  | 'tonal'
+  | 'elevated'
+  | 'ghost'
+  | 'link';
 
-/** Label colors, applied through TextClassContext so children inherit them. */
-const buttonTextVariants = cva('text-sm font-medium tracking-wide', {
-  variants: {
-    variant: {
-      default: 'text-primary-foreground',
-      destructive: 'text-destructive-foreground',
-      outline: 'text-primary',
-      secondary: 'text-secondary-foreground',
-      tonal: 'text-secondary-foreground',
-      elevated: 'text-primary',
-      ghost: 'text-primary',
-      link: 'text-primary underline',
-    },
-    size: { default: '', sm: 'text-xs', lg: 'text-base', icon: '' },
-  },
-  defaultVariants: { variant: 'default', size: 'default' },
-});
+export type ButtonSize = 'default' | 'sm' | 'lg' | 'icon';
 
-type ButtonProps = PressableProps & VariantProps<typeof buttonVariants>;
+const BUTTON_CONTAINER_STYLES: Record<ButtonVariant, string> = {
+  default: 'bg-primary',
+  destructive: 'bg-destructive',
+  outline: 'border border-outline bg-transparent',
+  secondary: 'bg-secondary',
+  tonal: 'bg-secondary',
+  elevated: 'bg-card shadow-sm',
+  ghost: 'bg-transparent active:bg-accent',
+  link: '',
+};
+
+const BUTTON_SIZE_STYLES: Record<ButtonSize, string> = {
+  default: 'h-11 px-6 py-2.5',
+  sm: 'h-9 px-4',
+  lg: 'h-12 px-8',
+  icon: 'h-11 w-11 p-0',
+};
+
+const BUTTON_TEXT_STYLES: Record<ButtonVariant, string> = {
+  default: 'text-primary-foreground',
+  destructive: 'text-destructive-foreground',
+  outline: 'text-primary',
+  secondary: 'text-secondary-foreground',
+  tonal: 'text-secondary-foreground',
+  elevated: 'text-primary',
+  ghost: 'text-primary',
+  link: 'text-primary underline',
+};
+
+const BUTTON_TEXT_SIZES: Record<ButtonSize, string> = {
+  default: '',
+  sm: 'text-xs',
+  lg: 'text-base',
+  icon: '',
+};
+
+function buttonVariants(props?: {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+}): string {
+  const v = props?.variant ?? 'default';
+  const s = props?.size ?? 'default';
+  return cn(
+    'group flex flex-row items-center justify-center gap-2 rounded-full overflow-hidden active:opacity-85',
+    BUTTON_CONTAINER_STYLES[v],
+    BUTTON_SIZE_STYLES[s],
+  );
+}
+
+function buttonTextVariants(props?: {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+}): string {
+  const v = props?.variant ?? 'default';
+  const s = props?.size ?? 'default';
+  return cn(
+    'text-sm font-medium tracking-wide',
+    BUTTON_TEXT_STYLES[v],
+    BUTTON_TEXT_SIZES[s],
+  );
+}
+
+interface ButtonProps extends PressableProps {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+}
 
 function Button({
   className,
-  variant,
-  size,
+  variant = 'default',
+  size = 'default',
   disabled,
   ...props
 }: ButtonProps): React.ReactElement {

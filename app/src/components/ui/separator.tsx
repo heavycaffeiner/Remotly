@@ -6,7 +6,11 @@ type SeparatorProps = ViewProps & {
   orientation?: 'horizontal' | 'vertical';
 };
 
-/** Decorative by default: it is hidden from assistive technology. */
+/**
+ * Material Design 3 Divider.
+ *
+ * Decorative by default: hidden from assistive technology.
+ */
 function Separator({
   className,
   orientation = 'horizontal',
@@ -17,7 +21,7 @@ function Separator({
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
       className={cn(
-        'bg-border',
+        'bg-outline-variant/30',
         orientation === 'horizontal' ? 'h-px w-full' : 'h-full w-px',
         className,
       )}

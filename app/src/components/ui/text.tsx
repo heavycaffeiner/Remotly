@@ -1,5 +1,3 @@
-import * as Slot from '@rn-primitives/slot';
-import { cva, type VariantProps } from 'class-variance-authority';
 import * as React from 'react';
 import { Text as RNText } from 'react-native';
 import { cn } from '../../lib/utils';
@@ -12,41 +10,48 @@ import { cn } from '../../lib/utils';
  */
 const TextClassContext = React.createContext<string | undefined>(undefined);
 
-const textVariants = cva('text-foreground', {
-  variants: {
-    variant: {
-      default: 'text-base',
-      h1: 'text-3xl font-bold tracking-tight',
-      h2: 'text-2xl font-semibold tracking-tight',
-      h3: 'text-xl font-semibold tracking-tight',
-      title: 'text-lg font-semibold',
-      body: 'text-base',
-      callout: 'text-sm',
-      caption: 'text-xs text-muted-foreground',
-      code: 'font-mono text-sm',
-      muted: 'text-sm text-muted-foreground',
-    },
-  },
-  defaultVariants: { variant: 'default' },
-});
+export type TextVariant =
+  | 'default'
+  | 'h1'
+  | 'h2'
+  | 'h3'
+  | 'title'
+  | 'body'
+  | 'callout'
+  | 'caption'
+  | 'code'
+  | 'muted';
 
-type TextProps = React.ComponentProps<typeof RNText> &
-  VariantProps<typeof textVariants> & {
-    /** Renders into the caller's child instead of a Text of its own. */
-    asChild?: boolean;
-  };
+const TEXT_STYLES: Record<TextVariant, string> = {
+  default: 'text-base text-foreground',
+  h1: 'text-3xl font-bold tracking-tight text-foreground',
+  h2: 'text-2xl font-semibold tracking-tight text-foreground',
+  h3: 'text-xl font-semibold tracking-tight text-foreground',
+  title: 'text-lg font-semibold text-foreground',
+  body: 'text-base text-foreground',
+  callout: 'text-sm text-foreground',
+  caption: 'text-xs text-muted-foreground',
+  code: 'font-mono text-sm text-foreground',
+  muted: 'text-sm text-muted-foreground',
+};
+
+function textVariants(props?: { variant?: TextVariant }): string {
+  return TEXT_STYLES[props?.variant ?? 'default'];
+}
+
+type TextProps = React.ComponentProps<typeof RNText> & {
+  variant?: TextVariant;
+};
 
 function Text({
   className,
-  variant,
-  asChild = false,
+  variant = 'default',
   ...props
 }: TextProps): React.ReactElement {
   const context = React.useContext(TextClassContext);
-  const Component = asChild ? Slot.Text : RNText;
   return (
-    <Component
-      className={cn(textVariants({ variant }), context, className)}
+    <RNText
+      className={cn(TEXT_STYLES[variant], context, className)}
       {...props}
     />
   );

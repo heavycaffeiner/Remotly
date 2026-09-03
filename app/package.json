@@ -22,11 +22,6 @@
   "dependencies": {
     "@react-navigation/native": "^7.3.16",
     "@react-navigation/native-stack": "^7.18.8",
-    "@rn-primitives/portal": "^1.5.3",
-    "@rn-primitives/slot": "^1.5.2",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "lucide-react-native": "^1.33.0",
     "nativewind": "^4.2.6",
     "react": "19.2.3",
     "react-native": "0.87.0",
@@ -34,8 +29,7 @@
     "react-native-safe-area-context": "^5.9.1",
     "react-native-screens": "^4.27.0",
     "react-native-svg": "^15.15.5",
-    "react-native-worklets": "^0.12.1",
-    "tailwind-merge": "^3.6.0"
+    "react-native-worklets": "^0.12.1"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

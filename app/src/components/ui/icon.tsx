@@ -1,145 +1,114 @@
 import * as React from 'react';
+import Svg, { Path } from 'react-native-svg';
 import { cssInterop } from 'nativewind';
-import {
-  ArrowDown,
-  ArrowDownUp,
-  Image as ImageIcon,
-  ArrowLeft,
-  ArrowRight,
-  ArrowUp,
-  Bot,
-  Check,
-  ChevronRight,
-  Circle,
-  CircleAlert,
-  CircleCheck,
-  CircleStop,
-  ClipboardCopy,
-  Clock,
-  Cog,
-  Copy,
-  EllipsisVertical,
-  Eye,
-  EyeOff,
-  File,
-  FileDown,
-  Folder,
-  FolderOpen,
-  HardDrive,
-  Info,
-  Keyboard,
-  LassoSelect,
-  LayoutDashboard,
-  Link2Off,
-  Minus,
-  Network,
-  Pencil,
-  Plus,
-  QrCode,
-  RefreshCw,
-  RotateCcw,
-  ScanQrCode,
-  Search,
-  Server,
-  ServerOff,
-  Settings,
-  Terminal,
-  Trash2,
-  TriangleAlert,
-  Unplug,
-  X,
-  type LucideIcon,
-} from 'lucide-react-native';
 
-/**
- * The app's icon set.
- *
- * A closed map rather than a free-form string, so a typo is a type error and
- * the bundle only carries glyphs that are actually used.
- */
-const ICONS = {
-  'arrow-down': ArrowDown,
-  'arrow-down-up': ArrowDownUp,
-  image: ImageIcon,
-  'arrow-left': ArrowLeft,
-  'arrow-right': ArrowRight,
-  'arrow-up': ArrowUp,
-  bot: Bot,
-  check: Check,
-  'chevron-right': ChevronRight,
-  circle: Circle,
-  'circle-alert': CircleAlert,
-  'circle-check': CircleCheck,
-  'circle-stop': CircleStop,
-  clipboard: ClipboardCopy,
-  clock: Clock,
-  cog: Cog,
-  copy: Copy,
-  eye: Eye,
-  'eye-off': EyeOff,
-  file: File,
-  'file-down': FileDown,
-  folder: Folder,
-  'folder-open': FolderOpen,
-  'hard-drive': HardDrive,
-  info: Info,
-  keyboard: Keyboard,
-  'layout-dashboard': LayoutDashboard,
-  'link-off': Link2Off,
-  minus: Minus,
-  more: EllipsisVertical,
-  network: Network,
-  pencil: Pencil,
-  plus: Plus,
-  'qr-code': QrCode,
-  refresh: RefreshCw,
-  'rotate-ccw': RotateCcw,
-  scan: ScanQrCode,
-  search: Search,
-  select: LassoSelect,
-  server: Server,
-  'server-off': ServerOff,
-  settings: Settings,
-  terminal: Terminal,
-  trash: Trash2,
-  'triangle-alert': TriangleAlert,
-  unplug: Unplug,
-  x: X,
-} satisfies Record<string, LucideIcon>;
+cssInterop(Svg, {
+  className: { target: 'style', nativeStyleToProp: { color: true } },
+});
 
-export type IconName = keyof typeof ICONS;
+const PATHS = {
+  'arrow-down': 'M12 20l-8-8 1.4-1.4 5.6 5.6V4h2v12.2l5.6-5.6L20 12z',
+  'arrow-up': 'M12 4l8 8-1.4 1.4-5.6-5.6V20h-2V7.8l-5.6 5.6L4 12z',
+  'arrow-left': 'M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20z',
+  'arrow-right': 'M4 11h12.2l-5.6-5.6L12 4l8 8-8 8-1.4-1.4 5.6-5.6H4z',
+  'arrow-down-up':
+    'M16 17.01V10h-2v7.01h-3L15 21l4-3.99h-3zM9 3L5 6.99h3V14h2V6.99h3L9 3z',
+  check: 'M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z',
+  'chevron-right': 'M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z',
+  plus: 'M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z',
+  minus: 'M19 13H5v-2h14v2z',
+  x: 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z',
+  more: 'M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z',
+  search:
+    'M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z',
+  settings:
+    'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z',
+  terminal:
+    'M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8h16v10zm-2-1h-6v-2h6v2zM7.5 17l-1.41-1.41L8.67 13l-2.58-2.59L7.5 9l4 4-4 4z',
+  server:
+    'M2 20h20v-4H2v4zm2-3h2v2H4v-2zM2 4v4h20V4H2zm4 3H4V5h2v2zm-4 7h20v-4H2v4zm2-3h2v2H4v-2z',
+  'server-off':
+    'M22 16v4H6.83l-2-2H2v-2h20zm0-12v4H2V4h20zm-6.83 6H22v4H9.83l-2-2H2v-2h13.17zM1.41 1.6L0 3.01l20.99 20.99 1.41-1.41L1.41 1.6z',
+  folder:
+    'M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z',
+  'folder-open':
+    'M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z',
+  file: 'M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z',
+  'file-down':
+    'M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm-2 16l-4-4h2.5v-3h3v3H16l-4 4zm1-9V3.5L18.5 9H13z',
+  'hard-drive':
+    'M22 15V9c0-.55-.45-1-1-1H3c-.55 0-1 .45-1 1v6c0 .55.45 1 1 1h18c.55 0 1-.45 1-1zm-4-2c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-4 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z',
+  info: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z',
+  circle:
+    'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z',
+  'circle-alert':
+    'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z',
+  'circle-check':
+    'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z',
+  'circle-stop':
+    'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4 14H8V8h8v8z',
+  clipboard:
+    'M19 3h-4.18C14.4 1.84 13.3 1 12 1s-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7-.25c.41 0 .75.34.75.75s-.34.75-.75.75-.75-.34-.75-.75.34-.75.75-.75zM19 19H5V5h2v2h10V5h2v14z',
+  copy: 'M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z',
+  clock:
+    'M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z',
+  cog: 'M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97 0-.33-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1 0 .33.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66z',
+  eye: 'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z',
+  'eye-off':
+    'M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.44-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z',
+  image:
+    'M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z',
+  keyboard:
+    'M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z',
+  'layout-dashboard':
+    'M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z',
+  'link-off':
+    'M17 7h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1 0 1.45-.98 2.67-2.3 3.03l1.47 1.47C20.46 15.54 22 13.97 22 12c0-2.76-2.24-5-5-5zm-1 4h-2.19l2 2H16v-2zm-5 0H9.81l2 2h.19v-2zm-3.03-4H7c-2.76 0-5 2.24-5 5 0 1.97 1.54 3.54 2.73 4.5l1.47-1.47C4.89 14.67 3.9 13.45 3.9 12c0-1.71 1.39-3.1 3.1-3.1h2.97l-2-2zM1.41 1.6L0 3.01l20.99 20.99 1.41-1.41L1.41 1.6z',
+  network:
+    'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z',
+  pencil:
+    'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 0 0 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z',
+  'qr-code':
+    'M3 11h8V3H3v8zm2-6h4v4H5V5zM3 21h8v-8H3v8zm2-6h4v4H5v-4zM13 3v8h8V3h-8zm6 6h-4V5h4v4zM13 13h2v2h-2zM15 15h2v2h-2zM13 17h2v2h-2zM17 17h2v2h-2zM19 19h2v2h-2zM15 19h2v2h-2zM17 13h2v2h-2zM19 15h2v2h-2z',
+  refresh:
+    'M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z',
+  'rotate-ccw':
+    'M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z',
+  scan: 'M3 5v4h2V5h4V3H5c-1.1 0-2 .9-2 2zm2 10H3v4c0 1.1.9 2 2 2h4v-2H5v-4zm14 4h-4v2h4c1.1 0 2-.9 2-2v-4h-2v4zm0-16h-4v2h4v4h2V5c0-1.1-.9-2-2-2z',
+  select:
+    'M3 5h2V3c-1.1 0-2 .9-2 2zm0 8h2v-2H3v2zm4 8h2v-2H7v2zM3 9h2V7H3v2zm10-6h-2v2h2V3zm6 0h-2v2h2V3zm0 4h-2v2h2V7zm-2 14h2c1.1 0 2-.9 2-2h-2v2zm2-6h-2v2h2v-2zm0-4h-2v2h2v-2zM9 3H7v2h2V3zm2 18h2v-2h-2v2zm4 0h2v-2h-2v2zm-8-8h10V7H7v6zm2-4h6v2H9V9z',
+  trash:
+    'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z',
+  'triangle-alert': 'M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z',
+  unplug:
+    'M18 14.49L7.51 4H6v2l2 2v1h-.5C6.67 9 6 9.67 6 10.5V13h2v7h2v-7h2.49l3.51 3.51V18h2v-3.51zM16 9V6.5c0-.83-.67-1.5-1.5-1.5H13V3h-2v2H9.51L16 11.49V9zM2.81 2.81L1.39 4.22l18.38 18.38 1.41-1.41L2.81 2.81z',
+  bot: 'M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h4a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-8a3 3 0 0 1 3-3h4V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2M8 12a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3m8 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3',
+};
 
-// Lucide takes its color through a prop, so `className` has to be mapped onto
-// it for Tailwind color classes to reach the glyph.
-for (const component of Object.values(ICONS)) {
-  cssInterop(component, {
-    className: { target: 'style', nativeStyleToProp: { color: true } },
-  });
-}
+export type IconName = keyof typeof PATHS;
 
 interface IconProps {
   name: IconName;
   size?: number;
-  /** Tailwind text color class. Colors come from the theme, never a hex. */
   className?: string;
 }
 
 /**
- * An icon glyph.
- *
- * Decorative: an icon never carries meaning alone here, so it is hidden from
- * assistive technology and the adjacent text does the work. Controls that show
- * only an icon carry their own accessibilityLabel.
+ * An icon glyph rendering Google Material Symbols vector paths.
  */
 function Icon({ name, size = 20, className }: IconProps): React.ReactElement {
-  const Glyph = ICONS[name];
+  const d = PATHS[name];
   return (
-    <Glyph
-      size={size}
+    <Svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
       className={className ?? 'text-foreground'}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-    />
+    >
+      <Path d={d} fill="currentColor" />
+    </Svg>
   );
 }
 

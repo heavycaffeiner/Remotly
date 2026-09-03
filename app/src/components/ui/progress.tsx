@@ -11,11 +11,7 @@ interface ProgressProps {
 }
 
 /**
- * A determinate or indeterminate progress bar.
- *
- * The indeterminate form is a static partial fill rather than an animation:
- * it says "working" without pulling a frame loop in for a bar that is often
- * on screen for under a second.
+ * Material Design 3 Linear Progress Bar.
  */
 function Progress({
   value,
@@ -31,7 +27,10 @@ function Progress({
       accessibilityValue={
         determinate ? { min: 0, max: 100, now: Math.round(pct) } : undefined
       }
-      className={cn('h-1 overflow-hidden rounded-full bg-muted', className)}
+      className={cn(
+        'h-1 overflow-hidden rounded-full bg-surface-container-highest',
+        className,
+      )}
     >
       <View
         style={{ width: `${pct}%` }}
