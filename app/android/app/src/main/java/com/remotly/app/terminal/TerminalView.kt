@@ -720,7 +720,16 @@ class TerminalView @JvmOverloads constructor(
     // on the primary screen had every further gesture handed to the
     // application and no way back down: the wheel scrolled its list while the
     // view stayed in the history.
-    if (!reportWheel || !atBottom()) {
+    //
+    // The first gesture back into scrollback is kept too, but only from the
+    // state where the user is otherwise stuck: pinned at the bottom with
+    // history above. Reaching the bottom handed every later gesture to the
+    // application, including the one that would have scrolled back up, so the
+    // history was unreachable until the session was reopened. An application
+    // on the alternate screen has no history above the active area and is
+    // unaffected; one on the primary screen keeps every downward gesture and
+    // every gesture once the view has left the bottom.
+    if (!reportWheel || !atBottom() || (rows > 0 && hasScrollback())) {
       scrollByRows(rows)
       return
     }
@@ -965,6 +974,18 @@ class TerminalView @JvmOverloads constructor(
     val visible = bar[2]
     if (total <= visible) return true
     return offset + visible >= total
+  }
+
+  /**
+   * True when rows exist above the active area.
+   *
+   * The alternate screen keeps none, so a full-screen application is told
+   * apart from a shell by this rather than by asking which screen is active.
+   */
+  private fun hasScrollback(): Boolean {
+    val bar = RemotlyTerminal.nativeScrollbar(handle) ?: return false
+    if (bar.size < 3) return false
+    return bar[0] > bar[2]
   }
 
   // Routed through performClick so accessibility services can trigger the same

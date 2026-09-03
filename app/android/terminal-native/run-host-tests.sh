@@ -51,7 +51,7 @@ if [ ! -f "$GHOSTTY_DIR/zig-out/lib/libghostty-vt.a" ]; then
   (cd "$GHOSTTY_DIR" && zig build -Demit-lib-vt=true -Doptimize=ReleaseFast)
 fi
 
-for t in test_overlay test_kitty test_mouse test_scrollregion test_wheel test_query test_resize_scrollback; do
+for t in test_overlay test_kitty test_mouse test_scrollregion test_wheel test_query test_resize_scrollback test_wheel_gate; do
   echo ">> $t"
   zig cc -std=c11 \
     -I"$GHOSTTY_DIR/zig-out/include" \
