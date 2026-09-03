@@ -153,8 +153,8 @@ const (
 const (
 	MaxConnections    = 16
 	MaxChannels       = 64
-	ChannelQueueCap   = 256 // frames per channel send queue
-	ChannelQueueBytes = 8 << 20
+	ChannelQueueCap   = 1024 // frames per channel send queue
+	ChannelQueueBytes = 32 << 20
 )
 
 // Close codes for the WebSocket layer.

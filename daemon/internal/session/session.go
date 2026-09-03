@@ -35,7 +35,7 @@ const (
 	defaultMaxSessions     = 64
 	defaultScrollbackLines = 65536
 	defaultMaxAttachments  = 16
-	attachmentQueue        = 256
+	attachmentQueue        = 1024
 	// defaultIDGenLen is the byte count of session id randomness. Hex-encoded
 	// it must yield the 64 hex chars the protocol mandates for session_id.
 	defaultIDGenLen = 32

@@ -276,7 +276,7 @@ last output frame.
   sends the `channel.close` notification. The notification is held back until
   the channel's own queue is empty, so no output frame can arrive after its
   close notice.
-- Backpressure: each channel has a bounded send queue (256 frames or 8 MiB,
+- Backpressure: each channel has a bounded send queue (1024 frames or 32 MiB,
   whichever fills first). When the queue of a term channel is full, the daemon
   drops the attachment for that session on that connection (reason `overflow`),
   discards the queue, and sends `channel.close` with reason `overflow`. One

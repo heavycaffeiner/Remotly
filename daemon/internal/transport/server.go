@@ -16,7 +16,7 @@
 //
 // Every connection is bounded: a 10 second handshake deadline, 30 second
 // read liveness with a 10 second pong deadline, a 16-connection cap, 64
-// channels, 256-frame or 8 MiB channel queues, and 64 KiB control frames.
+// channels, 1024-frame or 32 MiB channel queues, and 64 KiB control frames.
 package transport
 
 import (
