@@ -118,7 +118,12 @@ object TransportHub {
     private val channelToSession = ConcurrentHashMap<Pair<String, Long>, String>()
     private val replayingChannels = ConcurrentHashMap.newKeySet<Pair<String, Long>>()
     private class ReplayBuffer {
-        val chunks = ArrayList<ByteArray>()
+        // A deque, not a list. Over the cap the oldest chunks are evicted from
+        // the front on every later chunk, and removing the head of an
+        // ArrayList shifts the whole backing array: on a long replay that is
+        // quadratic work on the transport thread, which is felt as the
+        // scrollback stalling partway through being drawn.
+        val chunks = ArrayDeque<ByteArray>()
         var totalBytes = 0
         var targetOffset: Long? = null
         var replayedFrom: Long = 0L
@@ -508,9 +513,17 @@ object TransportHub {
                         ControlType.SESSION_ATTACH -> {
                             val sid = request.sessionId
                             val cid = resp.channelId
-                            val continuity = resp.continuity
                             val replayedFrom = resp.replayedFrom ?: 0L
                             if (sid != null && cid != null) {
+                                // No cursor means the client is asking for the
+                                // whole retained ring, because nothing holds
+                                // that history any more. A watermark left from
+                                // an earlier attachment describes a terminal
+                                // that is gone, and keeping it would skip the
+                                // leading bytes of the replay just asked for.
+                                if (request.resumeFrom == null) {
+                                    fedWatermarks.remove(hostId to sid)
+                                }
                                 bindTermChannel(hostId, cid, sid, replayedFrom)
                             }
                         }
@@ -802,7 +815,7 @@ object TransportHub {
                             buf.chunks.add(data)
                             buf.totalBytes += data.size
                             while (buf.totalBytes > NATIVE_REPLAY_CAP && buf.chunks.size > 1) {
-                                val dropped = buf.chunks.removeAt(0)
+                                val dropped = buf.chunks.removeFirst()
                                 buf.totalBytes -= dropped.size
                                 buf.droppedBytes += dropped.size
                                 buf.droppedGap = true

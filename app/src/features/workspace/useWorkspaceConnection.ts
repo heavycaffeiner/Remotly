@@ -33,6 +33,7 @@ import {
   markStale,
   parseWorkspace,
   reconcile,
+  resumeCursor,
   serializeWorkspace,
   setActive,
   setCursor,
@@ -43,6 +44,7 @@ import {
   releaseTerminal,
   saveWorkspaceDocument,
 } from '../../lib/workspaceStore';
+import terminalStore from '../../specs/NativeRemotlyTerminalStore';
 import { postOSNotification } from '../../lib/notify';
 import {
   DaemonError,
@@ -258,6 +260,14 @@ export function useWorkspaceConnection({
 
   // Attaches with a cursor, retrying once without it when the cursor fell out
   // of the daemon's retained window.
+  //
+  // The cursor is only usable when a terminal still holds the output it counts.
+  // It is persisted to disk, but the terminal is native memory that dies with
+  // the process, so after a force quit or a cold start the saved cursor
+  // describes scrollback nothing has: resuming from it makes the daemon report
+  // "gapless" and replay nothing into an empty terminal, and the history is
+  // gone. Asking without a cursor replays the whole retained ring instead,
+  // which is how a session's scrollback is fetched on connect.
   const doAttach = useCallback(
     async (
       hid: string,
@@ -275,10 +285,10 @@ export function useWorkspaceConnection({
         continuity: r.continuity,
         replayDone: false,
       });
+      const retained = await terminalStore.has(sessionId).catch(() => false);
+      const resumeFrom = resumeCursor(cursor, retained);
       try {
-        return build(
-          await attachSession(hid, sessionId, cursor > 0 ? cursor : undefined),
-        );
+        return build(await attachSession(hid, sessionId, resumeFrom));
       } catch (e) {
         if (e instanceof DaemonError && e.code === 'cursor_out_of_range') {
           return build(await attachSession(hid, sessionId));
@@ -814,7 +824,7 @@ export function useWorkspaceConnection({
         if (h === null || cur === null || e.hostId !== h.id) return;
         if (e.channelId !== cur.track.channelId) return;
         const sessionId = cur.sessionId;
-        const resumeCursor = cursorOf(cur.track);
+        const resumeAt = cursorOf(cur.track);
         setActiveAttachment(null);
         if (e.reason === 'session_exited') {
           overflowRetries.current.delete(sessionId);
@@ -832,7 +842,7 @@ export function useWorkspaceConnection({
               setCursor(
                 wsRef.current ?? createWorkspace(h.id),
                 sessionId,
-                resumeCursor,
+                resumeAt,
               ),
             );
             clearTimeout(overflowTimer.current ?? undefined);

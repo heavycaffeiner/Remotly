@@ -12,6 +12,7 @@ import {
   markExited,
   parseWorkspace,
   reconcile,
+  resumeCursor,
   setActive,
   serializeWorkspace,
   setCursor,
@@ -453,5 +454,32 @@ describe('adoptSessions', () => {
     const ws = adoptSessions(createWorkspace(HOST), many);
 
     expect(ws.tabs).toHaveLength(MAX_TABS);
+  });
+});
+
+/**
+ * The cursor counts output held in a terminal that does not survive the
+ * process, while the cursor itself is written to disk. Resuming from a cursor
+ * with no terminal behind it makes the daemon replay nothing into an empty
+ * screen, which is scrollback silently lost on every cold start.
+ */
+describe('resumeCursor', () => {
+  it('resumes where a terminal still holds the output', () => {
+    expect(resumeCursor(4096, true)).toBe(4096);
+  });
+
+  // The case that loses history: a saved cursor after the terminal is gone.
+  it('replays everything when no terminal holds the history', () => {
+    expect(resumeCursor(4096, false)).toBeUndefined();
+  });
+
+  // Nothing has been consumed, so there is nothing to resume from.
+  it('replays everything from a zero cursor', () => {
+    expect(resumeCursor(0, true)).toBeUndefined();
+  });
+
+  it('rejects a cursor that is not a usable number', () => {
+    expect(resumeCursor(Number.NaN, true)).toBeUndefined();
+    expect(resumeCursor(-1, true)).toBeUndefined();
   });
 });

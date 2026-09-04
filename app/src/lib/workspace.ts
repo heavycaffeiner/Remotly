@@ -261,6 +261,26 @@ export function setCursor(
   };
 }
 
+/**
+ * The cursor to resume an attach from, or undefined to replay everything.
+ *
+ * A cursor only means something while a terminal still holds the output it
+ * counts. The cursor is persisted; the terminal is native memory that dies
+ * with the process. After a force quit or a cold start the saved cursor
+ * therefore describes scrollback nothing has, and resuming from it makes the
+ * daemon report "gapless" and replay nothing into an empty terminal: the
+ * history is silently lost. Asking without one replays the whole retained
+ * ring, which is how a session's scrollback is fetched on connect.
+ */
+export function resumeCursor(
+  cursor: number,
+  hasTerminal: boolean,
+): number | undefined {
+  if (!hasTerminal) return undefined;
+  if (!Number.isFinite(cursor) || cursor <= 0) return undefined;
+  return cursor;
+}
+
 // Updates a tab's title and preview from a daemon sessionUpdate.
 export function applySessionMeta(
   ws: WorkspaceState,
