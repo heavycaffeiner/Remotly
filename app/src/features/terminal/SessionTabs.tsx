@@ -133,29 +133,44 @@ export function SessionTabs({
   const offset = React.useRef(0);
   const settled = React.useRef(false);
 
-  const maxOffset = useCallback(
-    () => Math.max(0, contentWidth.current - viewportWidth.current),
-    [],
-  );
+  // Set when the active tab has not been measured yet. onLayout runs after
+  // this effect, so a tab created or switched to before its first layout pass
+  // has no entry here and the strip would sit still with no retry. The id is
+  // held and the scroll runs from onTabLayout instead.
+  const pendingActive = React.useRef<string | null>(null);
 
-  React.useEffect(() => {
-    if (activeSessionId === null) return;
-    const at = layouts.current.get(activeSessionId);
+  const scrollToTab = useCallback((sessionId: string): boolean => {
+    const at = layouts.current.get(sessionId);
     const view = stripRef.current;
-    if (at === undefined || view === null) return;
+    if (at === undefined || view === null) return false;
+    // The scrollable range is only known once the content has been measured.
+    // Before that contentWidth is zero, so clamping against it would pin every
+    // target to zero and the strip would never move.
+    const measured = contentWidth.current > 0 && viewportWidth.current > 0;
+    if (!measured) return false;
+    const max = Math.max(0, contentWidth.current - viewportWidth.current);
     // Centred where there is room, so the neighbouring tabs stay visible and
     // the strip does not jump to an edge on every switch. Clamped to the
     // scrollable range: past the end the strip bounces back and the tab does
     // not end up where it was aimed.
     const centred = at.x + at.width / 2 - viewportWidth.current / 2;
-    const x = Math.min(Math.max(0, centred), maxOffset());
-    if (Math.abs(x - offset.current) < 1) return;
-    offset.current = x;
-    // Opening the screen should not slide the strip: there is nothing to show
-    // the user moving from. Later switches animate.
-    view.scrollTo({ x, animated: settled.current });
+    const x = Math.min(Math.max(0, centred), max);
+    if (Math.abs(x - offset.current) >= 1) {
+      offset.current = x;
+      // Opening the screen should not slide the strip: there is nothing to
+      // show the user moving from. Later switches animate.
+      view.scrollTo({ x, animated: settled.current });
+    }
     settled.current = true;
-  }, [activeSessionId, tabs.length, maxOffset]);
+    return true;
+  }, []);
+
+  React.useEffect(() => {
+    if (activeSessionId === null) return;
+    pendingActive.current = scrollToTab(activeSessionId)
+      ? null
+      : activeSessionId;
+  }, [activeSessionId, tabs.length, scrollToTab]);
 
   // A closed tab's measurement is stale and must not be scrolled to.
   const openIds = tabs.map(t => t.sessionId).join('\u0000');
@@ -169,8 +184,12 @@ export function SessionTabs({
   const onTabLayout = useCallback(
     (sessionId: string, x: number, width: number) => {
       layouts.current.set(sessionId, { x, width });
+      // The measurement this scroll was waiting on has arrived.
+      if (pendingActive.current === sessionId && scrollToTab(sessionId)) {
+        pendingActive.current = null;
+      }
     },
-    [],
+    [scrollToTab],
   );
 
   return (
@@ -203,10 +222,17 @@ export function SessionTabs({
         // on every switch.
         onContentSizeChange={width => {
           contentWidth.current = width;
-          const max = maxOffset();
-          if (offset.current <= max) return;
-          offset.current = max;
-          stripRef.current?.scrollTo({ x: max, animated: true });
+          const max = Math.max(0, width - viewportWidth.current);
+          if (offset.current > max) {
+            offset.current = max;
+            stripRef.current?.scrollTo({ x: max, animated: true });
+          }
+          // The content width is the other measurement a scroll waits on, so
+          // a target held for it runs here.
+          const waiting = pendingActive.current;
+          if (waiting !== null && scrollToTab(waiting)) {
+            pendingActive.current = null;
+          }
         }}
       >
         {tabs.map(tab => (

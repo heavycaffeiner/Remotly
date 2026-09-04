@@ -30,6 +30,48 @@ function measure(
   });
 }
 
+/**
+ * The outer view of each tab, in render order.
+ *
+ * Tab reports its position from the wrapper it renders around itself, which is
+ * what the strip scrolls toward. NativeWind renders each styled View as a pair
+ * that both carry the same props, so the matches are taken in twos and only
+ * the first of each pair is kept: one entry per tab.
+ */
+function rows(tree: ReactTestRenderer) {
+  const view = strip(tree);
+  const all = tree.root.findAll(
+    n =>
+      typeof n.props?.onLayout === 'function' &&
+      n.props.onLayout !== view.props.onLayout &&
+      String(n.props.className ?? '').includes('rounded-full'),
+  );
+  return all.filter((_, i) => i % 2 === 0);
+}
+
+/** Reports one tab's measured position, as the platform would after layout. */
+function layoutTab(
+  tree: ReactTestRenderer,
+  index: number,
+  x: number,
+  width: number,
+): void {
+  const row = rows(tree)[index];
+  act(() => {
+    row.props.onLayout({ nativeEvent: { layout: { x, width } } });
+  });
+}
+
+/** Captures the scroll targets the strip asks for. */
+function captureScrolls(tree: ReactTestRenderer): number[] {
+  const out: number[] = [];
+  const instance = strip(tree).instance as { scrollTo?: unknown } | null;
+  if (instance !== null) {
+    instance.scrollTo = (o: { x: number }) => out.push(o.x);
+  }
+  return out;
+}
+
 function render(
   props: Partial<React.ComponentProps<typeof SessionTabs>> = {},
 ): ReactTestRenderer {
@@ -120,5 +162,62 @@ describe('SessionTabs strip', () => {
     });
 
     expect(scrolls).toEqual([]);
+  });
+
+  /**
+   * onLayout runs after the effect, so a tab switched to before it has ever
+   * been measured has no entry to scroll toward. Giving up there leaves the
+   * strip parked on the previous tab with nothing to retry it, which is what
+   * happens to a newly created tab.
+   */
+  it('scrolls to a tab that had not been measured when it was selected', () => {
+    const tree = render({ activeSessionId: TABS[0].sessionId });
+    measure(tree, { viewport: 300, content: 900 });
+    layoutTab(tree, 0, 0, 100);
+
+    // Switch to a tab the strip has never measured.
+    act(() => {
+      tree.update(
+        <SessionTabs
+          tabs={TABS}
+          activeSessionId={TABS[2].sessionId}
+          onSelect={() => undefined}
+          onClose={() => undefined}
+          onNew={() => undefined}
+        />,
+      );
+    });
+
+    const scrolls = captureScrolls(tree);
+    // Its measurement arrives afterwards, which is what has to drive the
+    // scroll that the effect could not.
+    layoutTab(tree, 2, 700, 100);
+
+    expect(scrolls.length).toBe(1);
+    // Centred: 700 + 50 - 150 = 600, inside the 600 range.
+    expect(scrolls[0]).toBe(600);
+  });
+
+  /**
+   * The content width is not known on the first render, so clamping against it
+   * then pins every target to zero and the strip never moves.
+   */
+  it('waits for the content width before deciding where to scroll', () => {
+    const tree = render({ activeSessionId: TABS[2].sessionId });
+    const view = strip(tree);
+
+    // Viewport known, content not yet: nothing may be decided from this.
+    act(() => {
+      view.props.onLayout({ nativeEvent: { layout: { width: 300 } } });
+    });
+    layoutTab(tree, 2, 700, 100);
+
+    const scrolls = captureScrolls(tree);
+    act(() => {
+      view.props.onContentSizeChange(900, 0);
+    });
+
+    // Clamped against a real range rather than against zero.
+    expect(scrolls).toEqual([600]);
   });
 });
