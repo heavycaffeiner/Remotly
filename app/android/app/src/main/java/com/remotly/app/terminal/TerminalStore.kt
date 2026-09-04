@@ -229,17 +229,6 @@ object TerminalStore {
     private const val DEFAULT_ROWS = 24
     private const val SCROLLBACK_BYTES = 8L * 1024 * 1024
 
-    private val RESET_SEQUENCE = "\u001bc\u001b[3J".toByteArray(Charsets.UTF_8)
-
-    /** Clears screen and scrollback of a retained terminal without destroying its handle. */
-    fun reset(sessionId: String) {
-        onMain {
-            val handle = synchronized(lock) { handles[sessionId] } ?: return@onMain
-            RemotlyTerminal.nativeWrite(handle, RESET_SEQUENCE)
-            renderers[sessionId]?.onExternalWrite()
-        }
-    }
-
     /** Destroys the handle for a session, if one is retained and has no active view. */
     fun release(sessionId: String) {
         onMain {

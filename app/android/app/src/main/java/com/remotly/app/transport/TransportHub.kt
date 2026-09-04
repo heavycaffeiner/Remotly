@@ -446,9 +446,6 @@ object TransportHub {
                             val continuity = resp.continuity
                             val replayedFrom = resp.replayedFrom ?: 0L
                             if (sid != null && cid != null) {
-                                if (continuity == "full" || continuity == "gap") {
-                                    TerminalStore.reset(sid)
-                                }
                                 bindTermChannel(hostId, cid, sid, replayedFrom)
                             }
                         }
