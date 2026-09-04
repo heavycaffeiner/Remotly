@@ -40,6 +40,17 @@ object TerminalStore {
     private val handles = LinkedHashMap<String, Long>()
 
     /**
+     * How far into each session's output its terminal has been written.
+     *
+     * Paired with [handles] so the two cannot disagree: an entry is dropped
+     * whenever the handle beside it is, because the offset describes one
+     * terminal instance and means nothing for the next. Held here rather than
+     * beside the transport for that reason. There it outlived the terminal it
+     * described, and a replay skipped the history that terminal had lost.
+     */
+    private val consumed = HashMap<String, Long>()
+
+    /**
      * Views currently rendering a session, so a write can repaint them.
      *
      * A write through this store does not go through the view, so nothing
@@ -113,6 +124,10 @@ object TerminalStore {
     fun retain(sessionId: String, handle: Long) {
         if (sessionId.isEmpty() || handle == 0L) return
         synchronized(lock) {
+            // A different handle is a different terminal, and nothing the old
+            // one parsed is in it. Keeping the consumed offset would have a
+            // replay skip bytes this terminal has never been shown.
+            if (handles[sessionId] != handle) consumed.remove(sessionId)
             // Re-inserted synchronously so take() and has() immediately see it.
             handles.remove(sessionId)
             handles[sessionId] = handle
@@ -128,6 +143,10 @@ object TerminalStore {
                     val oldest = handles.keys.firstOrNull { !renderers.containsKey(it) }
                         ?: break
                     handles.remove(oldest)?.let { evicted.add(it) }
+                    // Dropped with the handle. A stale offset left behind
+                    // describes freed memory, and the empty terminal that
+                    // replaces it then has its history skipped.
+                    consumed.remove(oldest)
                 }
             }
             for (h in evicted) {
@@ -159,6 +178,34 @@ object TerminalStore {
         cols: Int,
         rows: Int,
         onDone: (Boolean) -> Unit,
+    ) = write(sessionId, data, null, cols, rows, onDone)
+
+    /**
+     * Writes the part of [data] this session's terminal has not parsed yet.
+     *
+     * [endOffset] is the session's output offset just past the last byte of
+     * [data]. The overlap a replay carries is dropped here rather than by the
+     * caller, because only this thread can read the consumed offset without
+     * racing a write already queued ahead of it: a caller reading it from the
+     * bridge thread sees a value from before those writes landed and hands
+     * over bytes the terminal is about to be given twice.
+     */
+    fun feedAt(
+        sessionId: String,
+        data: ByteArray,
+        endOffset: Long,
+        cols: Int,
+        rows: Int,
+        onDone: (Boolean) -> Unit,
+    ) = write(sessionId, data, endOffset, cols, rows, onDone)
+
+    private fun write(
+        sessionId: String,
+        data: ByteArray,
+        endOffset: Long?,
+        cols: Int,
+        rows: Int,
+        onDone: (Boolean) -> Unit,
     ) {
         if (sessionId.isEmpty() || data.isEmpty()) {
             onDone(false)
@@ -178,7 +225,22 @@ object TerminalStore {
                 onDone(false)
                 return@onMain
             }
-            RemotlyTerminal.nativeWrite(handle, data)
+            val payload = if (endOffset == null) data else newTail(sessionId, data, endOffset)
+            if (payload.isEmpty()) {
+                onDone(true)
+                return@onMain
+            }
+            RemotlyTerminal.nativeWrite(handle, payload)
+            if (endOffset != null) {
+                // Advanced only now the write has happened. Recorded up front
+                // and then failing, the offset claims bytes the terminal never
+                // parsed and the next replay skips them: a hole mid-stream
+                // that renders as garbage.
+                synchronized(lock) {
+                    val had = consumed[sessionId]
+                    if (had == null || endOffset > had) consumed[sessionId] = endOffset
+                }
+            }
             // Repaint whatever is showing this session. Writing without this
             // leaves the change in the terminal and off the screen until some
             // later event happens to draw, which is felt as output arriving
@@ -186,6 +248,19 @@ object TerminalStore {
             renderers[sessionId]?.onExternalWrite()
             onDone(true)
         }
+    }
+
+    /**
+     * The slice of [data] past what this session's terminal already holds.
+     *
+     * A session with no consumed offset has parsed nothing the offset could
+     * describe: its terminal was never created, or it was evicted or released
+     * and the one standing in for it is empty. The whole write is new to it.
+     */
+    private fun newTail(sessionId: String, data: ByteArray, endOffset: Long): ByteArray {
+        val have = synchronized(lock) { consumed[sessionId] } ?: return data
+        val skip = ReplayOverlap.bytes(endOffset - data.size, have, data.size)
+        return if (skip == 0) data else data.copyOfRange(skip, data.size)
     }
 
     /** True when a terminal is retained for the session. */
@@ -215,7 +290,10 @@ object TerminalStore {
 
     /** Removes a session's handle and returns it, or 0 when none was held. */
     private fun detach(sessionId: String): Long =
-        synchronized(lock) { handles.remove(sessionId) ?: 0L }
+        synchronized(lock) {
+            consumed.remove(sessionId)
+            handles.remove(sessionId) ?: 0L
+        }
 
     /** Swallows every effect of a terminal nobody is rendering. */
     private object DetachedListener : RemotlyTerminal.Listener {
@@ -246,6 +324,7 @@ object TerminalStore {
             val all = synchronized(lock) {
                 val copy = handles.values.toList()
                 handles.clear()
+                consumed.clear()
                 copy
             }
             for (handle in all) RemotlyTerminal.nativeDestroy(handle)

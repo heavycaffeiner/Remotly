@@ -371,59 +371,51 @@ class TransportHubTest {
         assertEquals(true, data["fastPath"])
     }
 
-    // A reattach that lands on continuity "full" replays the daemon's whole
-    // retained ring. The terminal it is fed into is retained across the
-    // detach, so everything the terminal was already shown arrives a second
-    // time and the user sees the same output twice. The overlap is exactly the
-    // distance between the replay's first byte and what the terminal has
-    // consumed, and only the tail past that may be written.
+    // Over the cap the buffer evicts its oldest chunks, so what it holds stops
+    // growing while the replay keeps arriving. Measuring the boundary against
+    // the whole replay then waits for bytes that are gone: the channel never
+    // leaves the replay path, and every live chunk after it lands in the
+    // buffer instead of the terminal. The session keeps running and the screen
+    // stops.
     @Test
-    fun replaySkipsBytesTheTerminalAlreadyHas() {
-        // Terminal has consumed through offset 500; the replay restarts at 200.
-        // The first 300 bytes are old, the remaining 700 are new.
-        assertEquals(300, TransportHub.replaySkipBytes(200L, 500L, 1000))
+    fun replayOverTheCapStillReachesItsBoundary() {
+        // 3000 bytes replayed from 0, of which 2000 were evicted and 1000 are
+        // held. Every byte arrived, so nothing is outstanding.
+        assertEquals(0L, TransportHub.replayRemaining(1000, 0L, 2000L, 3000L))
     }
 
     @Test
-    fun replayKeepsEverythingForAFreshTerminal() {
-        // Nothing consumed yet, so none of the replay is a duplicate.
-        assertEquals(0, TransportHub.replaySkipBytes(0L, 0L, 1000))
+    fun replayShortOfItsBoundaryIsNotDone() {
+        // Target 3000, nothing evicted, 1000 held: 2000 still to come. Leaving
+        // the replay path here would treat the rest of the replay as live.
+        assertEquals(2000L, TransportHub.replayRemaining(1000, 0L, 0L, 3000L))
     }
 
     @Test
-    fun replaySkipsNothingWhenTheWatermarkIsBehindTheReplay() {
-        // The daemon dropped output between the watermark and the replay start:
-        // that is the reported gap, and every replayed byte is still new.
-        assertEquals(0, TransportHub.replaySkipBytes(900L, 100L, 500))
+    fun replayBoundaryIsMeasuredFromTheReplayStart() {
+        // A reattach mid-stream replays 4000 to 5000. Holding all 1000 means
+        // it is complete, whatever the absolute offsets are.
+        assertEquals(0L, TransportHub.replayRemaining(1000, 4000L, 0L, 5000L))
     }
 
+    // The control and data paths are separate, so the daemon's replay boundary
+    // can arrive before the attach response that binds the channel. Dropped
+    // there, the bind starts a buffer that never learns where its replay ends:
+    // it never flushes, and nothing reaches the terminal again.
     @Test
-    fun replaySkipsEverythingWhenFullyConsumed() {
-        // Reattaching with no new output must write nothing at all.
-        assertEquals(500, TransportHub.replaySkipBytes(1000L, 2000L, 500))
-    }
-
-    // Over the cap the oldest replay chunks are evicted. They are never
-    // written, but the bytes after them are, so the surviving run starts that
-    // far along the stream. Measuring the skip from replayed_from instead
-    // would treat already-shown bytes as new and write them a second time.
-    @Test
-    fun replaySkipCountsBytesDroppedFromTheFront() {
-        // Replay starts at 0, 400 bytes were evicted, 600 survive, and the
-        // terminal holds through 700. The surviving run starts at 400, so 300
-        // of it is old and 300 is new.
-        val start = 0L + 400L
-        assertEquals(300, TransportHub.replaySkipBytes(start, 700L, 600))
-    }
-
-    // A reattach that replays nothing still has to record where the stream is.
-    // With no entry the next reattach reads a watermark of zero and rewrites
-    // the daemon's whole retained ring, which is the duplicate this prevents.
-    @Test
-    fun emptyReplayStillLeavesAWatermark() {
-        // Nothing to write, but the channel is positioned at 5000, so a later
-        // replay from 4000 must skip the 1000 bytes already shown.
-        assertEquals(1000, TransportHub.replaySkipBytes(4000L, 5000L, 2000))
+    fun replayCompleteBeforeTheBindStillLeavesTheReplayPath() {
+        connectAndAwait()
+        val cid = 4242L
+        daemon.pushCtrl("""{"type":"channel.replay_complete","channel_id":$cid,"offset":900}""")
+        assertTrue(
+            "replay boundary never observed",
+            await { eventsOf("replayComplete").isNotEmpty() },
+        )
+        TransportHub.bindTermChannel(hostA, cid, "s-late", 900L)
+        assertFalse(
+            "channel stuck buffering a replay that already ended",
+            TransportHub.isReplaying(hostA, cid),
+        )
     }
 
     // Attaches a session on one host and returns the channel the daemon
