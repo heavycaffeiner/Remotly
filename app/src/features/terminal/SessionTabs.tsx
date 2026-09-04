@@ -228,7 +228,9 @@ export function SessionTabs({
             stripRef.current?.scrollTo({ x: max, animated: true });
           }
           // The content width is the other measurement a scroll waits on, so
-          // a target held for it runs here.
+          // a target held for it runs here. This is the ordinary path on
+          // screen open: the tabs report their positions before the content
+          // has been measured, so the scroll cannot be decided until now.
           const waiting = pendingActive.current;
           if (waiting !== null && scrollToTab(waiting)) {
             pendingActive.current = null;
