@@ -1,6 +1,6 @@
 {
   "name": "com.remotly.app",
-  "version": "1.5.14",
+  "version": "1.5.15",
   "private": true,
   "scripts": {
     "android": "react-native run-android",
