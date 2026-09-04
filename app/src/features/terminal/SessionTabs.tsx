@@ -125,8 +125,18 @@ export function SessionTabs({
   // on.
   const stripRef = React.useRef<ScrollView | null>(null);
   const layouts = React.useRef(new Map<string, { x: number; width: number }>());
-  const stripWidth = React.useRef(0);
+  // The visible width of the strip and the width of the tabs inside it. Both
+  // are needed and they are not the same number: the furthest the strip can
+  // scroll is their difference.
+  const viewportWidth = React.useRef(0);
+  const contentWidth = React.useRef(0);
   const offset = React.useRef(0);
+  const settled = React.useRef(false);
+
+  const maxOffset = useCallback(
+    () => Math.max(0, contentWidth.current - viewportWidth.current),
+    [],
+  );
 
   React.useEffect(() => {
     if (activeSessionId === null) return;
@@ -134,16 +144,20 @@ export function SessionTabs({
     const view = stripRef.current;
     if (at === undefined || view === null) return;
     // Centred where there is room, so the neighbouring tabs stay visible and
-    // the strip does not jump to an edge on every switch.
-    const centred = at.x + at.width / 2 - stripWidth.current / 2;
-    const x = Math.max(0, centred);
+    // the strip does not jump to an edge on every switch. Clamped to the
+    // scrollable range: past the end the strip bounces back and the tab does
+    // not end up where it was aimed.
+    const centred = at.x + at.width / 2 - viewportWidth.current / 2;
+    const x = Math.min(Math.max(0, centred), maxOffset());
+    if (Math.abs(x - offset.current) < 1) return;
     offset.current = x;
-    view.scrollTo({ x, animated: true });
-  }, [activeSessionId, tabs.length]);
+    // Opening the screen should not slide the strip: there is nothing to show
+    // the user moving from. Later switches animate.
+    view.scrollTo({ x, animated: settled.current });
+    settled.current = true;
+  }, [activeSessionId, tabs.length, maxOffset]);
 
-  // Closing a tab leaves the strip scrolled past the end of what remains, so
-  // the content keeps its old width and scrolls into blank space. Dropping the
-  // measurement and pulling the offset back in is what shrinks it.
+  // A closed tab's measurement is stale and must not be scrolled to.
   const openIds = tabs.map(t => t.sessionId).join('\u0000');
   React.useEffect(() => {
     const live = new Set(tabs.map(t => t.sessionId));
@@ -151,10 +165,6 @@ export function SessionTabs({
       if (!live.has(id)) layouts.current.delete(id);
     }
   }, [openIds, tabs]);
-
-  const onStripLayout = useCallback((width: number) => {
-    stripWidth.current = width;
-  }, []);
 
   const onTabLayout = useCallback(
     (sessionId: string, x: number, width: number) => {
@@ -171,9 +181,16 @@ export function SessionTabs({
         showsHorizontalScrollIndicator={false}
         keyboardShouldPersistTaps="always"
         contentContainerStyle={{ paddingHorizontal: 8, gap: 6 }}
-        className="py-1.5"
+        // flex-1 is what bounds the strip to the space left beside the add
+        // button. Without it a horizontal ScrollView in a flex-row sizes to its
+        // content, so the measured width is the content width, the scrollable
+        // range computes as zero, and the offset can never be pulled back after
+        // a tab closes.
+        className="flex-1 py-1.5"
         accessibilityRole="tablist"
-        onLayout={e => onStripLayout(e.nativeEvent.layout.width)}
+        onLayout={e => {
+          viewportWidth.current = e.nativeEvent.layout.width;
+        }}
         scrollEventThrottle={16}
         onScroll={e => {
           offset.current = e.nativeEvent.contentOffset.x;
@@ -184,8 +201,9 @@ export function SessionTabs({
         // back to it. Only when it is actually past: clamping unconditionally
         // would fight the scroll-to-active above and drag the strip to the end
         // on every switch.
-        onContentSizeChange={contentWidth => {
-          const max = Math.max(0, contentWidth - stripWidth.current);
+        onContentSizeChange={width => {
+          contentWidth.current = width;
+          const max = maxOffset();
           if (offset.current <= max) return;
           offset.current = max;
           stripRef.current?.scrollTo({ x: max, animated: true });
