@@ -266,11 +266,16 @@ export function setCursor(
  *
  * A cursor only means something while a terminal still holds the output it
  * counts. The cursor is persisted; the terminal is native memory that dies
- * with the process. After a force quit or a cold start the saved cursor
+ * with the app process. After a force quit or a cold start the saved cursor
  * therefore describes scrollback nothing has, and resuming from it makes the
  * daemon report "gapless" and replay nothing into an empty terminal: the
- * history is silently lost. Asking without one replays the whole retained
+ * history is silently lost. Asking without one replays the daemon's retained
  * ring, which is how a session's scrollback is fetched on connect.
+ *
+ * The daemon is the only authority here, and its ring is in memory too. This
+ * recovers history the daemon still holds, which covers the app dying; a
+ * daemon restart or a reboot takes the ring with it and nothing on this side
+ * can bring that back.
  */
 export function resumeCursor(
   cursor: number,
