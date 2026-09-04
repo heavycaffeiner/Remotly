@@ -23,23 +23,9 @@ const detachLead = 0x02
 // detachHint is the sequence as shown to the user.
 const detachHint = "Ctrl-b d"
 
-// The alternate screen buffer. An attach runs on it so the session's output,
-// including any clear-screen it emits on the way out, never touches the
-// scrollback of the terminal the user launched from. 1049 saves the cursor
-// and switches in one sequence, and restores both on the way back.
-const enterAltScreen = "\x1b[?1049h"
-
-// restoreTerminal undoes what a session may have left set, then returns to the
-// primary screen.
-//
-// Leaving the alternate screen restores the contents but not the modes: a
-// full-screen program that hid the cursor or turned on mouse reporting, and
-// then died before its own cleanup ran, would leave the user with an
-// invisible cursor and a terminal spraying escape sequences on every click.
+// restoreTerminal undoes what a session may have left set on exit or detach:
+// cursor visibility, mouse tracking modes, bracketed paste, and text attributes.
 // Each of these is a no-op when the mode was never set.
-//
-// Order matters: the modes are cleared while still on the alternate screen,
-// so the primary screen is never written to on the way out.
 const restoreTerminal = "" +
 	"\x1b[?1000l" + // X11 mouse reporting
 	"\x1b[?1002l" + // button-event tracking
@@ -47,8 +33,7 @@ const restoreTerminal = "" +
 	"\x1b[?1006l" + // SGR extended coordinates
 	"\x1b[?2004l" + // bracketed paste
 	"\x1b[?25h" + // cursor visible
-	"\x1b[0m" + // default attributes
-	"\x1b[?1049l" // back to the primary screen
+	"\x1b[0m" // default attributes
 
 // attachTerminal runs a session on this terminal until the user detaches or
 // the process exits.
@@ -77,16 +62,6 @@ func attachTerminal(path, sessionID string) (exited bool, err error) {
 		// unusable after this returns, including on the error paths.
 		defer func() { _ = term.Restore(stdin, state) }()
 
-		// The session draws on the alternate screen, so its output is its own
-		// and the terminal is restored on the way out.
-		//
-		// Without this the session's bytes act on the user's terminal
-		// directly: a shell exiting emits a clear-screen and a
-		// clear-scrollback, which wiped the terminal the user was working in
-		// and left them staring at nothing. Leaving the alternate screen
-		// restores what was there before the attach, whatever the session
-		// wrote.
-		_, _ = os.Stdout.WriteString(enterAltScreen)
 		defer func() { _, _ = os.Stdout.WriteString(restoreTerminal) }()
 	}
 
