@@ -118,15 +118,78 @@ export function SessionTabs({
     if (renaming !== null) onRename?.(renaming.sessionId, draft);
     setRenaming(null);
   }, [renaming, draft, onRename]);
+
+  // Keeps the selected tab on screen. Switching by swipe or from the sessions
+  // list moves the selection without touching the strip, so a tab off the
+  // visible run stayed off it and the user could not see which one they were
+  // on.
+  const stripRef = React.useRef<ScrollView | null>(null);
+  const layouts = React.useRef(new Map<string, { x: number; width: number }>());
+  const stripWidth = React.useRef(0);
+  const offset = React.useRef(0);
+
+  React.useEffect(() => {
+    if (activeSessionId === null) return;
+    const at = layouts.current.get(activeSessionId);
+    const view = stripRef.current;
+    if (at === undefined || view === null) return;
+    // Centred where there is room, so the neighbouring tabs stay visible and
+    // the strip does not jump to an edge on every switch.
+    const centred = at.x + at.width / 2 - stripWidth.current / 2;
+    const x = Math.max(0, centred);
+    offset.current = x;
+    view.scrollTo({ x, animated: true });
+  }, [activeSessionId, tabs.length]);
+
+  // Closing a tab leaves the strip scrolled past the end of what remains, so
+  // the content keeps its old width and scrolls into blank space. Dropping the
+  // measurement and pulling the offset back in is what shrinks it.
+  const openIds = tabs.map(t => t.sessionId).join('\u0000');
+  React.useEffect(() => {
+    const live = new Set(tabs.map(t => t.sessionId));
+    for (const id of [...layouts.current.keys()]) {
+      if (!live.has(id)) layouts.current.delete(id);
+    }
+  }, [openIds, tabs]);
+
+  const onStripLayout = useCallback((width: number) => {
+    stripWidth.current = width;
+  }, []);
+
+  const onTabLayout = useCallback(
+    (sessionId: string, x: number, width: number) => {
+      layouts.current.set(sessionId, { x, width });
+    },
+    [],
+  );
+
   return (
     <View className="flex-row items-center border-b border-border bg-card">
       <ScrollView
+        ref={stripRef}
         horizontal
         showsHorizontalScrollIndicator={false}
         keyboardShouldPersistTaps="always"
         contentContainerStyle={{ paddingHorizontal: 8, gap: 6 }}
         className="py-1.5"
         accessibilityRole="tablist"
+        onLayout={e => onStripLayout(e.nativeEvent.layout.width)}
+        scrollEventThrottle={16}
+        onScroll={e => {
+          offset.current = e.nativeEvent.contentOffset.x;
+        }}
+        // Closing a tab shrinks the content. The strip keeps the offset it had
+        // while the wider content existed, which leaves it parked past the last
+        // tab showing blank space, so an offset beyond the new end is pulled
+        // back to it. Only when it is actually past: clamping unconditionally
+        // would fight the scroll-to-active above and drag the strip to the end
+        // on every switch.
+        onContentSizeChange={contentWidth => {
+          const max = Math.max(0, contentWidth - stripWidth.current);
+          if (offset.current <= max) return;
+          offset.current = max;
+          stripRef.current?.scrollTo({ x: max, animated: true });
+        }}
       >
         {tabs.map(tab => (
           <Tab
@@ -135,6 +198,7 @@ export function SessionTabs({
             active={tab.sessionId === activeSessionId}
             onSelect={onSelect}
             onClose={onClose}
+            onLayout={onTabLayout}
             {...(onRename ? { onRename: beginRename } : {})}
           />
         ))}
@@ -214,6 +278,8 @@ interface TabProps {
   active: boolean;
   onSelect: (sessionId: string) => void;
   onClose: (sessionId: string) => void;
+  /** Reports the tab's position in the strip, so the strip can scroll to it. */
+  onLayout: (sessionId: string, x: number, width: number) => void;
   onRename?: (tab: SessionTabView) => void;
 }
 
@@ -222,6 +288,7 @@ function Tab({
   active,
   onSelect,
   onClose,
+  onLayout,
   onRename,
 }: TabProps): React.ReactElement {
   const select = useCallback(
@@ -238,6 +305,10 @@ function Tab({
 
   return (
     <View
+      onLayout={e => {
+        const { x, width } = e.nativeEvent.layout;
+        onLayout(tab.sessionId, x, width);
+      }}
       className={cn(
         'h-11 max-w-[220px] flex-row items-center rounded-full pl-3',
         active ? 'bg-primary' : 'bg-secondary-container',

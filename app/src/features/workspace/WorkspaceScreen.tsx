@@ -62,6 +62,10 @@ export function WorkspaceScreen(): React.ReactElement {
   const [creating, setCreating] = useState(false);
   const [closeTarget, setCloseTarget] = useState<string | null>(null);
   const [copyNotice, setCopyNotice] = useState('');
+  // The gap flag stays set on the track for the life of the attachment, so
+  // the banner needs its own dismissal or it sits over the terminal forever.
+  // Keyed by channel, so the next attach reports its own gap.
+  const [gapDismissed, setGapDismissed] = useState<number | null>(null);
 
   const write = useCallback((bytes: Uint8Array) => {
     void terminal.current?.write(bytes).catch(err => {
@@ -236,10 +240,18 @@ export function WorkspaceScreen(): React.ReactElement {
         action: { label: 'Retry', onPress: ws.retryNow },
       };
     }
-    if (ws.active?.track.continuity === 'gap') {
+    if (
+      ws.active?.track.continuity === 'gap' &&
+      gapDismissed !== ws.active.track.channelId
+    ) {
+      const channelId = ws.active.track.channelId;
       return {
         tone: 'info' as const,
         message: 'Some earlier output was not kept and is missing.',
+        action: {
+          label: 'Dismiss',
+          onPress: () => setGapDismissed(channelId),
+        },
       };
     }
     if (ws.notice !== null) {
@@ -258,6 +270,7 @@ export function WorkspaceScreen(): React.ReactElement {
     ws.reconnecting,
     ws.errorText,
     ws.active,
+    gapDismissed,
     ws.notice,
     ws.retryNow,
     ws.dismissNotice,

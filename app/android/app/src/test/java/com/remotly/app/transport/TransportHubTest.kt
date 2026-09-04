@@ -371,6 +371,61 @@ class TransportHubTest {
         assertEquals(true, data["fastPath"])
     }
 
+    // A reattach that lands on continuity "full" replays the daemon's whole
+    // retained ring. The terminal it is fed into is retained across the
+    // detach, so everything the terminal was already shown arrives a second
+    // time and the user sees the same output twice. The overlap is exactly the
+    // distance between the replay's first byte and what the terminal has
+    // consumed, and only the tail past that may be written.
+    @Test
+    fun replaySkipsBytesTheTerminalAlreadyHas() {
+        // Terminal has consumed through offset 500; the replay restarts at 200.
+        // The first 300 bytes are old, the remaining 700 are new.
+        assertEquals(300, TransportHub.replaySkipBytes(200L, 500L, 1000))
+    }
+
+    @Test
+    fun replayKeepsEverythingForAFreshTerminal() {
+        // Nothing consumed yet, so none of the replay is a duplicate.
+        assertEquals(0, TransportHub.replaySkipBytes(0L, 0L, 1000))
+    }
+
+    @Test
+    fun replaySkipsNothingWhenTheWatermarkIsBehindTheReplay() {
+        // The daemon dropped output between the watermark and the replay start:
+        // that is the reported gap, and every replayed byte is still new.
+        assertEquals(0, TransportHub.replaySkipBytes(900L, 100L, 500))
+    }
+
+    @Test
+    fun replaySkipsEverythingWhenFullyConsumed() {
+        // Reattaching with no new output must write nothing at all.
+        assertEquals(500, TransportHub.replaySkipBytes(1000L, 2000L, 500))
+    }
+
+    // Over the cap the oldest replay chunks are evicted. They are never
+    // written, but the bytes after them are, so the surviving run starts that
+    // far along the stream. Measuring the skip from replayed_from instead
+    // would treat already-shown bytes as new and write them a second time.
+    @Test
+    fun replaySkipCountsBytesDroppedFromTheFront() {
+        // Replay starts at 0, 400 bytes were evicted, 600 survive, and the
+        // terminal holds through 700. The surviving run starts at 400, so 300
+        // of it is old and 300 is new.
+        val start = 0L + 400L
+        assertEquals(300, TransportHub.replaySkipBytes(start, 700L, 600))
+    }
+
+    // A reattach that replays nothing still has to record where the stream is.
+    // With no entry the next reattach reads a watermark of zero and rewrites
+    // the daemon's whole retained ring, which is the duplicate this prevents.
+    @Test
+    fun emptyReplayStillLeavesAWatermark() {
+        // Nothing to write, but the channel is positioned at 5000, so a later
+        // replay from 4000 must skip the 1000 bytes already shown.
+        assertEquals(1000, TransportHub.replaySkipBytes(4000L, 5000L, 2000))
+    }
+
     // Attaches a session on one host and returns the channel the daemon
     // opened for it.
     private fun attach(hostId: String = hostA): Long {

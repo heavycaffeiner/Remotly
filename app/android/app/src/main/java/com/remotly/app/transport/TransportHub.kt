@@ -123,11 +123,32 @@ object TransportHub {
         var targetOffset: Long? = null
         var replayedFrom: Long = 0L
         var droppedGap: Boolean = false
+        // Bytes evicted from the front to stay under the cap. They are never
+        // written, but the bytes after them are, so the end offset has to
+        // count them or the watermark lands short and the next replay
+        // rewrites output the terminal already has.
+        var droppedBytes: Long = 0L
     }
     private val replayBuffers = ConcurrentHashMap<Pair<String, Long>, ReplayBuffer>()
     private val earlyChannelChunks = ConcurrentHashMap<Pair<String, Long>, ArrayList<ByteArray>>()
     private const val NATIVE_REPLAY_CAP = 1024 * 1024
     private val sessionSizes = ConcurrentHashMap<Pair<String, String>, Pair<Int, Int>>()
+    // Cumulative output offset just past the last byte received on a term
+    // channel, seeded from the attach's replayed_from. Absolute rather than a
+    // running total of what this connection happened to see: a delta counter
+    // restarts at zero on every reattach and reports a terminal as holding far
+    // less than it does, which is what lets a replay write duplicates.
+    private val channelOffsets = ConcurrentHashMap<Pair<String, Long>, Long>()
+    // Highest cumulative output offset already written into a session's
+    // terminal, keyed by (host, session).
+    //
+    // A reattach on continuity "full" or "gap" replays the daemon's whole
+    // retained ring, which overlaps what the retained terminal was already
+    // shown. Clearing the terminal first hides the overlap but throws away the
+    // scrollback a full-screen program keeps on the primary screen. The
+    // offsets say exactly how much of the replay is old, so only the new tail
+    // is written.
+    private val fedWatermarks = ConcurrentHashMap<Pair<String, String>, Long>()
 
     fun bindTermChannel(hostId: String, channelId: Long, sessionId: String, replayedFrom: Long = 0L) {
         val key = hostId to channelId
@@ -136,27 +157,53 @@ object TransportHub {
             replayingChannels.remove(key)
             replayBuffers.remove(key)
             earlyChannelChunks.remove(key)
+            channelOffsets.remove(key)
         } else {
             channelToSession[key] = sessionId
             replayingChannels.add(key)
             val buf = ReplayBuffer()
             buf.replayedFrom = replayedFrom
+            var early0 = 0L
             val early = earlyChannelChunks.remove(key)
             if (early != null) {
                 synchronized(early) {
                     for (chunk in early) {
                         buf.chunks.add(chunk)
                         buf.totalBytes += chunk.size
+                        early0 += chunk.size
                     }
                 }
             }
             replayBuffers[key] = buf
+            // The channel's byte counter starts where the daemon said the
+            // replay does. Chunks that arrived before the bind are already in
+            // the buffer, so they are counted here rather than again on
+            // arrival.
+            channelOffsets[key] = replayedFrom + early0
         }
     }
+    /**
+     * How many leading replay bytes the terminal has already been shown.
+     *
+     * [replayedFrom] is the cumulative output offset of the replay's first
+     * byte and [watermark] is the offset just past the last byte already
+     * written, so their difference is the overlap. Clamped to the replay: a
+     * watermark behind the replay start means a gap the daemon already
+     * reported and nothing is skipped, and one past its end means the whole
+     * replay is old.
+     */
+    fun replaySkipBytes(replayedFrom: Long, watermark: Long, replayLen: Int): Int =
+        (watermark - replayedFrom).coerceIn(0L, replayLen.toLong()).toInt()
+
     private fun flushReplayBuffer(key: Pair<String, Long>, sessionId: String) {
         replayingChannels.remove(key)
         val buf = replayBuffers.remove(key) ?: return
+        val sessionKey = key.first to sessionId
+        val replayedFrom: Long
+        val droppedBytes: Long
         val combined = synchronized(buf) {
+            replayedFrom = buf.replayedFrom
+            droppedBytes = buf.droppedBytes
             if (buf.chunks.isEmpty()) {
                 null
             } else {
@@ -169,10 +216,27 @@ object TransportHub {
                 out
             }
         }
-        if (combined != null && combined.isNotEmpty()) {
-            val size = sessionSizes[key.first to sessionId]
-            TerminalStore.feed(sessionId, combined, size?.first ?: 80, size?.second ?: 24) {}
+        // Bytes evicted from the front were never written but were received,
+        // so the replay's first surviving byte sits that far along the stream.
+        val start = replayedFrom + droppedBytes
+        // A session with no retained terminal has consumed nothing, whatever a
+        // stale watermark says: it was never created, or it was evicted or
+        // released, so the whole replay is new to it.
+        val watermark = if (TerminalStore.has(sessionId)) fedWatermarks[sessionKey] ?: 0L else 0L
+        val length = combined?.size ?: 0
+        if (combined != null && length > 0) {
+            val skip = replaySkipBytes(start, watermark, length)
+            if (skip < length) {
+                val payload = if (skip == 0) combined else combined.copyOfRange(skip, length)
+                val size = sessionSizes[sessionKey]
+                TerminalStore.feed(sessionId, payload, size?.first ?: 80, size?.second ?: 24) {}
+            }
         }
+        // Recorded even for an empty replay. Leaving no entry lets the next
+        // reattach read a watermark of zero and rewrite the whole ring, which
+        // is the duplicate this exists to prevent.
+        val end = maxOf(start + length, replayedFrom)
+        if (end > watermark) fedWatermarks[sessionKey] = end
     }
 
 
@@ -407,6 +471,7 @@ object TransportHub {
                 replayingChannels.removeIf { it.first == hostId }
                 replayBuffers.keys.filter { it.first == hostId }.forEach { replayBuffers.remove(it) }
                 earlyChannelChunks.keys.filter { it.first == hostId }.forEach { earlyChannelChunks.remove(it) }
+                channelOffsets.keys.filter { it.first == hostId }.forEach { channelOffsets.remove(it) }
                 channelToSession.keys.filter { it.first == hostId }.forEach { channelToSession.remove(it) }
                 sessionSizes.keys.filter { it.first == hostId }.forEach { sessionSizes.remove(it) }
                 val pendingEntry = pending.remove(hostId)
@@ -468,6 +533,7 @@ object TransportHub {
                         ControlType.SESSION_KILL -> {
                             request.sessionId?.let { sid ->
                                 sessionSizes.remove(hostId to sid)
+                                fedWatermarks.remove(hostId to sid)
                             }
                         }
                         else -> {}
@@ -534,8 +600,10 @@ object TransportHub {
             replayingChannels.removeIf { it.first == hostId }
             replayBuffers.keys.filter { it.first == hostId }.forEach { replayBuffers.remove(it) }
             earlyChannelChunks.keys.filter { it.first == hostId }.forEach { earlyChannelChunks.remove(it) }
+            channelOffsets.keys.filter { it.first == hostId }.forEach { channelOffsets.remove(it) }
             channelToSession.keys.filter { it.first == hostId }.forEach { channelToSession.remove(it) }
             sessionSizes.keys.filter { it.first == hostId }.forEach { sessionSizes.remove(it) }
+            fedWatermarks.keys.filter { it.first == hostId }.forEach { fedWatermarks.remove(it) }
             completionNotices.removeAll { it.startsWith("$hostId:") }
         }
     }
@@ -549,9 +617,11 @@ object TransportHub {
             replayingChannels.clear()
             replayBuffers.clear()
             earlyChannelChunks.clear()
+            channelOffsets.clear()
             pending.clear()
             states.clear()
             sessionSizes.clear()
+            fedWatermarks.clear()
             daemonNames.clear()
             daemonPubs.clear()
             vias.clear()
@@ -718,6 +788,12 @@ object TransportHub {
                     return
                 }
 
+                // Every byte the channel delivers advances its absolute
+                // offset, replayed or live, so the watermark can be written
+                // as a position in the stream rather than a running total.
+                val consumed = channelOffsets.merge(key, data.size.toLong()) { a, b -> a + b }
+                    ?: data.size.toLong()
+
                 if (replayingChannels.contains(key)) {
                     val buf = replayBuffers[key]
                     var shouldFlush = false
@@ -728,11 +804,17 @@ object TransportHub {
                             while (buf.totalBytes > NATIVE_REPLAY_CAP && buf.chunks.size > 1) {
                                 val dropped = buf.chunks.removeAt(0)
                                 buf.totalBytes -= dropped.size
+                                buf.droppedBytes += dropped.size
                                 buf.droppedGap = true
                             }
                             val target = buf.targetOffset
                             if (target != null) {
-                                val targetBytes = target - buf.replayedFrom
+                                // Measured from the first surviving byte:
+                                // totalBytes no longer counts what was
+                                // evicted, so comparing against the whole
+                                // replay would never reach the target and the
+                                // flush would wait for bytes that are gone.
+                                val targetBytes = target - buf.replayedFrom - buf.droppedBytes
                                 if (buf.totalBytes >= targetBytes) {
                                     shouldFlush = true
                                 }
@@ -752,9 +834,14 @@ object TransportHub {
                     return
                 }
 
-                // Live output: direct fast-path feed to native terminal
-                val size = sessionSizes[hostId to sessionId]
+                // Live output: direct fast-path feed to native terminal. The
+                // watermark takes the channel's absolute offset, so a later
+                // full replay can tell which of its bytes this terminal has
+                // already been shown.
+                val sessionKey = hostId to sessionId
+                val size = sessionSizes[sessionKey]
                 TerminalStore.feed(sessionId, data, size?.first ?: 80, size?.second ?: 24) {}
+                fedWatermarks.merge(sessionKey, consumed) { a, b -> maxOf(a, b) }
                 post {
                     emit(
                         hostId,
