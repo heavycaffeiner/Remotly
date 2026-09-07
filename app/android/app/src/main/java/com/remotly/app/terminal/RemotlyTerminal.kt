@@ -152,4 +152,20 @@ object RemotlyTerminal {
    * buffer across frames so a draw costs no allocation.
    */
   external fun nativeGetFrame(handle: Long, dst: java.nio.ByteBuffer): Int
+
+  /**
+   * Visible Kitty graphics placements, or null when the screen holds none.
+   *
+   * Flat, twelve ints per placement: imageId, generation, viewportCol,
+   * viewportRow, gridCols, gridRows, pixelWidth, pixelHeight, sourceX,
+   * sourceY, sourceWidth, sourceHeight. Geometry only, so a placement that
+   * merely scrolled costs no pixel copy.
+   */
+  external fun nativePlacements(handle: Long): IntArray?
+
+  /**
+   * An image's decoded pixels as [width, height, ARGB...], or null when the
+   * id is unknown or its payload has not arrived yet.
+   */
+  external fun nativeImagePixels(handle: Long, imageId: Int): IntArray?
 }

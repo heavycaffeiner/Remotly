@@ -26,6 +26,20 @@
 // Upper bound on the serialized grid. Matches the clamp in TerminalView.
 #define REMOTLY_MAX_CELLS ((size_t)512 * 512)
 
+// Decoded pixels a terminal may hold for Kitty graphics. An image costs
+// width * height * 4 bytes resident, so this is bounded well below the
+// scrollback: a handful of full-screen images rather than an unbounded set.
+#define REMOTLY_MAX_IMAGE_BYTES ((size_t)32 * 1024 * 1024)
+
+// Visible image placements serialized per frame, and the ints each carries.
+// Far above any real screen: a placement occupies grid cells, so a phone
+// viewport cannot hold many.
+#define REMOTLY_MAX_PLACEMENTS 64
+#define REMOTLY_PLACEMENT_FIELDS 12
+
+// Pixels converted per JNI region call when copying an image out.
+#define REMOTLY_PIXEL_BLOCK 4096
+
 typedef struct {
   GhosttyTerminal terminal;
   GhosttyKeyEncoder encoder;
@@ -248,6 +262,113 @@ static RemotlyTerm *from_handle(jlong handle) {
   return (RemotlyTerm *)(uintptr_t)handle;
 }
 
+// --- Kitty graphics ---------------------------------------------------------
+
+// The JVM, kept process-wide so the PNG decoder can attach.
+//
+// The decoder is installed once via ghostty_sys_set and is not tied to any one
+// terminal, so it cannot reach a RemotlyTerm for its JavaVM.
+static JavaVM *g_jvm = NULL;
+
+/**
+ * Decodes a PNG to RGBA for the Kitty graphics protocol.
+ *
+ * Android has no PNG decoder in the NDK, so this goes back through JNI to
+ * BitmapFactory. The pixels are copied out with the allocator libghostty
+ * supplied, which then owns and frees them.
+ *
+ * Runs on whichever thread wrote to the terminal, which is the main thread for
+ * this app, but the JNIEnv is fetched rather than assumed for that reason.
+ */
+static bool decode_png(void *userdata, const GhosttyAllocator *allocator,
+                       const uint8_t *data, size_t data_len,
+                       GhosttySysImage *out) {
+  (void)userdata;
+  if (!g_jvm || !data || data_len == 0 || !out) return false;
+
+  JNIEnv *env = NULL;
+  if ((*g_jvm)->GetEnv(g_jvm, (void **)&env, REMOTLY_JNI_VERSION) != JNI_OK) {
+    return false;
+  }
+
+  jclass cls = (*env)->FindClass(env, "com/remotly/app/terminal/TerminalImage");
+  if (!cls) {
+    (*env)->ExceptionClear(env);
+    return false;
+  }
+  jmethodID decode = (*env)->GetStaticMethodID(env, cls, "decodePng", "([B)[I");
+  if (!decode) {
+    (*env)->ExceptionClear(env);
+    (*env)->DeleteLocalRef(env, cls);
+    return false;
+  }
+
+  jbyteArray src = (*env)->NewByteArray(env, (jsize)data_len);
+  if (!src) {
+    (*env)->ExceptionClear(env);
+    (*env)->DeleteLocalRef(env, cls);
+    return false;
+  }
+  (*env)->SetByteArrayRegion(env, src, 0, (jsize)data_len, (const jbyte *)data);
+
+  jintArray result = (jintArray)(*env)->CallStaticObjectMethod(env, cls, decode, src);
+  (*env)->DeleteLocalRef(env, src);
+  (*env)->DeleteLocalRef(env, cls);
+  if ((*env)->ExceptionCheck(env)) {
+    (*env)->ExceptionClear(env);
+    return false;
+  }
+  if (!result) return false;
+
+  // Layout: [width, height, then width*height pixels as ARGB_8888].
+  jsize len = (*env)->GetArrayLength(env, result);
+  if (len < 2) {
+    (*env)->DeleteLocalRef(env, result);
+    return false;
+  }
+  jint header[2] = {0, 0};
+  (*env)->GetIntArrayRegion(env, result, 0, 2, header);
+  uint32_t width = (uint32_t)header[0];
+  uint32_t height = (uint32_t)header[1];
+  if (width == 0 || height == 0 ||
+      (jsize)(2 + (size_t)width * height) != len) {
+    (*env)->DeleteLocalRef(env, result);
+    return false;
+  }
+
+  size_t pixels = (size_t)width * height;
+  size_t bytes = pixels * 4;
+  uint8_t *rgba = ghostty_alloc(allocator, bytes);
+  if (!rgba) {
+    (*env)->DeleteLocalRef(env, result);
+    return false;
+  }
+
+  jint *argb = (*env)->GetIntArrayElements(env, result, NULL);
+  if (!argb) {
+    ghostty_free(allocator, rgba, bytes);
+    (*env)->DeleteLocalRef(env, result);
+    return false;
+  }
+  // Bitmap.getPixels gives ARGB packed in host order; the protocol wants RGBA
+  // byte order.
+  for (size_t i = 0; i < pixels; i++) {
+    uint32_t p = (uint32_t)argb[2 + i];
+    rgba[i * 4 + 0] = (uint8_t)((p >> 16) & 0xff);
+    rgba[i * 4 + 1] = (uint8_t)((p >> 8) & 0xff);
+    rgba[i * 4 + 2] = (uint8_t)(p & 0xff);
+    rgba[i * 4 + 3] = (uint8_t)((p >> 24) & 0xff);
+  }
+  (*env)->ReleaseIntArrayElements(env, result, argb, JNI_ABORT);
+  (*env)->DeleteLocalRef(env, result);
+
+  out->width = width;
+  out->height = height;
+  out->data = rgba;
+  out->data_len = bytes;
+  return true;
+}
+
 static void encode_text_as_keys(RemotlyTerm *st, const uint8_t *utf8,
                                 size_t len);
 
@@ -282,6 +403,23 @@ Java_com_remotly_app_terminal_RemotlyTerminal_nativeCreate(JNIEnv *env,
   size_t cap = (size_t)scrollbackMaxBytes;
   ghostty_terminal_set(st->terminal, GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
                        &cap);
+
+  // Kitty graphics. Storage is off until a limit is set, and PNG payloads are
+  // rejected until a decoder is installed. Both are needed for an image to
+  // survive transmission.
+  //
+  // The decoder is process-global rather than per terminal, so it is installed
+  // once. Setting it again is harmless: the same pointer replaces itself.
+  (*env)->GetJavaVM(env, &g_jvm);
+  GhosttySysDecodePngFn png = decode_png;
+  ghostty_sys_set(GHOSTTY_SYS_OPT_DECODE_PNG, (const void *)png);
+
+  // Bounded per terminal, like the scrollback. An image is decoded pixels, so
+  // a few full-screen ones cost more than the entire text history.
+  size_t image_cap = REMOTLY_MAX_IMAGE_BYTES;
+  ghostty_terminal_set(st->terminal,
+                       GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT,
+                       &image_cap);
 
   (*env)->GetJavaVM(env, &st->jvm);
   st->listener = (*env)->NewGlobalRef(env, listener);
@@ -1194,4 +1332,179 @@ Java_com_remotly_app_terminal_RemotlyTerminal_nativeGetSelectionText(
     (*env)->SetByteArrayRegion(env, arr, 0, (jsize)len, (const jbyte *)ptr);
   ghostty_free(NULL, ptr, len);
   return arr;
+}
+
+// --- Kitty graphics placements ---------------------------------------------
+
+// Returns the visible image placements as a flat int array, or NULL when the
+// screen holds none.
+//
+// Layout, repeated per placement:
+//   imageId, generation, viewportCol, viewportRow, gridCols, gridRows,
+//   pixelWidth, pixelHeight, sourceX, sourceY, sourceWidth, sourceHeight
+//
+// Geometry only. The pixels are fetched separately by image id, so a placement
+// that merely moved (scrolling) costs no pixel copy. The generation lets the
+// caller tell a moved image from a replaced one holding the same id.
+JNIEXPORT jintArray JNICALL
+Java_com_remotly_app_terminal_RemotlyTerminal_nativePlacements(JNIEnv *env,
+                                                               jclass,
+                                                               jlong handle) {
+  RemotlyTerm *st = from_handle(handle);
+  if (!st) return NULL;
+
+  GhosttyKittyGraphics graphics = NULL;
+  if (ghostty_terminal_get(st->terminal, GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS,
+                           &graphics) != GHOSTTY_SUCCESS ||
+      !graphics) {
+    return NULL;
+  }
+
+  uint64_t generation = 0;
+  if (ghostty_kitty_graphics_get(graphics,
+                                 GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION,
+                                 &generation) != GHOSTTY_SUCCESS ||
+      generation == 0) {
+    // Never mutated, so the storage is empty.
+    return NULL;
+  }
+
+  GhosttyKittyGraphicsPlacementIterator it = NULL;
+  if (ghostty_kitty_graphics_placement_iterator_new(NULL, &it) !=
+      GHOSTTY_SUCCESS) {
+    return NULL;
+  }
+  if (ghostty_kitty_graphics_get(
+          graphics, GHOSTTY_KITTY_GRAPHICS_DATA_PLACEMENT_ITERATOR, &it) !=
+      GHOSTTY_SUCCESS) {
+    ghostty_kitty_graphics_placement_iterator_free(it);
+    return NULL;
+  }
+
+  jint scratch[REMOTLY_MAX_PLACEMENTS * REMOTLY_PLACEMENT_FIELDS];
+  size_t count = 0;
+  while (count < REMOTLY_MAX_PLACEMENTS &&
+         ghostty_kitty_graphics_placement_next(it)) {
+    uint32_t image_id = 0;
+    if (ghostty_kitty_graphics_placement_get(
+            it, GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IMAGE_ID, &image_id) !=
+        GHOSTTY_SUCCESS) {
+      continue;
+    }
+    GhosttyKittyGraphicsImage image =
+        ghostty_kitty_graphics_image(graphics, image_id);
+    if (!image) continue;
+
+    GhosttyKittyGraphicsPlacementRenderInfo info =
+        GHOSTTY_INIT_SIZED(GhosttyKittyGraphicsPlacementRenderInfo);
+    if (ghostty_kitty_graphics_placement_render_info(it, image, st->terminal,
+                                                     &info) !=
+            GHOSTTY_SUCCESS ||
+        !info.viewport_visible) {
+      // Off-screen or a virtual (unicode placeholder) placement, which this
+      // renderer does not draw.
+      continue;
+    }
+
+    uint64_t image_generation = 0;
+    ghostty_kitty_graphics_image_get(
+        image, GHOSTTY_KITTY_IMAGE_DATA_GENERATION, &image_generation);
+
+    jint *row = &scratch[count * REMOTLY_PLACEMENT_FIELDS];
+    row[0] = (jint)image_id;
+    // Truncated to 32 bits: the stamp is only compared for equality against
+    // the previous frame's value, so the low bits are enough to spot a change.
+    row[1] = (jint)(image_generation & 0xffffffffu);
+    row[2] = (jint)info.viewport_col;
+    row[3] = (jint)info.viewport_row;
+    row[4] = (jint)info.grid_cols;
+    row[5] = (jint)info.grid_rows;
+    row[6] = (jint)info.pixel_width;
+    row[7] = (jint)info.pixel_height;
+    row[8] = (jint)info.source_x;
+    row[9] = (jint)info.source_y;
+    row[10] = (jint)info.source_width;
+    row[11] = (jint)info.source_height;
+    count++;
+  }
+  ghostty_kitty_graphics_placement_iterator_free(it);
+  if (count == 0) return NULL;
+
+  jintArray out =
+      (*env)->NewIntArray(env, (jsize)(count * REMOTLY_PLACEMENT_FIELDS));
+  if (out) {
+    (*env)->SetIntArrayRegion(env, out, 0,
+                              (jsize)(count * REMOTLY_PLACEMENT_FIELDS),
+                              scratch);
+  }
+  return out;
+}
+
+// Returns an image's decoded pixels as ARGB ints, or NULL when the id is not
+// stored. Sized width * height, which the caller already knows from the
+// placement's source rectangle.
+JNIEXPORT jintArray JNICALL
+Java_com_remotly_app_terminal_RemotlyTerminal_nativeImagePixels(JNIEnv *env,
+                                                                jclass,
+                                                                jlong handle,
+                                                                jint imageId) {
+  RemotlyTerm *st = from_handle(handle);
+  if (!st) return NULL;
+
+  GhosttyKittyGraphics graphics = NULL;
+  if (ghostty_terminal_get(st->terminal, GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS,
+                           &graphics) != GHOSTTY_SUCCESS ||
+      !graphics) {
+    return NULL;
+  }
+  GhosttyKittyGraphicsImage image =
+      ghostty_kitty_graphics_image(graphics, (uint32_t)imageId);
+  if (!image) return NULL;
+
+  uint32_t width = 0, height = 0;
+  const uint8_t *data = NULL;
+  size_t data_len = 0;
+  GhosttyKittyImageFormat format = GHOSTTY_KITTY_IMAGE_FORMAT_RGBA;
+  if (ghostty_kitty_graphics_image_get(image, GHOSTTY_KITTY_IMAGE_DATA_WIDTH,
+                                       &width) != GHOSTTY_SUCCESS ||
+      ghostty_kitty_graphics_image_get(image, GHOSTTY_KITTY_IMAGE_DATA_HEIGHT,
+                                       &height) != GHOSTTY_SUCCESS ||
+      ghostty_kitty_graphics_image_get(image, GHOSTTY_KITTY_IMAGE_DATA_FORMAT,
+                                       &format) != GHOSTTY_SUCCESS ||
+      ghostty_kitty_graphics_image_get(image, GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR,
+                                       &data) != GHOSTTY_SUCCESS ||
+      ghostty_kitty_graphics_image_get(image, GHOSTTY_KITTY_IMAGE_DATA_DATA_LEN,
+                                       &data_len) != GHOSTTY_SUCCESS ||
+      !data || width == 0 || height == 0) {
+    // A pending payload reports metadata without pixels; the caller retries on
+    // a later frame once the generation moves.
+    return NULL;
+  }
+
+  size_t pixels = (size_t)width * height;
+  size_t bpp = format == GHOSTTY_KITTY_IMAGE_FORMAT_RGB ? 3 : 4;
+  if (data_len < pixels * bpp) return NULL;
+
+  jintArray out = (*env)->NewIntArray(env, (jsize)(pixels + 2));
+  if (!out) return NULL;
+  jint header[2] = {(jint)width, (jint)height};
+  (*env)->SetIntArrayRegion(env, out, 0, 2, header);
+
+  // Converted in blocks rather than per pixel: a full-screen image is millions
+  // of cells and a JNI region call each would dominate the frame.
+  jint block[REMOTLY_PIXEL_BLOCK];
+  size_t done = 0;
+  while (done < pixels) {
+    size_t n = pixels - done;
+    if (n > REMOTLY_PIXEL_BLOCK) n = REMOTLY_PIXEL_BLOCK;
+    for (size_t i = 0; i < n; i++) {
+      const uint8_t *p = data + (done + i) * bpp;
+      uint32_t a = bpp == 4 ? p[3] : 0xffu;
+      block[i] = (jint)((a << 24) | ((uint32_t)p[0] << 16) |
+                        ((uint32_t)p[1] << 8) | (uint32_t)p[2]);
+    }
+    (*env)->SetIntArrayRegion(env, out, (jsize)(2 + done), (jsize)n, block);
+    done += n;
+  }
+  return out;
 }

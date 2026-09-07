@@ -119,6 +119,8 @@ class TerminalView @JvmOverloads constructor(
         // Emptied rather than dropped: the buffers are reused for the session
         // this view is being pointed at.
         frame?.reset()
+        // The next session's images are its own; ids are per storage.
+        images.clear()
         appliedCols = 0
         appliedRows = 0
       }
@@ -318,6 +320,9 @@ class TerminalView @JvmOverloads constructor(
 
   /** Owns the paints, the faces, and the cell grid this view draws into. */
   private val renderer = TerminalRenderer(context, resources.displayMetrics.density)
+
+  /** Kitty graphics placements drawn over the grid, with their bitmap cache. */
+  private val images = TerminalImages()
 
   // Reused across anchor updates: composition reports one per keystroke.
   private val anchorMatrix = Matrix()
@@ -750,8 +755,18 @@ class TerminalView @JvmOverloads constructor(
   private fun mouseReportingActive(): Boolean =
     handle != 0L && RemotlyTerminal.nativeMouseReporting(handle)
 
+  /**
+   * Writes a mouse report to the session this view is showing.
+   *
+   * Refuses once the view is no longer the bound renderer for its session. A
+   * fling outlives the touch that launched it, and a tab switch rebinds the
+   * terminal underneath it, so a report encoded here would otherwise be
+   * written into whatever session the store now points at. A shell that never
+   * enabled mouse tracking prints those bytes as text like 0;39;17M.
+   */
   private fun sendMouse(action: Int, button: Int, x: Float, y: Float): Boolean {
     if (handle == 0L || cellWidthPx <= 0 || cellHeightPx <= 0) return false
+    if (!TerminalStore.isRenderer(sessionId, this)) return false
     val col = (x / cellWidthPx).toInt().coerceAtLeast(0)
     val row = (y / cellHeightPx).toInt().coerceAtLeast(0)
     return RemotlyTerminal.nativeSendMouse(
@@ -1123,6 +1138,7 @@ class TerminalView @JvmOverloads constructor(
     // exists to avoid. Its contents are dropped so nothing reports the old
     // session's screen before the first draw.
     frame?.reset()
+    images.clear()
     composition = CompositionState.NONE
     inputConnection = null
     pendingKeyboard = false
@@ -1322,6 +1338,16 @@ class TerminalView @JvmOverloads constructor(
       return
     }
     renderer.drawFrame(canvas, f, cursorStyle, composing = !composition.isEmpty)
+    // Over the cells and under the overlays: an image occupies the cells it
+    // was placed on, but a selection handle and the scrollbar are chrome and
+    // belong on top of it.
+    images.draw(
+      canvas,
+      handle,
+      RemotlyTerminal.nativePlacements(handle),
+      cellWidthPx,
+      cellHeightPx,
+    )
     renderer.drawComposingText(canvas, f, composition)
     selection?.let { renderer.drawSelectionHandles(canvas, it, handleRadiusPx) }
     drawScrollbar(canvas, f)
