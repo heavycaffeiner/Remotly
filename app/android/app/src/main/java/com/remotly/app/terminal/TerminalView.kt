@@ -69,6 +69,12 @@ class TerminalView @JvmOverloads constructor(
      * to the session.
      */
     fun onPasteRequest()
+
+    /**
+     * The running program asked for a desktop notification, with OSC 9 or
+     * OSC 777. The title is empty for OSC 9, which carries only a body.
+     */
+    fun onNotify(title: String, body: String)
   }
 
   var host: Host? = null
@@ -1502,6 +1508,25 @@ class TerminalView @JvmOverloads constructor(
     host?.onPtyWrite(data)
   }
 
+  override fun onNotify(title: String, body: String) {
+    host?.onNotify(title, body)
+  }
+
+  /**
+   * Puts an OSC 52 or OSC 1337 clipboard write on the device clipboard.
+   *
+   * Bounded: the payload is remote input, and an unbounded one would be a
+   * clipboard a program could fill from the far end.
+   */
+  override fun onClipboardWrite(text: String) {
+    if (text.isEmpty()) return
+    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+      ?: return
+    cm.setPrimaryClip(
+      ClipData.newPlainText("terminal", text.take(MAX_CLIPBOARD_CHARS)),
+    )
+  }
+
   private companion object {
     // Mouse actions and buttons, matching the native encoder.
     const val MOUSE_PRESS = 0
@@ -1527,5 +1552,13 @@ class TerminalView @JvmOverloads constructor(
 
     /** How long output settles before it is announced, in ms. */
     const val ACCESSIBILITY_ANNOUNCE_MS = 400L
+
+    /**
+     * Cap on an OSC 52 or OSC 1337 clipboard write.
+     *
+     * The payload comes from the remote, so it is bounded rather than trusted.
+     * Far longer than any command or path a program would sensibly copy.
+     */
+    const val MAX_CLIPBOARD_CHARS = 128 * 1024
   }
 }

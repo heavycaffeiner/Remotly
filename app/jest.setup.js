@@ -129,8 +129,14 @@ jest.mock('./src/specs/NativeRemotlyAppInfo', () => ({
 jest.mock('./src/specs/NativeRemotlyCamera', () => ({
   __esModule: true,
   default: {
-    getCameraPermissionStatus: resolved({ granted: true, canAskAgain: false }),
-    requestCameraPermission: resolved({ granted: true, canAskAgain: false }),
     openAppSettings: resolved(undefined),
+    readClipboard: resolved({ value: '' }),
+  },
+}));
+
+jest.mock('./src/specs/NativeRemotlyNotify', () => ({
+  __esModule: true,
+  default: {
+    notify: resolved(true),
   },
 }));

@@ -50,6 +50,7 @@ import {
   type PickedFile,
 } from '../../lib/fileIO';
 import { pasteImage } from '../../lib/imagePaste';
+import { postTerminalNotification } from '../../lib/terminalNotify';
 import { ensureSftpReady, sftpBridge } from '../../lib/sftp';
 import { SftpTransferBackend } from '../../lib/sftpTransfer';
 import { sshHostDisplayName } from '../../lib/sshHosts';
@@ -356,6 +357,7 @@ export function SshTerminalScreen(): React.ReactElement {
           : {})}
         onReady={ssh.onViewportReady}
         onTitle={ssh.reportTitle}
+        onNotify={postTerminalNotification}
         {...(state.tabs.length > 1 ? { onSwitchSession: switchSession } : {})}
         sessionIndex={state.tabs.findIndex(
           t => t.sessionId === state.activeSessionId,

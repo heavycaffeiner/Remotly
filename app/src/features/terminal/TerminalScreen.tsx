@@ -105,6 +105,11 @@ export interface TerminalScreenProps {
   onReady?: (size: GridSize) => void;
   onBell?: () => void;
   onTitle?: (title: string) => void;
+  /**
+   * The running program asked for a desktop notification, via OSC 9 or
+   * OSC 777. `title` is empty for OSC 9, which carries only a body.
+   */
+  onNotify?: (info: { title: string; body: string }) => void;
   /** Persists a font size selected with a pinch gesture. */
   onFontSizeChange?: (fontSize: number) => void;
 }
@@ -162,6 +167,7 @@ export const TerminalScreen = forwardRef<
     onReady,
     onBell,
     onTitle,
+    onNotify,
     onFontSizeChange,
     onPtyWrite: customPtyWrite,
   } = props;
@@ -513,6 +519,7 @@ export const TerminalScreen = forwardRef<
                 onPasteRequest={paste}
                 {...(onBell ? { onBell } : {})}
                 {...(onTitle ? { onTitle } : {})}
+                {...(onNotify ? { onNotify } : {})}
               />
             </SwipePager>
           )}

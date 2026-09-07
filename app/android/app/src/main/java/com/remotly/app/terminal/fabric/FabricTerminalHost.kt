@@ -33,6 +33,10 @@ internal class FabricTerminalHost(
     dispatch(TerminalPasteEvent(surfaceId(), view.id))
   }
 
+  override fun onNotify(title: String, body: String) {
+    dispatch(TerminalNotifyEvent(surfaceId(), view.id, title, body))
+  }
+
   override fun onError(code: String) {
     dispatch(TerminalErrorEvent(surfaceId(), view.id, code))
   }

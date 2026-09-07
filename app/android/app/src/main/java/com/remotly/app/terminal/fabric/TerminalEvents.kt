@@ -164,6 +164,28 @@ internal class TerminalPasteEvent(
   }
 }
 
+// A desktop notification requested with OSC 9 or OSC 777. The title is empty
+// for OSC 9, which carries only a body.
+internal class TerminalNotifyEvent(
+  surfaceId: Int,
+  viewTag: Int,
+  private val title: String,
+  private val body: String,
+) : Event<TerminalNotifyEvent>(surfaceId, viewTag) {
+  override fun getEventName(): String = NAME
+  override fun canCoalesce(): Boolean = false
+  override fun getEventData(): WritableMap =
+    Arguments.createMap().apply {
+      putInt("target", viewTag)
+      putString("title", title)
+      putString("body", body)
+    }
+
+  companion object {
+    const val NAME = "topNotify"
+  }
+}
+
 internal class TerminalTitleEvent(
   surfaceId: Int,
   viewTag: Int,

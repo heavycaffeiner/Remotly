@@ -11,6 +11,7 @@ import com.remotly.app.terminal.fabric.RemotlyTerminalViewManager
 import com.remotly.app.specs.NativeRemotlyAppInfoSpec
 import com.remotly.app.specs.NativeRemotlyCameraSpec
 import com.remotly.app.specs.NativeRemotlyFileIOSpec
+import com.remotly.app.specs.NativeRemotlyNotifySpec
 import com.remotly.app.specs.NativeRemotlySettingsSpec
 import com.remotly.app.specs.NativeRemotlySftpSpec
 import com.remotly.app.specs.NativeRemotlyTerminalStoreSpec
@@ -36,6 +37,7 @@ class RemotlyTurboPackage : BaseReactPackage() {
             NativeRemotlyFileIOSpec.NAME -> RemotlyFileIOModule(reactContext)
             NativeRemotlyCameraSpec.NAME -> RemotlyCameraModule(reactContext)
             NativeRemotlyAppInfoSpec.NAME -> RemotlyAppInfoModule(reactContext)
+            NativeRemotlyNotifySpec.NAME -> RemotlyNotifyModule(reactContext)
             else -> null
         }
 
@@ -46,6 +48,15 @@ class RemotlyTurboPackage : BaseReactPackage() {
                     ReactModuleInfo(
                         NativeRemotlySettingsSpec.NAME,
                         NativeRemotlySettingsSpec.NAME,
+                        false,
+                        false,
+                        false,
+                        true,
+                    ),
+                NativeRemotlyNotifySpec.NAME to
+                    ReactModuleInfo(
+                        NativeRemotlyNotifySpec.NAME,
+                        NativeRemotlyNotifySpec.NAME,
                         false,
                         false,
                         false,

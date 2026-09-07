@@ -39,6 +39,8 @@ typedef struct {
   jmethodID onTitle;
   jmethodID onInput;
   jmethodID onPtyWrite;
+  jmethodID onNotify;
+  jmethodID onClipboardWrite;
 } RemotlyTerm;
 
 static JNIEnv *get_env(RemotlyTerm *st) {
@@ -170,6 +172,78 @@ static void on_pty_write(GhosttyTerminal terminal, void *userdata,
   }
 }
 
+// Builds a Java String from a borrowed GhosttyString, which is not NUL
+// terminated and may be empty.
+static jstring to_jstring(JNIEnv *env, GhosttyString s) {
+  if (!s.ptr || s.len == 0) return (*env)->NewStringUTF(env, "");
+  char *copy = malloc(s.len + 1);
+  if (!copy) return (*env)->NewStringUTF(env, "");
+  memcpy(copy, s.ptr, s.len);
+  copy[s.len] = '\0';
+  jstring out = (*env)->NewStringUTF(env, copy);
+  free(copy);
+  return out;
+}
+
+// A desktop notification requested with OSC 9 or OSC 777.
+//
+// The library parses both and normalizes them to this one shape: OSC 9 has a
+// body and no title, OSC 777 carries both.
+static void on_desktop_notification(
+    GhosttyTerminal terminal, void *userdata,
+    const GhosttyTerminalDesktopNotification *notification) {
+  (void)terminal;
+  RemotlyTerm *st = (RemotlyTerm *)userdata;
+  JNIEnv *env = get_env(st);
+  if (!env || !notification || !st->onNotify) return;
+  // Sized struct: only fields the reported size covers may be read.
+  if (notification->size < sizeof(GhosttyTerminalDesktopNotification)) return;
+  jstring title = to_jstring(env, notification->title);
+  jstring body = to_jstring(env, notification->body);
+  if (title && body) {
+    (*env)->CallVoidMethod(env, st->listener, st->onNotify, title, body);
+  }
+  if (title) (*env)->DeleteLocalRef(env, title);
+  if (body) (*env)->DeleteLocalRef(env, body);
+}
+
+// A clipboard write requested with OSC 52 or iTerm2's OSC 1337 Copy.
+//
+// The library decodes and normalizes both to the same shape. Only the plain
+// text representation is taken: Android's clipboard is what receives this, and
+// putting arbitrary MIME data there is not something a terminal should do
+// unasked.
+static GhosttyClipboardWriteResult on_clipboard_write(
+    GhosttyTerminal terminal, void *userdata,
+    const GhosttyClipboardWrite *write) {
+  (void)terminal;
+  RemotlyTerm *st = (RemotlyTerm *)userdata;
+  JNIEnv *env = get_env(st);
+  if (!env || !write || !st->onClipboardWrite) {
+    return GHOSTTY_CLIPBOARD_WRITE_RESULT_UNSUPPORTED;
+  }
+  // Sized struct: only fields the reported size covers may be read.
+  if (write->size < sizeof(GhosttyClipboardWrite)) {
+    return GHOSTTY_CLIPBOARD_WRITE_RESULT_UNSUPPORTED;
+  }
+  // A zero-length contents array asks for the destination to be cleared, which
+  // is not something a remote program should be able to do to the device
+  // clipboard unasked.
+  for (size_t i = 0; i < write->contents_len; i++) {
+    const GhosttyClipboardContent *rep = &write->contents[i];
+    if (!rep->mime.ptr || rep->mime.len != 10 ||
+        memcmp(rep->mime.ptr, "text/plain", 10) != 0) {
+      continue;
+    }
+    jstring text = to_jstring(env, rep->data);
+    if (!text) return GHOSTTY_CLIPBOARD_WRITE_RESULT_IO_ERROR;
+    (*env)->CallVoidMethod(env, st->listener, st->onClipboardWrite, text);
+    (*env)->DeleteLocalRef(env, text);
+    return GHOSTTY_CLIPBOARD_WRITE_RESULT_SUCCESS;
+  }
+  return GHOSTTY_CLIPBOARD_WRITE_RESULT_UNSUPPORTED;
+}
+
 static RemotlyTerm *from_handle(jlong handle) {
   return (RemotlyTerm *)(uintptr_t)handle;
 }
@@ -216,6 +290,10 @@ Java_com_remotly_app_terminal_RemotlyTerminal_nativeCreate(JNIEnv *env,
   st->onTitle = (*env)->GetMethodID(env, lcls, "onTitle", "([B)V");
   st->onInput = (*env)->GetMethodID(env, lcls, "onInput", "([B)V");
   st->onPtyWrite = (*env)->GetMethodID(env, lcls, "onPtyWrite", "([B)V");
+  st->onNotify = (*env)->GetMethodID(
+      env, lcls, "onNotify", "(Ljava/lang/String;Ljava/lang/String;)V");
+  st->onClipboardWrite = (*env)->GetMethodID(env, lcls, "onClipboardWrite",
+                                             "(Ljava/lang/String;)V");
 
   ghostty_terminal_set(st->terminal, GHOSTTY_TERMINAL_OPT_USERDATA, st);
   ghostty_terminal_set(st->terminal, GHOSTTY_TERMINAL_OPT_BELL,
@@ -224,6 +302,13 @@ Java_com_remotly_app_terminal_RemotlyTerminal_nativeCreate(JNIEnv *env,
                        (const void *)on_title_changed);
   ghostty_terminal_set(st->terminal, GHOSTTY_TERMINAL_OPT_WRITE_PTY,
                        (const void *)on_pty_write);
+  // OSC 9 and OSC 777 both arrive here; the library normalizes them.
+  ghostty_terminal_set(st->terminal,
+                       GHOSTTY_TERMINAL_OPT_DESKTOP_NOTIFICATION,
+                       (const void *)on_desktop_notification);
+  // OSC 52 and iTerm2's OSC 1337 Copy.
+  ghostty_terminal_set(st->terminal, GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE,
+                       (const void *)on_clipboard_write);
   return (jlong)(uintptr_t)st;
 }
 

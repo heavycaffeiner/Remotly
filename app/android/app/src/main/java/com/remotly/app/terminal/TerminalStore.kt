@@ -231,6 +231,11 @@ object TerminalStore {
         override fun onTitle(titleUtf8: ByteArray) = Unit
         override fun onInput(data: ByteArray) = Unit
         override fun onPtyWrite(data: ByteArray) = Unit
+        // A notification for a tab nobody is watching is dropped rather than
+        // posted: the session it names is not on screen, so there is nothing
+        // for the user to be taken to.
+        override fun onNotify(title: String, body: String) = Unit
+        override fun onClipboardWrite(text: String) = Unit
     }
 
     private const val DEFAULT_COLS = 80

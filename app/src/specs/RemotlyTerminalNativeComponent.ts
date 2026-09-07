@@ -19,6 +19,8 @@ type ResizeEvent = Readonly<{ cols: Int32; rows: Int32 }>;
 type SelectionEvent = Readonly<{ active: boolean }>;
 type PasteEvent = Readonly<{ target: Int32 }>;
 type TitleEvent = Readonly<{ title: string }>;
+/** OSC 9 or OSC 777. `title` is empty for OSC 9, which carries only a body. */
+type NotifyEvent = Readonly<{ title: string; body: string }>;
 type PtyWriteEvent = Readonly<{ data: string; sessionId: string }>;
 // Copy result: `ok` is false when there was no selection. `data` is the copied
 // text (base64 is not used here because the selection is already UTF-8 text).
@@ -50,6 +52,8 @@ export interface NativeProps extends ViewProps {
   onSelectionChange?: DirectEventHandler<SelectionEvent>;
   /** Paste was chosen from the native selection toolbar. */
   onPasteRequest?: DirectEventHandler<PasteEvent>;
+  /** The running program asked for a desktop notification. */
+  onNotify?: DirectEventHandler<NotifyEvent>;
 }
 
 export default codegenNativeComponent<NativeProps>('RemotlyTerminalView');

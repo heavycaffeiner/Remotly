@@ -33,6 +33,21 @@ object RemotlyTerminal {
     fun onInput(data: ByteArray)
     /** Terminal-initiated PTY writes (e.g. query responses), ready to send. */
     fun onPtyWrite(data: ByteArray)
+
+    /**
+     * A desktop notification the running program asked for.
+     *
+     * OSC 9 carries a body only, OSC 777 carries both; the title is empty for
+     * the former. Neither is trusted for length: the strings come from the
+     * remote and are bounded before they reach a notification.
+     */
+    fun onNotify(title: String, body: String)
+
+    /**
+     * A clipboard write the running program asked for, via OSC 52 or iTerm2's
+     * OSC 1337 Copy.
+     */
+    fun onClipboardWrite(text: String)
   }
 
   external fun nativeCreate(

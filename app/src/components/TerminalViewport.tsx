@@ -98,6 +98,11 @@ export interface TerminalViewportProps {
   onSelectionChange?: (active: boolean) => void;
   /** Invoked when Paste is chosen from the native selection toolbar. */
   onPasteRequest?: () => void;
+  /**
+   * The running program asked for a desktop notification, via OSC 9 or
+   * OSC 777. `title` is empty for OSC 9, which carries only a body.
+   */
+  onNotify?: (info: { title: string; body: string }) => void;
 }
 
 export const TerminalViewport = forwardRef<
@@ -119,6 +124,7 @@ export const TerminalViewport = forwardRef<
     onFontSizeChange,
     onSelectionChange,
     onPasteRequest,
+    onNotify,
   } = props;
   const elementRef = useRef<TerminalInstance | null>(null);
   const copyResolverRef = useRef<((text: string | null) => void) | null>(null);
@@ -215,6 +221,13 @@ export const TerminalViewport = forwardRef<
   const handlePasteRequest = useCallback(() => {
     onPasteRequest?.();
   }, [onPasteRequest]);
+
+  const handleNotify = useCallback(
+    (e: { nativeEvent: { title: string; body: string } }) => {
+      onNotify?.({ title: e.nativeEvent.title, body: e.nativeEvent.body });
+    },
+    [onNotify],
+  );
 
   const handleFontSizeChange = useCallback(
     (e: { nativeEvent: { fontSize: number } }) => {
@@ -329,6 +342,7 @@ export const TerminalViewport = forwardRef<
       onFontSizeChange={handleFontSizeChange}
       onSelectionChange={handleSelectionChange}
       onPasteRequest={handlePasteRequest}
+      onNotify={handleNotify}
     />
   );
 });
