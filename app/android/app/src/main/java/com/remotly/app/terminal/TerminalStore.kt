@@ -77,6 +77,17 @@ object TerminalStore {
     }
 
     /**
+     * True when this view is the one currently rendering the session.
+     *
+     * A view keeps its handle across a tab switch until React drops it, and
+     * the store rebinds that handle to the incoming view first. Anything that
+     * writes to the session, rather than merely drawing it, checks this so a
+     * gesture outliving the switch cannot reach the tab switched to.
+     */
+    fun isRenderer(sessionId: String, view: TerminalView): Boolean =
+        sessionId.isNotEmpty() && renderers[sessionId] === view
+
+    /**
      * How many detached terminals to keep. Each holds up to its scrollback cap
      * of native memory, so this is bounded rather than left to grow with the
      * number of sessions a user has ever opened.

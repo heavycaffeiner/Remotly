@@ -267,6 +267,33 @@ describe('output routing', () => {
     expect(seen).toEqual([]);
   });
 
+  /**
+   * The reported symptom: a TUI drawing continuously loses a screenful of
+   * output across a tab switch, and only a resize brings it back.
+   *
+   * A switch clears the sink and the incoming renderer attaches a moment
+   * later. Output produced in that window has no view to go to, and holding
+   * it in the queue until the next attach is what lost it: the terminal that
+   * owns the scrollback never saw those bytes, so the screen it redrew was
+   * missing exactly the output that arrived while nothing was attached.
+   */
+  it('writes into the terminal while no sink is attached', async () => {
+    const id = freshHost();
+    const detach = attachSshSink(id, () => {});
+    openSshTab(id);
+    const [only] = sshHostState(id).tabs;
+
+    // The renderer goes away, as it does between a switch and the next mount.
+    detach();
+    ssh.__emit(id, only.sessionId, Uint8Array.from([1, 2, 3]));
+    await flushMicrotasks();
+
+    const sent = terminalStore.feed.mock.calls
+      .filter(c => c[0] === only.sessionId)
+      .reduce((n, c) => n + decodeBase64(c[1] as string).length, 0);
+    expect(sent).toBe(3);
+  });
+
   it('writes a background tab output into its own terminal', async () => {
     const id = freshHost();
     openSshTab(id);
