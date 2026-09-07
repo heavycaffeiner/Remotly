@@ -108,6 +108,20 @@ class RemotlySftpModule(reactContext: ReactApplicationContext) :
         )
     }
 
+    override fun realPath(hostId: String, path: String, promise: Promise) {
+        SftpBridge.execute(
+            onResult = { r ->
+                r.fold(
+                    { resolved ->
+                        promise.resolve(Arguments.makeNativeMap(mapOf("path" to resolved)))
+                    },
+                    { e -> promise.reject(BridgeCodes.FAIL.toString(), e.message ?: "realPath failed") },
+                )
+            },
+            block = { SftpBridge.realPath(hostId, path) },
+        )
+    }
+
     override fun mkdir(hostId: String, path: String, promise: Promise) {
         SftpBridge.execute(
             onResult = { r ->

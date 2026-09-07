@@ -32,6 +32,11 @@ export interface SftpStatResult {
   entry: string;
 }
 
+export interface SftpRealPathResult {
+  /** The resolved absolute path, in the server's own path syntax. */
+  path: string;
+}
+
 /**
  * One slice of a download, or its outcome.
  *
@@ -71,6 +76,15 @@ export interface Spec extends TurboModule {
 
   /** Stats one path (lstat: a symlink reports as a symlink). */
   stat(hostId: string, path: string): Promise<SftpStatResult>;
+
+  /**
+   * Resolves a path to an absolute one on the server.
+   *
+   * Resolving "." gives the SFTP start directory, which is the user's home on
+   * OpenSSH whatever the server runs. The result keeps the server's own path
+   * syntax, so a Windows host can answer with a backslash path.
+   */
+  realPath(hostId: string, path: string): Promise<SftpRealPathResult>;
 
   /** Creates a directory. */
   mkdir(hostId: string, path: string): Promise<void>;

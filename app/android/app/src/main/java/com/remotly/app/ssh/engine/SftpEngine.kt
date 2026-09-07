@@ -40,6 +40,11 @@ interface SftpOps {
     // Uses lstat so a symlink reports as a symlink rather than its target.
     fun stat(path: String): SftpEntry
 
+    // Resolves a path to an absolute one on the server. Resolving "." gives
+    // the SFTP start directory, which is the user's home on OpenSSH whatever
+    // the server's operating system and path separator.
+    fun realPath(path: String): String
+
     fun mkdir(path: String)
 
     fun rename(oldPath: String, newPath: String)

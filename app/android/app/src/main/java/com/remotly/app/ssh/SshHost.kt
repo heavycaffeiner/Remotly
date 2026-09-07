@@ -38,10 +38,9 @@ sealed class SshCredential {
     }
 }
 
-// A plain-SSH host, distinct from a daemon HostRecord. knownKeys holds the
-// accepted keys for exactly this host and port. credentialRef is an opaque
-// handle into the SecretStore; it is empty only while a credential is still
-// being entered.
+// A user-configured SSH host. knownKeys holds the accepted keys for exactly
+// this host and port. credentialRef is an opaque handle into the
+// SecretStore; it is empty only while a credential is still being entered.
 data class SshHost(
     val id: String,
     val displayName: String,

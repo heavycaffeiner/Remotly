@@ -94,6 +94,12 @@ export const sftpBridge: SftpBridge = {
     });
     return parseEntry(data.entry);
   },
+  async realPath(hostId: string, path: string) {
+    const data = await NativeSftp.realPath(hostId, path).catch(e => {
+      throw toError(e);
+    });
+    return typeof data.path === 'string' ? data.path : '';
+  },
   mkdir(hostId: string, path: string) {
     return toVoid(NativeSftp.mkdir(hostId, path));
   },
@@ -107,3 +113,41 @@ export const sftpBridge: SftpBridge = {
     return toVoid(NativeSftp.close(hostId));
   },
 };
+
+/** How often the session state is sampled while it settles. */
+const READY_POLL_MS = 150;
+
+/** Bounds the wait, so a session that never settles fails instead of hanging. */
+const READY_POLL_MAX = 60;
+
+/**
+ * Connects the host's SFTP session if needed and waits for it to be usable.
+ *
+ * The browser drives this itself because it renders each state, but callers
+ * that only need one operation (uploading a pasted image, say) have no UI for
+ * a half-open session and need it either ready or failed.
+ *
+ * A pending host-key prompt is reported rather than answered: accepting a key
+ * on the user's behalf is exactly the decision that must not be automated, so
+ * this refuses and points them at the file browser, which can show the
+ * fingerprint and ask.
+ */
+export async function ensureSftpReady(hostId: string): Promise<void> {
+  const current = await sftpBridge.status(hostId);
+  if (current.state !== 'READY') await sftpBridge.connect(hostId);
+
+  for (let i = 0; i < READY_POLL_MAX; i++) {
+    const st = await sftpBridge.status(hostId);
+    if (st.state === 'READY') return;
+    if (st.state === 'FAILED') {
+      throw new Error(st.message ?? 'The SFTP connection failed.');
+    }
+    if (st.state === 'HOST_KEY') {
+      throw new Error(
+        'This host key needs review. Open the Files tab to check it.',
+      );
+    }
+    await new Promise(r => setTimeout(r, READY_POLL_MS));
+  }
+  throw new Error('Timed out waiting for the SFTP session.');
+}

@@ -4,6 +4,7 @@
 // URI and the transfer engine. The native side reads/writes through the
 // ContentResolver, so scoped-storage rules and provider quirks stay on Android.
 
+import { AppState } from 'react-native';
 import NativeFileIO from '../specs/NativeRemotlyFileIO';
 import { decodeBase64, encodeBase64 } from './base64';
 import { log } from './log';
@@ -16,6 +17,13 @@ export interface PickedFile {
   name: string;
   // -1 when the content provider does not report a size.
   size: number;
+  /**
+   * Which pick produced this: "upload", "image", "download", or "folder".
+   *
+   * onPicked is one process-wide event with several subscribers, so each one
+   * checks this rather than acting on another screen's pick.
+   */
+  mode: string;
 }
 
 // The module rejects with the native failure as an Error; keep that shape.
@@ -39,17 +47,74 @@ function parsePicked(data: Record<string, unknown>): PickedFile {
   const uri = typeof data.uri === 'string' ? data.uri : '';
   const name = typeof data.name === 'string' ? data.name : '';
   const size = typeof data.size === 'number' ? data.size : -1;
-  return { uri, name, size };
+  const mode = typeof data.mode === 'string' ? data.mode : '';
+  return { uri, name, size, mode };
 }
 
-// Launches the system picker. [mode] "upload" opens an existing document;
-// "download" creates a destination. The result is delivered via onPick/onSink,
-// not this promise (which resolves once the picker is launched).
+// Launches the system picker. [mode] "upload" opens an existing document,
+// "image" opens one filtered to images, and "download" creates a destination.
+// The result is delivered via onPick/onSink, not this promise (which resolves
+// once the picker is launched).
 export function pickFile(
-  mode: 'upload' | 'download',
+  mode: 'upload' | 'image' | 'download',
   name?: string,
 ): Promise<void> {
   return toVoid(NativeFileIO.pick(mode, name ?? ''));
+}
+
+/**
+ * Opens the image picker and resolves with the choice, or null when the user
+ * backed out.
+ *
+ * The native side reports a choice as an event and reports a cancellation not
+ * at all, so a bare wait on the event would hang forever on a back press. The
+ * subscription is therefore torn down when the app returns to the foreground
+ * without one having arrived: that is the point at which the picker is known
+ * to be gone.
+ */
+export function pickImage(): Promise<PickedFile | null> {
+  const { promise, resolve, reject } =
+    Promise.withResolvers<PickedFile | null>();
+
+  let settled = false;
+  let stopPick: (() => void) | null = null;
+  let appStateSub: { remove: () => void } | null = null;
+
+  const finish = (result: PickedFile | null): void => {
+    if (settled) return;
+    settled = true;
+    stopPick?.();
+    appStateSub?.remove();
+    resolve(result);
+  };
+  stopPick = onPick(f => {
+    // Another screen's pick, delivered on the same process-wide event.
+    if (f.mode !== 'image') return;
+    finish(f);
+  });
+  // The picker is a separate activity, so this app is inactive while it is up.
+  // Returning to active with no event means it closed with no choice.
+  appStateSub = AppState.addEventListener('change', state => {
+    if (state !== 'active') return;
+    // One turn of the loop, so a choice already in flight wins the race
+    // against the foreground notification that follows it.
+    setTimeout(() => finish(null), 0);
+  });
+  if (settled) {
+    stopPick();
+    appStateSub.remove();
+    return promise;
+  }
+
+  pickFile('image').catch(e => {
+    if (settled) return;
+    settled = true;
+    stopPick?.();
+    appStateSub?.remove();
+    reject(toError(e));
+  });
+
+  return promise;
 }
 
 /**

@@ -1,4 +1,4 @@
-// Tabbed shells over plain SSH, independent of any Remotly daemon.
+// Tabbed shells over SSH.
 //
 // Several tabs per host, each a separate native session. Only the active tab
 // draws into the terminal viewport; the rest stay connected and buffer their
@@ -43,6 +43,15 @@ import {
 import { Text } from '../../components/ui/text';
 import { useSettings } from '../../theme/SettingsProvider';
 import { log } from '../../lib/log';
+import {
+  pickImage,
+  readChunk,
+  release,
+  type PickedFile,
+} from '../../lib/fileIO';
+import { pasteImage } from '../../lib/imagePaste';
+import { ensureSftpReady, sftpBridge } from '../../lib/sftp';
+import { SftpTransferBackend } from '../../lib/sftpTransfer';
 import { sshHostDisplayName } from '../../lib/sshHosts';
 import type { SshTabPhase } from '../../lib/sshTabs';
 import type { RootStackParamList } from '../../navigation/types';
@@ -93,8 +102,7 @@ export function SshTerminalScreen(): React.ReactElement {
       ? null
       : state.tabs.find(t => t.sessionId === state.activeSessionId) ?? null;
 
-  // Back leaves the sessions running, the same way the daemon workspace does.
-  // Closing a tab or Disconnect is what ends one.
+  // Back leaves the sessions running. Closing a tab or Disconnect ends one.
   const goBack = useCallback(() => {
     navigation.goBack();
   }, [navigation]);
@@ -130,6 +138,48 @@ export function SshTerminalScreen(): React.ReactElement {
     },
     [state.tabs, state.activeSessionId, handleSelect],
   );
+
+  // Picks an image and uploads it to the remote host, then types the path.
+  //
+  // A terminal carries text, so the image itself cannot go into it. The
+  // destination comes from the server (realPath of ".") rather than being
+  // built here, so this lands correctly whether the host runs Linux, macOS, or
+  // Windows.
+  const pasteImageFromPicker = useCallback(async () => {
+    let picked: PickedFile | null = null;
+    try {
+      setCopyNotice('Choose an image');
+      picked = await pickImage();
+      if (picked === null) {
+        setCopyNotice('');
+        return;
+      }
+      const source = picked;
+      setCopyNotice('Uploading the image');
+      // The file browser may never have been opened on this host, so the SFTP
+      // session is established here rather than assumed.
+      await ensureSftpReady(hostId);
+      const home = await sftpBridge.realPath(hostId, '.');
+      // An empty answer would put the upload at the filesystem root, so it is
+      // refused rather than guessed at.
+      if (home === '') throw new Error('The remote home directory is unknown.');
+      const result = await pasteImage(
+        { name: source.name, size: source.size },
+        (offset, maxBytes) => readChunk(source.uri, offset, maxBytes),
+        new SftpTransferBackend(hostId),
+        path => sftpBridge.mkdir(hostId, path),
+        home,
+      );
+      ssh.send(new TextEncoder().encode(result.text));
+      setCopyNotice('Pasted the image path');
+    } catch (e) {
+      setCopyNotice(
+        e instanceof Error ? e.message : 'Could not paste that image',
+      );
+    } finally {
+      if (picked !== null) await release(picked.uri).catch(() => undefined);
+    }
+  }, [hostId, ssh]);
 
   const actions = useMemo<TerminalMenuAction[]>(
     () => [
@@ -171,6 +221,12 @@ export function SshTerminalScreen(): React.ReactElement {
         onPress: () => terminal.current?.paste(),
       },
       {
+        key: 'paste-image',
+        title: 'Paste an image',
+        icon: 'image',
+        onPress: () => void pasteImageFromPicker(),
+      },
+      {
         key: 'disconnect',
         title: 'Disconnect',
         icon: 'unplug',
@@ -178,7 +234,14 @@ export function SshTerminalScreen(): React.ReactElement {
         onPress: disconnectAll,
       },
     ],
-    [openFiles, ssh.newTab, ssh.canAdd, disconnectAll, activeTab],
+    [
+      openFiles,
+      ssh.newTab,
+      ssh.canAdd,
+      disconnectAll,
+      activeTab,
+      pasteImageFromPicker,
+    ],
   );
 
   const title = ssh.host === null ? 'SSH' : sshHostDisplayName(ssh.host);
@@ -230,6 +293,20 @@ export function SshTerminalScreen(): React.ReactElement {
       </View>
     ) : null;
 
+  // The key row carries a pinned keyboard button, so the toolbar only needs
+  // one when that row is switched off. Without this the keyboard is
+  // unreachable once dismissed: tapping the terminal is the only other way
+  // back.
+  const keyboardPrimary = settings.showExtraKeyRow
+    ? {}
+    : {
+        toolbarPrimary: {
+          icon: 'keyboard' as const,
+          label: 'Show the keyboard',
+          onPress: () => terminal.current?.focus(),
+        },
+      };
+
   const tabViews = useMemo<SessionTabView[]>(
     () =>
       state.tabs.map(t => ({
@@ -263,11 +340,7 @@ export function SshTerminalScreen(): React.ReactElement {
         }}
         banner={banner}
         toolbarActions={actions}
-        toolbarPrimary={{
-          icon: 'keyboard',
-          label: 'Show the keyboard',
-          onPress: () => terminal.current?.focus(),
-        }}
+        {...keyboardPrimary}
         {...(overlay ? { overlay } : {})}
         {...(activeTab?.kind === 'files'
           ? {
@@ -275,7 +348,6 @@ export function SshTerminalScreen(): React.ReactElement {
                 <FilesScreen
                   embedded={{
                     hostId,
-                    kind: 'ssh',
                     tabId: activeTab.sessionId,
                   }}
                 />

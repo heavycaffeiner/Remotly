@@ -15,6 +15,13 @@ export interface FilePickPayload {
   name: string;
   /** The size in bytes, or -1 when the provider does not report it. */
   size: number;
+  /**
+   * Which pick produced this: "upload", "image", "download", or "folder".
+   *
+   * onPicked is one event with several subscribers, so each checks this
+   * rather than acting on another screen's pick.
+   */
+  mode: string;
 }
 
 export interface FileReadResult {
@@ -30,9 +37,10 @@ export interface FileWriteResult {
 
 export interface Spec extends TurboModule {
   /**
-   * Launches the system picker. mode is "upload" (open an existing document)
-   * or "download" (create a destination). Resolves once the picker is
-   * launched; the choice arrives through onPicked or onSink.
+   * Launches the system picker. mode is "upload" (open an existing document),
+   * "image" (the same, filtered to images), "download" (create a
+   * destination), or "folder". Resolves once the picker is launched; the
+   * choice arrives through onPicked or onSink, tagged with the same mode.
    */
   pick(mode: string, name: string): Promise<void>;
 
@@ -87,10 +95,9 @@ export interface Spec extends TurboModule {
    * Declares whether any transfer is currently moving bytes.
    *
    * While true a foreground service runs, which is what stops Android from
-   * suspending the process once the app leaves the foreground. Both backends
-   * report through here: an SFTP transfer runs on a native thread and a daemon
-   * transfer runs over the JS transport, but neither survives a backgrounded
-   * process without it.
+   * suspending the process once the app leaves the foreground. An SFTP
+   * transfer runs on a native thread, but it does not survive a backgrounded
+   * process without this.
    */
   setTransfersActive(active: boolean): Promise<void>;
 

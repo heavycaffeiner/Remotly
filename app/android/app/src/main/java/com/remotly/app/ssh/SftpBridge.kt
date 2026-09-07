@@ -130,6 +130,8 @@ object SftpBridge {
 
     fun stat(hostId: String, path: String): SftpEntry = op(hostId) { it.stat(path) }
 
+    fun realPath(hostId: String, path: String): String = op(hostId) { it.realPath(path) }
+
     fun mkdir(hostId: String, path: String) {
         op(hostId) { it.mkdir(path) }
     }

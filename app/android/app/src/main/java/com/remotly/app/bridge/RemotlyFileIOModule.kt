@@ -8,7 +8,7 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.remotly.app.fileio.FileModule
 import com.remotly.app.fileio.FilePickFragment
 import com.remotly.app.specs.NativeRemotlyFileIOSpec
-import com.remotly.app.transport.Base64Std
+import com.remotly.app.util.Base64Std
 
 // One MiB is the maximum chunk; read/write clamp to it so a single bridge call
 // never moves an unbounded buffer.
@@ -52,6 +52,7 @@ class RemotlyFileIOModule(reactContext: ReactApplicationContext) :
         val tag = when (mode) {
             "download" -> TAG_DOWNLOAD
             "folder" -> TAG_FOLDER
+            "image" -> TAG_IMAGE
             else -> TAG_UPLOAD
         }
         // A folder is chosen as a download destination, so its result travels
@@ -62,8 +63,17 @@ class RemotlyFileIOModule(reactContext: ReactApplicationContext) :
         val fm = activity.supportFragmentManager
         fm.findFragmentByTag(tag)?.let { fm.beginTransaction().remove(it).commitNow() }
         val fragment = FilePickFragment(mode, suggested) { uri, fileName, size ->
+            // The mode travels with the result because onPicked is one
+            // process-wide event with several subscribers: the file browser's
+            // upload and the terminal's image paste both listen, and without a
+            // discriminator one pick answers both.
             val payload = Arguments.makeNativeMap(
-                mapOf("uri" to (uri ?: ""), "name" to (fileName ?: ""), "size" to size),
+                mapOf(
+                    "uri" to (uri ?: ""),
+                    "name" to (fileName ?: ""),
+                    "size" to size,
+                    "mode" to mode,
+                ),
             )
             if (isDownload) emitOnSink(payload) else emitOnPicked(payload)
         }
@@ -180,15 +190,17 @@ class RemotlyFileIOModule(reactContext: ReactApplicationContext) :
         promise.resolve(null)
     }
 
-    // Holds the transfer service up for a transfer the JS side is driving,
-    // which is how a daemon transfer gets the same background guarantee an
-    // SFTP one has. The SFTP path reports through SftpTransfers instead,
-    // because its work runs on a native thread the JS side cannot see.
+    // Holds the transfer service up for whatever the JS side is tracking in
+    // lib/transfers.ts, which reports every registered transfer here
+    // regardless of backend. The SFTP path also reports through SftpTransfers
+    // directly, because its work runs on a native thread the JS side cannot
+    // see; the two owners are counted independently so either alone keeps the
+    // service up.
     override fun setTransfersActive(active: Boolean, promise: Promise) {
         runCatching {
             com.remotly.app.ssh.SftpTransferService.setActive(
                 reactApplicationContext,
-                com.remotly.app.ssh.SftpTransferService.OWNER_DAEMON,
+                com.remotly.app.ssh.SftpTransferService.OWNER_JS,
                 active,
             )
         }
@@ -197,6 +209,7 @@ class RemotlyFileIOModule(reactContext: ReactApplicationContext) :
 
     private companion object {
         const val TAG_UPLOAD = "remotly-file-upload"
+        const val TAG_IMAGE = "remotly-file-image"
         const val TAG_DOWNLOAD = "remotly-file-download"
         const val TAG_FOLDER = "remotly-file-folder"
     }

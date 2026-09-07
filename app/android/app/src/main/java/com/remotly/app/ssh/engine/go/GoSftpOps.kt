@@ -30,6 +30,8 @@ class GoSftpOps(private val sftp: Sftp) : SftpOps {
         )
     }
 
+    override fun realPath(path: String): String = call { sftp.realPath(path) }
+
     override fun mkdir(path: String) {
         call { sftp.mkdir(path) }
     }

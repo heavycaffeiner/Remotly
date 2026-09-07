@@ -253,6 +253,14 @@ internal class FilePickFragment(
                 }
                 launcher.launch(arrayOf("*/*"))
             }
+            // Same open-document contract as an upload, filtered to images so
+            // the picker opens on the gallery rather than on every document.
+            "image" -> {
+                val launcher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                    finish(uri)
+                }
+                launcher.launch(arrayOf("image/*"))
+            }
             "folder" -> {
                 val launcher = registerForActivityResult(
                     ActivityResultContracts.OpenDocumentTree()

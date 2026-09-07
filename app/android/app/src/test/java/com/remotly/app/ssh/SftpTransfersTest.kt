@@ -38,6 +38,7 @@ class SftpTransfersTest {
 
         override fun list(path: String) = emptyList<SftpEntry>()
         override fun stat(path: String) = throw IOException("not used")
+        override fun realPath(path: String) = path
         override fun mkdir(path: String) = Unit
         override fun rename(oldPath: String, newPath: String) = Unit
         override fun removeFile(path: String) = Unit
@@ -395,6 +396,7 @@ class SftpTransfersTest {
 
         override fun list(path: String) = emptyList<SftpEntry>()
         override fun stat(path: String) = throw IOException("not used")
+        override fun realPath(path: String) = path
         override fun mkdir(path: String) = Unit
         override fun rename(oldPath: String, newPath: String) = Unit
         override fun removeFile(path: String) = Unit

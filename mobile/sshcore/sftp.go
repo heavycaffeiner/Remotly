@@ -192,6 +192,22 @@ func (s *Sftp) Lstat(path string) (out *SftpEntry, err error) {
 	return &e, nil
 }
 
+// RealPath resolves a path on the server, expanding it to an absolute one.
+//
+// Used to find the user's home directory without assuming a path separator or
+// a layout: asking the server to resolve "." returns the SFTP start directory,
+// which is the home directory on OpenSSH regardless of whether the host runs
+// Linux, macOS, or Windows. Building "/home/<user>" on the client instead is
+// wrong on macOS and meaningless on Windows.
+func (s *Sftp) RealPath(path string) (out string, err error) {
+	defer guard(&err)
+	c := s.sftpClient()
+	if c == nil {
+		return "", errors.New("sftp not connected")
+	}
+	return c.RealPath(path)
+}
+
 // Mkdir creates a directory.
 func (s *Sftp) Mkdir(path string) (err error) {
 	defer guard(&err)

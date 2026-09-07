@@ -132,17 +132,19 @@ class SftpTransferService : Service() {
         /**
          * Who currently needs the service.
          *
-         * Two independent owners ask for it: native SFTP transfers, and the JS
-         * side driving a daemon transfer. Without counting them, whichever
-         * finished first would stop the service under the other.
+         * Two independent owners ask for it: native SFTP transfers tracked in
+         * SftpTransfers, and the JS side, which also reports every transfer it
+         * knows about through NativeFileIO.setTransfersActive. Without
+         * counting them, whichever finished first would stop the service
+         * under the other.
          */
         private val owners = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
         /** Native SFTP transfers. */
         const val OWNER_SFTP = "sftp"
 
-        /** Daemon transfers, driven from JS. */
-        const val OWNER_DAEMON = "daemon"
+        /** Transfers reported from the JS side. */
+        const val OWNER_JS = "js"
 
         /** Starts or stops the service so it runs while any owner needs it. */
         fun setActive(context: Context, owner: String, active: Boolean) {

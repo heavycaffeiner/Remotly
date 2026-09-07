@@ -2,7 +2,7 @@ package com.remotly.app.ssh
 
 import android.util.Log
 import com.remotly.app.terminal.TerminalStore
-import com.remotly.app.transport.Base64Std
+import com.remotly.app.util.Base64Std
 import java.util.concurrent.ConcurrentHashMap
 
 // Manages live SSH terminal sessions (M4-03). Each session is an SshSession
@@ -192,8 +192,8 @@ object SshHub {
      * paid for output the user is watching. The event still crosses, carrying
      * the length only, because the container tracks activity from it.
      *
-     * SSH replays nothing, so unlike the daemon path there is no history to
-     * batch and no gate to hold output behind.
+     * SSH replays nothing, so there is no history to batch and no gate to
+     * hold output behind.
      *
      * A tab with no terminal yet falls back to the base64 event, which is
      * what lib/sshSessions buffers and writes once one exists.
