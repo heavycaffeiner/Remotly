@@ -1096,7 +1096,16 @@ class TerminalView @JvmOverloads constructor(
     TerminalStore.bindRenderer(sessionId, this)
     appliedCols = cols
     appliedRows = rows
-    RemotlyTerminal.nativeResize(h, cols, rows, cellWidthPx, cellHeightPx)
+    // Only when the terminal is not already at this size. Resizing reflows the
+    // screen, and reflowing one that holds a full-screen application moves
+    // rows between the active area and the scrollback: a tab adopted back at
+    // the size it already had lost history it did not need to lose, and the
+    // next real resize was what appeared to bring it back.
+    if (RemotlyTerminal.nativeCols(h) != cols ||
+      RemotlyTerminal.nativeRows(h) != rows
+    ) {
+      RemotlyTerminal.nativeResize(h, cols, rows, cellWidthPx, cellHeightPx)
+    }
     // An adopted terminal already holds a screen. Drawing it now is what makes
     // a tab switch show its content on the first frame rather than the next
     // time something happens to repaint.

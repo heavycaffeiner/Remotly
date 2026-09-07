@@ -258,14 +258,6 @@ async function drainToTerminal(
         e.sink(block);
         continue;
       }
-      // No sink, or not the active tab. Either way the bytes go into the
-      // session's own terminal, which owns the scrollback.
-      //
-      // This covers the window a tab switch opens: the outgoing renderer is
-      // detached and the incoming one has not attached, and a TUI drawing
-      // continuously fills that window with output. Holding it in the queue
-      // instead lost exactly that much of the screen until a resize forced a
-      // redraw.
       const written = await terminalStore
         .feed(sessionId, encodeBase64(block), e.size.cols, e.size.rows)
         .catch(() => false);
@@ -487,13 +479,9 @@ export function selectSshTab(hostId: string, sessionId: string): void {
   if (findSshTab(e.state, sessionId) === null) return;
   e.state = setActiveSshTab(e.state, sessionId);
   // The renderer is torn down and rebuilt for the new session, so the sink
-  // attached right now belongs to the tab being left. Writing this tab's
-  // output through it would put it in the previous tab's terminal.
-  //
-  // Anything that arrives before the new renderer attaches is written to the
-  // store instead of being held: the tab being left keeps drawing, and a
-  // queue that only flushes on attach loses exactly that output until a
-  // resize forces a redraw.
+  // that is attached right now belongs to the tab being left. Writing here
+  // would put this tab's output into the previous tab's terminal; the new
+  // renderer flushes for itself once it attaches.
   e.sink = null;
   notify(e);
 }
