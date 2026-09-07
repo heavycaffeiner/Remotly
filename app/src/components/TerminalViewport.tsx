@@ -103,6 +103,8 @@ export interface TerminalViewportProps {
    * OSC 777. `title` is empty for OSC 9, which carries only a body.
    */
   onNotify?: (info: { title: string; body: string }) => void;
+  /** A tapped link was copied to the clipboard. */
+  onLinkCopied?: (link: string) => void;
 }
 
 export const TerminalViewport = forwardRef<
@@ -125,6 +127,7 @@ export const TerminalViewport = forwardRef<
     onSelectionChange,
     onPasteRequest,
     onNotify,
+    onLinkCopied,
   } = props;
   const elementRef = useRef<TerminalInstance | null>(null);
   const copyResolverRef = useRef<((text: string | null) => void) | null>(null);
@@ -227,6 +230,13 @@ export const TerminalViewport = forwardRef<
       onNotify?.({ title: e.nativeEvent.title, body: e.nativeEvent.body });
     },
     [onNotify],
+  );
+
+  const handleLinkCopied = useCallback(
+    (e: { nativeEvent: { link: string } }) => {
+      onLinkCopied?.(e.nativeEvent.link);
+    },
+    [onLinkCopied],
   );
 
   const handleFontSizeChange = useCallback(
@@ -343,6 +353,7 @@ export const TerminalViewport = forwardRef<
       onSelectionChange={handleSelectionChange}
       onPasteRequest={handlePasteRequest}
       onNotify={handleNotify}
+      onLinkCopied={handleLinkCopied}
     />
   );
 });

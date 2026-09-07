@@ -21,6 +21,8 @@ type PasteEvent = Readonly<{ target: Int32 }>;
 type TitleEvent = Readonly<{ title: string }>;
 /** OSC 9 or OSC 777. `title` is empty for OSC 9, which carries only a body. */
 type NotifyEvent = Readonly<{ title: string; body: string }>;
+/** A tapped link was copied to the clipboard. */
+type LinkCopiedEvent = Readonly<{ link: string }>;
 type PtyWriteEvent = Readonly<{ data: string; sessionId: string }>;
 // Copy result: `ok` is false when there was no selection. `data` is the copied
 // text (base64 is not used here because the selection is already UTF-8 text).
@@ -54,6 +56,8 @@ export interface NativeProps extends ViewProps {
   onPasteRequest?: DirectEventHandler<PasteEvent>;
   /** The running program asked for a desktop notification. */
   onNotify?: DirectEventHandler<NotifyEvent>;
+  /** A tapped link was copied to the clipboard. */
+  onLinkCopied?: DirectEventHandler<LinkCopiedEvent>;
 }
 
 export default codegenNativeComponent<NativeProps>('RemotlyTerminalView');

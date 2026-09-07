@@ -378,6 +378,13 @@ export const TerminalScreen = forwardRef<
     setHasSelection(active);
   }, []);
 
+  // The copy itself happens natively, where the tap is resolved to a cell.
+  // This only reports it: a clipboard write with no acknowledgement looks like
+  // a tap that did nothing.
+  const handleLinkCopied = useCallback((link: string) => {
+    setNotice(`Copied ${link}`);
+  }, []);
+
   // Pasted text goes through the native paste command, not the ordinary input
   // path. The terminal wraps it for bracketed paste when the running
   // application asked for that, which is what keeps a multi-line block one
@@ -520,6 +527,7 @@ export const TerminalScreen = forwardRef<
                 {...(onBell ? { onBell } : {})}
                 {...(onTitle ? { onTitle } : {})}
                 {...(onNotify ? { onNotify } : {})}
+                onLinkCopied={handleLinkCopied}
               />
             </SwipePager>
           )}

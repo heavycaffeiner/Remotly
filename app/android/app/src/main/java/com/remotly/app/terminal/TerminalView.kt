@@ -75,6 +75,9 @@ class TerminalView @JvmOverloads constructor(
      * OSC 777. The title is empty for OSC 9, which carries only a body.
      */
     fun onNotify(title: String, body: String)
+
+    /** A tapped link was copied to the clipboard, so the screen can say so. */
+    fun onLinkCopied(link: String)
   }
 
   var host: Host? = null
@@ -607,6 +610,10 @@ class TerminalView @JvmOverloads constructor(
             clearSelection()
             return true
           }
+          // A tap on a link copies it. Checked before the keyboard, since
+          // raising the IME over a link the user was reaching for is the
+          // opposite of what the tap meant.
+          if (copyLinkAt(event.x, event.y)) return true
           performClick()
           return true
         }
@@ -1295,6 +1302,26 @@ class TerminalView @JvmOverloads constructor(
     // A paste is input, so the viewport returns to the prompt the way typing
     // does.
     scrollToBottom()
+  }
+
+  /**
+   * Copies the link under a tap, if there is one.
+   *
+   * Returns true when a link was found and copied, which is the caller's
+   * signal to treat the tap as handled rather than opening the keyboard.
+   */
+  private fun copyLinkAt(x: Float, y: Float): Boolean {
+    if (handle == 0L || cellWidthPx <= 0 || cellHeightPx <= 0) return false
+    val col = (x / cellWidthPx).toInt()
+    val row = (y / cellHeightPx).toInt()
+    if (col < 0 || row < 0) return false
+    val link = RemotlyTerminal.nativeLinkAt(handle, col, row) ?: return false
+    if (link.isEmpty()) return false
+    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+      ?: return false
+    cm.setPrimaryClip(ClipData.newPlainText("link", link))
+    host?.onLinkCopied(link)
+    return true
   }
 
   /** Copy the active selection to the system clipboard; returns the text. */

@@ -186,6 +186,25 @@ internal class TerminalNotifyEvent(
   }
 }
 
+// A tapped link was copied to the clipboard.
+internal class TerminalLinkCopiedEvent(
+  surfaceId: Int,
+  viewTag: Int,
+  private val link: String,
+) : Event<TerminalLinkCopiedEvent>(surfaceId, viewTag) {
+  override fun getEventName(): String = NAME
+  override fun canCoalesce(): Boolean = false
+  override fun getEventData(): WritableMap =
+    Arguments.createMap().apply {
+      putInt("target", viewTag)
+      putString("link", link)
+    }
+
+  companion object {
+    const val NAME = "topLinkCopied"
+  }
+}
+
 internal class TerminalTitleEvent(
   surfaceId: Int,
   viewTag: Int,

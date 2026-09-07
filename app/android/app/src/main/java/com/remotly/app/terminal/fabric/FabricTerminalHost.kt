@@ -37,6 +37,10 @@ internal class FabricTerminalHost(
     dispatch(TerminalNotifyEvent(surfaceId(), view.id, title, body))
   }
 
+  override fun onLinkCopied(link: String) {
+    dispatch(TerminalLinkCopiedEvent(surfaceId(), view.id, link))
+  }
+
   override fun onError(code: String) {
     dispatch(TerminalErrorEvent(surfaceId(), view.id, code))
   }

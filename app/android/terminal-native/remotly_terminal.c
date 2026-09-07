@@ -40,6 +40,11 @@
 // Pixels converted per JNI region call when copying an image out.
 #define REMOTLY_PIXEL_BLOCK 4096
 
+// Longest link returned, and the widest row scanned for a bare URL. Both are
+// bounded because the row is read into a fixed buffer on the stack.
+#define REMOTLY_MAX_URL 2048
+#define REMOTLY_MAX_COLS_SCAN 512
+
 typedef struct {
   GhosttyTerminal terminal;
   GhosttyKeyEncoder encoder;
@@ -1507,4 +1512,139 @@ Java_com_remotly_app_terminal_RemotlyTerminal_nativeImagePixels(JNIEnv *env,
     done += n;
   }
   return out;
+}
+
+// --- Links ------------------------------------------------------------------
+
+// True for a byte that may appear in a URL as typed into a terminal.
+//
+// Deliberately narrow: control bytes and spaces are what delimit a URL on a
+// screen, and the quoting characters around one are never part of it.
+static bool url_byte(uint8_t c) {
+  if (c <= 0x20 || c >= 0x7f) return false;
+  switch (c) {
+    case '"': case '\'': case '<': case '>':
+    case '`': case '\\': case '{': case '}':
+    case '|': case '^':
+      return false;
+    default:
+      return true;
+  }
+}
+
+// Reads one viewport row as ASCII, filling col_offset with the byte position of
+// each column so a hit maps back to the cell that was tapped.
+//
+// Only the primary codepoint of each cell is taken, and anything outside ASCII
+// becomes a space: a URL is ASCII by the time it is one, and this keeps the
+// mapping exactly one byte per column.
+static size_t read_row_ascii(RemotlyTerm *st, uint32_t row, uint16_t cols,
+                             uint8_t *out, size_t *col_offset) {
+  size_t len = 0;
+  for (uint16_t x = 0; x < cols; x++) {
+    col_offset[x] = len;
+    GhosttyPoint point = {0};
+    point.tag = GHOSTTY_POINT_TAG_VIEWPORT;
+    point.value.coordinate.x = x;
+    point.value.coordinate.y = row;
+    GhosttyGridRef ref = {0};
+    uint32_t cps[8];
+    size_t n = 0;
+    if (ghostty_terminal_grid_ref(st->terminal, point, &ref) !=
+            GHOSTTY_SUCCESS ||
+        ghostty_grid_ref_graphemes(&ref, cps, 8, &n) != GHOSTTY_SUCCESS ||
+        n == 0) {
+      out[len++] = ' ';
+      continue;
+    }
+    out[len++] = cps[0] < 0x80 ? (uint8_t)cps[0] : ' ';
+  }
+  col_offset[cols] = len;
+  return len;
+}
+
+// Returns the link under a viewport cell, or NULL when there is none.
+//
+// An OSC 8 hyperlink is authoritative: the program named the target, so what
+// the cell renders as does not matter. Failing that the row is scanned for a
+// bare URL, which is what makes this work in a TUI that never emitted OSC 8.
+JNIEXPORT jstring JNICALL
+Java_com_remotly_app_terminal_RemotlyTerminal_nativeLinkAt(JNIEnv *env, jclass,
+                                                           jlong handle,
+                                                           jint col,
+                                                           jint row) {
+  RemotlyTerm *st = from_handle(handle);
+  if (!st || col < 0 || row < 0) return NULL;
+
+  uint16_t cols = 0, rows = 0;
+  ghostty_terminal_get(st->terminal, GHOSTTY_TERMINAL_DATA_COLS, &cols);
+  ghostty_terminal_get(st->terminal, GHOSTTY_TERMINAL_DATA_ROWS, &rows);
+  if (cols == 0 || rows == 0 || col >= (jint)cols || row >= (jint)rows) {
+    return NULL;
+  }
+
+  // An explicit hyperlink wins, whatever the cell happens to render as.
+  GhosttyPoint point = {0};
+  point.tag = GHOSTTY_POINT_TAG_VIEWPORT;
+  point.value.coordinate.x = (uint16_t)col;
+  point.value.coordinate.y = (uint32_t)row;
+  GhosttyGridRef ref = {0};
+  if (ghostty_terminal_grid_ref(st->terminal, point, &ref) == GHOSTTY_SUCCESS) {
+    uint8_t uri[REMOTLY_MAX_URL];
+    size_t uri_len = 0;
+    if (ghostty_grid_ref_hyperlink_uri(&ref, uri, sizeof(uri) - 1, &uri_len) ==
+            GHOSTTY_SUCCESS &&
+        uri_len > 0 && uri_len < sizeof(uri)) {
+      uri[uri_len] = '\0';
+      return (*env)->NewStringUTF(env, (const char *)uri);
+    }
+  }
+
+  if (cols > REMOTLY_MAX_COLS_SCAN) return NULL;
+  uint8_t line[REMOTLY_MAX_COLS_SCAN + 1];
+  size_t col_offset[REMOTLY_MAX_COLS_SCAN + 1];
+  size_t len = read_row_ascii(st, (uint32_t)row, cols, line, col_offset);
+  if (len == 0) return NULL;
+  size_t at = col_offset[col];
+  if (at >= len || !url_byte(line[at])) return NULL;
+
+  // Expand to the whole run around the tap, then require a scheme at its
+  // start. Matching a scheme and scanning forward instead would miss a tap in
+  // the middle of the URL, which is most of its length.
+  size_t start = at;
+  while (start > 0 && url_byte(line[start - 1])) start--;
+  size_t end = at;
+  while (end + 1 < len && url_byte(line[end + 1])) end++;
+
+  static const char *const schemes[] = {"https://", "http://", "ftp://",
+                                        "ssh://",   "file://", "mailto:"};
+  size_t run_len = end - start + 1;
+  const uint8_t *run = line + start;
+  size_t scheme_len = 0;
+  for (size_t i = 0; i < sizeof(schemes) / sizeof(schemes[0]); i++) {
+    size_t n = strlen(schemes[i]);
+    if (run_len > n && memcmp(run, schemes[i], n) == 0) {
+      scheme_len = n;
+      break;
+    }
+  }
+  if (scheme_len == 0) return NULL;
+
+  // Trailing punctuation is far more often the sentence's than the URL's.
+  while (run_len > scheme_len) {
+    uint8_t last = run[run_len - 1];
+    if (last == '.' || last == ',' || last == ';' || last == ':' ||
+        last == '!' || last == '?' || last == ')' || last == ']') {
+      run_len--;
+      continue;
+    }
+    break;
+  }
+  if (run_len <= scheme_len) return NULL;
+
+  char out[REMOTLY_MAX_URL];
+  if (run_len >= sizeof(out)) return NULL;
+  memcpy(out, run, run_len);
+  out[run_len] = '\0';
+  return (*env)->NewStringUTF(env, out);
 }

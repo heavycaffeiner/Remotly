@@ -168,4 +168,12 @@ object RemotlyTerminal {
    * id is unknown or its payload has not arrived yet.
    */
   external fun nativeImagePixels(handle: Long, imageId: Int): IntArray?
+
+  /**
+   * The link under a viewport cell, or null when there is none.
+   *
+   * An OSC 8 hyperlink is preferred; failing that the row is scanned for a
+   * bare URL, so a program that never emitted OSC 8 still yields one.
+   */
+  external fun nativeLinkAt(handle: Long, col: Int, row: Int): String?
 }
