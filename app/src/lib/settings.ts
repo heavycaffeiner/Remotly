@@ -49,8 +49,6 @@ import {
 import { SORT_KEYS, type SortDirection, type SortKey } from './files';
 
 export interface AppSettings {
-  /** In-app master switch for terminal event notifications. */
-  notifyEnabled: boolean;
   themeMode: ThemeMode;
   /** Use the Android dynamic color scheme where the platform supports it. */
   dynamicColor: boolean;
@@ -72,14 +70,13 @@ export interface AppSettings {
    * quietly renaming around the collision.
    */
   downloadFolderUri: string;
-  /** Show dotfiles in the file browser. Applies to both backends. */
+  /** Show dotfiles in the file browser. */
   filesShowHidden: boolean;
   filesSortKey: SortKey;
   filesSortDirection: SortDirection;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  notifyEnabled: false,
   themeMode: 'system',
   dynamicColor: true,
   terminalFontSize: 14,
@@ -111,7 +108,6 @@ export function normalizeSettings(
   const themeMode = THEME_MODES.find(m => m === raw.themeMode);
   const cursorStyle = CURSOR_STYLES.find(c => c === raw.cursorStyle);
   return {
-    notifyEnabled: pickBool(raw.notifyEnabled, DEFAULT_SETTINGS.notifyEnabled),
     themeMode: themeMode ?? DEFAULT_SETTINGS.themeMode,
     dynamicColor: pickBool(raw.dynamicColor, DEFAULT_SETTINGS.dynamicColor),
     terminalFontSize: clampFontSize(raw.terminalFontSize),
@@ -175,8 +171,8 @@ export function setSettings(settings: AppSettings): Promise<void> {
 /**
  * Restores the default preferences.
  *
- * Preferences only: paired hosts, SSH credentials, accepted host keys, and
- * saved workspaces are not touched.
+ * Preferences only: saved SSH hosts, credentials, and accepted host keys are
+ * not touched.
  */
 export function resetSettings(): Promise<AppSettings> {
   return NativeSettings.reset().then(

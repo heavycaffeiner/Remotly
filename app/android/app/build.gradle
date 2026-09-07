@@ -200,31 +200,15 @@ dependencies {
         implementation jscFlavor
     }
 
-    // Moved Kotlin core (RN-02). Versions come from gradle/libs.versions.toml
-    // (catalog "remotly") and are pinned identical to the Lynx app's catalog.
+    // Versions come from gradle/libs.versions.toml (catalog "remotly").
     implementation remotly.androidx.core.ktx
     implementation remotly.androidx.fragment
-    implementation remotly.okhttp
-    implementation remotly.bouncycastle
     implementation remotly.gson
-    implementation remotly.androidx.camera.camera2
-    implementation remotly.androidx.camera.lifecycle
-    // The scanner view is its own LifecycleOwner: a Fabric-hosted view has no
-    // lifecycle in its tree, and the activity's outlives the view.
-    implementation remotly.androidx.lifecycle.runtime
-    implementation remotly.androidx.camera.view
-    implementation remotly.mlkit.barcode.scanning
-    // Google's own scanner activity: it owns the camera, the preview, and the
-    // camera permission. Hosting a preview inside a Fabric view meant owning a
-    // surface and a lifecycle that React's tree does not provide, and that is
-    // what never worked.
-    implementation remotly.gms.code.scanner
 
     // Go sshcore engine (RN-05): SSH/SFTP via golang.org/x/crypto + pkg/sftp,
     // bound with gomobile. Shipped as a local AAR (scripts/build-sshcore.sh).
     implementation(name: 'sshcore', ext: 'aar')
     testImplementation remotly.junit
-    testImplementation remotly.bouncycastle
     testImplementation remotly.gson
     androidTestImplementation remotly.androidx.test.runner
     androidTestImplementation remotly.androidx.test.rules

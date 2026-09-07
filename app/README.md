@@ -1,8 +1,8 @@
 # Remotly app
 
-The React Native client for Remotly. It pairs with a Remotly daemon over an
-encrypted transport, drives long-lived PTY sessions, browses files over SFTP,
-and works as a standalone SSH terminal and SFTP client.
+The React Native client for Remotly: a standalone SSH terminal and SFTP client.
+It keeps several shells per host, browses and transfers files over SFTP, and
+renders the terminal with libghostty-vt.
 
 Android is the shipped platform. iOS builds from the same source but is not
 feature-complete and is not released.
@@ -17,7 +17,7 @@ feature-complete and is not released.
 | Android NDK | 28.2.13676358 |
 | minSdk | 24 |
 | targetSdk | 36 |
-| Go | 1.26 or later (sshcore, daemon, relay) |
+| Go | 1.26 or later (sshcore) |
 | gomobile | pinned in `scripts/build-sshcore.sh` |
 | Zig | required only to rebuild the terminal native library |
 
@@ -28,20 +28,20 @@ Set `ANDROID_HOME` and `ANDROID_NDK_HOME` before any native build.
 ## Install and run
 
 ```sh
-npm ci
-npm run android          # debug build onto a connected device
+pnpm install
+pnpm android            # debug build onto a connected device
 ```
 
 Metro starts automatically with `run-android`. Start it separately with
-`npx react-native start` when attaching to an already-installed build.
+`pnpm exec react-native start` when attaching to an already-installed build.
 
 ## Checks
 
 ```sh
-npm run check            # typecheck, lint, format check, jest
-npm run typecheck
-npm run lint
-npm run test
+pnpm check               # typecheck, lint, format check, jest
+pnpm typecheck
+pnpm lint
+pnpm test
 ```
 
 Android unit tests, from a JDK 17 or later shell:
@@ -86,7 +86,7 @@ silently. Output goes to `android/app/src/main/jniLibs/<abi>/`.
 
 ## SSH core
 
-SSH and SFTP for non-daemon hosts run on a Go core bound through gomobile.
+SSH and SFTP run on a Go core bound through gomobile.
 
 ```sh
 cd ..                    # repository root
@@ -112,26 +112,24 @@ production guidance; supply your own for distribution.
 src/
   components/    shared UI and the terminal viewport mount point
   features/      screen-level features
-  lib/           pure logic: transport, pairing, files, sessions, errors
+  lib/           pure logic: ssh, sftp, files, sessions, errors
   navigation/    route map, linking, navigators
   specs/         TurboModule and Fabric component specs (codegen input)
   theme/         theme tokens and layout scale
 android/
   app/src/main/java/com/remotly/app/
     bridge/      TurboModule implementations
-    qr/          CameraX and ML Kit QR scanner
+    camera/      clipboard reads for the terminal paste actions
     ssh/         SSH session, host store, secret store, host key verification
     terminal/    TerminalView and the Fabric view manager
-    transport/   Noise transport, relay wire, framing
   terminal-native/  JNI terminal source, build scripts, host tests, pin
 ```
 
 ## Physical device requirements
 
-The terminal and the QR scanner cannot be validated on an emulator alone. QR
-work needs a rear camera; IME work needs a real keyboard app.
+The terminal cannot be validated on an emulator alone: IME work needs a real
+keyboard app.
 
 - A Pixel-class device with current Gboard.
 - A Samsung device with Samsung Keyboard.
 - One device at API 24 to 30 for Ed25519 coverage, one at a current API level.
-- Rear-camera QR scanning under normal and low light.

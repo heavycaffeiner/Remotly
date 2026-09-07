@@ -17,8 +17,8 @@ internal object SettingsCodes {
 }
 
 // The global app settings bridge. A corrupt settings file is quarantined by
-// the store and reported as the defaults; a version 1 file is migrated
-// forward so an upgrade never loses the user's notification choice.
+// the store and reported as the defaults; an older-version file is migrated
+// forward.
 class RemotlySettingsModule(reactContext: ReactApplicationContext) :
     NativeRemotlySettingsSpec(reactContext) {
 
@@ -28,14 +28,11 @@ class RemotlySettingsModule(reactContext: ReactApplicationContext) :
             promise.reject(SettingsCodes.STORE.toString(), "settings store unavailable")
             return
         }
-        val settings = store.load()
-        SettingsModule.notifyEnabled = settings.notifyEnabled
-        promise.resolve(settingsMap(settings))
+        promise.resolve(settingsMap(store.load()))
     }
 
     private fun settingsMap(s: AppSettings) =
         Arguments.createMap().apply {
-            putBoolean("notifyEnabled", s.notifyEnabled)
             putString("themeMode", s.themeMode)
             putBoolean("dynamicColor", s.dynamicColor)
             putInt("terminalFontSize", s.terminalFontSize)
@@ -52,13 +49,12 @@ class RemotlySettingsModule(reactContext: ReactApplicationContext) :
             promise.reject(SettingsCodes.STORE.toString(), "settings store unavailable")
             return
         }
-        // Only app preferences. Hosts, SSH credentials, accepted host keys,
-        // and workspace state are deliberately untouched: a preference reset
-        // must never be a data reset.
+        // Only app preferences. Hosts, SSH credentials, and accepted host
+        // keys are deliberately untouched: a preference reset must never be
+        // a data reset.
         val defaults = AppSettings()
         try {
             store.save(defaults)
-            SettingsModule.notifyEnabled = defaults.notifyEnabled
             promise.resolve(settingsMap(defaults))
         } catch (e: SettingsStoreException) {
             promise.reject(SettingsCodes.STORE.toString(), e.message ?: "settings reset failed")
@@ -74,7 +70,6 @@ class RemotlySettingsModule(reactContext: ReactApplicationContext) :
         val defaults = AppSettings()
         val next =
             AppSettings(
-                notifyEnabled = bool(settings, "notifyEnabled", defaults.notifyEnabled),
                 themeMode = string(settings, "themeMode", defaults.themeMode),
                 dynamicColor = bool(settings, "dynamicColor", defaults.dynamicColor),
                 terminalFontSize =
@@ -109,7 +104,6 @@ class RemotlySettingsModule(reactContext: ReactApplicationContext) :
         }
         try {
             store.save(next)
-            SettingsModule.notifyEnabled = next.notifyEnabled
             promise.resolve(null)
         } catch (e: SettingsStoreException) {
             promise.reject(SettingsCodes.STORE.toString(), e.message ?: "settings save failed")

@@ -1,18 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Cleartext is permitted because the daemon is reached over a plain WebSocket
-  on the local network, and the payload inside it is already sealed end to end.
-  The transport runs a Noise handshake against the daemon's pinned static key
-  and encrypts every frame, so the outer socket carries no secret and no
-  identity claim: TLS on top would add a second, weaker check against a device
-  that has no public hostname and no CA-issued certificate.
-
-  This cannot be narrowed to the private ranges. Android matches <domain>
-  entries as hostnames or IP literals only, with no CIDR support, and a
-  daemon's address is discovered at pairing time rather than known here.
-
-  Certificate pinning is deliberately absent for the same reason: nothing in
-  this app trusts the transport layer for authentication.
+  Cleartext is permitted for the Metro bundler dev server (localhost, debug
+  builds only in practice). Production network activity is the Go sshcore
+  engine's own TCP and SSH handshake, which runs outside Android's HTTP
+  stack entirely and is not affected by this policy: SSH negotiates its own
+  encryption over the raw socket, so there is no TLS layer here to enforce
+  or exempt.
 -->
 <network-security-config>
   <base-config cleartextTrafficPermitted="true" />

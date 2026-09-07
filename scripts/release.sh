@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
 # Build a Remotly release distribution:
-#   - cross-compiled Go daemon and relay binaries for the target platforms
 #   - the Android app (release APK, signed with a local keystore)
 #   - SHA256SUMS and a dist README
 #
-# Output goes to dist/ under the project root. The Go build is reproducible for
-# a given Go version and source tree; the APK embeds the JS bundle produced by
-# the React Native (Metro) build.
+# Output goes to dist/ under the project root. The APK embeds the JS bundle
+# produced by the React Native (Metro) build.
 #
 # The Android build needs JDK 17 (a React Native requirement) and a populated
 # app/node_modules; set JAVA_HOME accordingly before running.
@@ -14,50 +12,16 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST="$ROOT/dist"
-GO="${GO:-go}"
 SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/opt/android-sdk}}"
 BT="$SDK/build-tools/34.0.0"
 
-DAEMON_OSARCH="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64"
-RELAY_OSARCH="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64"
-
 echo "==> cleaning dist"
 rm -rf "$DIST"
-mkdir -p "$DIST/bin"
-
-gover="$("$GO" version | awk '{print $3}')"
-echo "==> Go $gover"
+mkdir -p "$DIST"
 
 # The single version source, the same one the Android build reads.
 APP_VERSION="$(node -p "require('$ROOT/app/package.json').version" 2>/dev/null || echo unknown)"
 echo "==> app version $APP_VERSION"
-
-# --- Go binaries -----------------------------------------------------------
-# The daemon's version is a build-time variable; without -X it ships the
-# 0.1.0-dev default and `remotly version` misreports what is installed.
-build_go() {
-  local moddir="$1" pkg="$2" name="$3" osarch="$4" versionvar="${5:-}"
-  local os="${osarch%%/*}" arch="${osarch##*/}"
-  local out="$DIST/bin/${name}-${os}-${arch}"
-  if [ "$os" = "windows" ]; then out="$out.exe"; fi
-  local ldflags="-s -w"
-  if [ -n "$versionvar" ]; then
-    ldflags="$ldflags -X ${versionvar}=${APP_VERSION}"
-  fi
-  echo "    $name $os/$arch"
-  ( cd "$moddir" && CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
-      "$GO" build -trimpath -ldflags "$ldflags" -o "$out" "$pkg" )
-}
-
-echo "==> daemon binaries"
-for oa in $DAEMON_OSARCH; do
-  build_go "$ROOT/daemon" ./cmd/remotly remotly "$oa" main.version
-done
-
-echo "==> relay binaries"
-for oa in $RELAY_OSARCH; do
-  build_go "$ROOT/relay" ./cmd/remotly-relay remotly-relay "$oa" main.version
-done
 
 # --- Android app -----------------------------------------------------------
 if [ "${SKIP_APK:-0}" = "1" ]; then
@@ -214,19 +178,6 @@ fi
 
 cat > "$DIST/README.md" <<EOF
 # Remotly release distribution
-
-Built with Go $gover.
-
-## Binaries (\`bin/\`)
-
-- \`remotly-<os>-<arch>\` - the daemon. Runs the local/lan listeners and
-  (optionally) the outbound relay connector. Configure with a JSON config file;
-  see \`docs/relay.md\`.
-- \`remotly-relay-<os>-<arch>\` - the opaque relay service. See \`relay/README.md\`.
-
-Both are statically linked (CGO disabled). The daemon targets linux, darwin,
-and windows (amd64 and arm64). The relay targets the same set minus
-windows/arm64.
 
 ## Android app
 

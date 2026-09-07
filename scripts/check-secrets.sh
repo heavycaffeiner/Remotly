@@ -3,8 +3,7 @@
 #
 # The rule this enforces: a log line may carry a stable error code, an
 # operation name, a duration, and a redacted id prefix. It may not carry a
-# pairing payload, a credential, or anything the user typed or the remote
-# printed.
+# credential, or anything the user typed or the remote printed.
 #
 # This is a grep, not a proof. It catches the mistake that is easy to make,
 # not every possible one.
@@ -31,7 +30,7 @@ else
 fi
 
 status=0
-SRC=(app/src app/android/app/src/main mobile daemon relay)
+SRC=(app/src app/android/app/src/main mobile)
 SELF='scripts/check-secrets.sh'
 
 report() {
@@ -54,10 +53,6 @@ scan() {
 # such protection.
 scan "a log call appears to take a password or passphrase" \
   '(Log\.[dviwe]|console\.(log|warn|error|info|debug))\([^)]*\b(password|passphrase|privateKey|private_key|secret|psk)\b'
-
-# The pairing payload is single use, but it is still a credential in transit.
-scan "a log call appears to take a pairing URI" \
-  '(Log\.[dviwe]|console\.[a-z]+)\([^)]*\b(pairingUri|pairing_uri|remotly://pair)'
 
 # Terminal content. Anything the remote printed or the user typed.
 scan "a log call appears to take terminal data" \

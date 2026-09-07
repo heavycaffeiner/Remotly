@@ -1,10 +1,9 @@
 // Process-wide SSH terminal sessions.
 //
 // Sessions outlive the screen that opened them. Navigating back leaves them
-// running, exactly as the daemon workspace does, and only closing a tab or
-// disconnecting the host ends one. That is the whole reason this lives outside
-// the React tree: a hook's cleanup runs on unmount, which is precisely the
-// moment a live shell must not be killed.
+// running, and only closing a tab or disconnecting the host ends one. That is
+// the whole reason this lives outside the React tree: a hook's cleanup runs on
+// unmount, which is precisely the moment a live shell must not be killed.
 //
 // The store owns the native subscriptions and the output buffer. A screen
 // attaches to render and detaches when it leaves; nothing about the session

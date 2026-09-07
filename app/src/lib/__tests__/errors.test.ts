@@ -1,41 +1,24 @@
 import { describe, expect, it } from '@jest/globals';
 
-import {
-  kindFromCloseCode,
-  makeRemotlyError,
-  toRemotlyError,
-  userFacingMessage,
-} from '../errors';
-
-describe('kindFromCloseCode', () => {
-  it('maps the Remotly close range to error kinds', () => {
-    expect(kindFromCloseCode(4000)).toBe('protocol');
-    expect(kindFromCloseCode(4001)).toBe('auth');
-    expect(kindFromCloseCode(4002)).toBe('handshake');
-    // A token close is not retryable against another address.
-    expect(kindFromCloseCode(4003)).toBe('auth');
-    expect(kindFromCloseCode(4004)).toBe('protocol');
-    expect(kindFromCloseCode(1011)).toBe('unknown');
-  });
-});
+import { makeRemotlyError, toRemotlyError, userFacingMessage } from '../errors';
 
 describe('toRemotlyError', () => {
   it('normalizes a plain error into a displayable state', () => {
     const err = toRemotlyError(new Error('boom'), 'network');
     expect(err.kind).toBe('network');
     expect(userFacingMessage(err)).toBe(
-      'Cannot reach the device. Check the network and try again.',
+      'Cannot reach the host. Check the network and try again.',
     );
     expect(err.cause).toBeInstanceOf(Error);
   });
 
   it('preserves a structured RemotlyError', () => {
-    const original = makeRemotlyError('auth', 4001, 'raw');
+    const original = makeRemotlyError('storage', -2, 'raw');
     const err = toRemotlyError(original);
-    expect(err.kind).toBe('auth');
-    expect(err.code).toBe(4001);
+    expect(err.kind).toBe('storage');
+    expect(err.code).toBe(-2);
     expect(userFacingMessage(err)).toBe(
-      'Pairing was refused. Generate a new pairing code and scan it again.',
+      'Saved hosts could not be read. Your data has not been changed.',
     );
   });
 

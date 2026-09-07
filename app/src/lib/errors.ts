@@ -1,28 +1,21 @@
 // App-level error model for Remotly.
 //
-// Errors that cross from the transport, terminal, or storage layers into the
-// UI are normalized into `RemotlyError` so screens can render a stable,
-// user-facing state without depending on the raw failure shape. The `message`
-// field is always safe to display; the raw `cause` is kept only for logging
-// (and must go through `log`, which redacts secrets).
+// Errors that cross from the SSH, SFTP, or storage layers into the UI are
+// normalized into `RemotlyError` so screens can render a stable, user-facing
+// state without depending on the raw failure shape. The `message` field is
+// always safe to display; the raw `cause` is kept only for logging (and must
+// go through `log`, which redacts secrets).
 //
 // Pure module (no Node or native imports) so it runs under Hermes on both
 // platforms.
 
-export type RemotlyErrorKind =
-  | 'network'
-  | 'handshake'
-  | 'auth'
-  | 'protocol'
-  | 'terminal'
-  | 'storage'
-  | 'unknown';
+export type RemotlyErrorKind = 'network' | 'terminal' | 'storage' | 'unknown';
 
 export interface RemotlyError {
   kind: RemotlyErrorKind;
   /** Stable, user-facing message. Safe to render directly. */
   message: string;
-  /** Optional stable code (e.g. a protocol close code) for tooling. */
+  /** Optional stable code (e.g. a bridge error code) for tooling. */
   code?: string | number;
   /** The original failure. Never rendered; only for redacted logging. */
   cause?: unknown;
@@ -31,38 +24,11 @@ export interface RemotlyError {
 // User-facing copy per error kind. Kept short and specific so a failed screen
 // explains what happened and, where useful, what to do next.
 const MESSAGES: Record<RemotlyErrorKind, string> = {
-  network: 'Cannot reach the device. Check the network and try again.',
-  handshake:
-    'Secure connection failed. The device may be running a different version.',
-  auth: 'Pairing was refused. Generate a new pairing code and scan it again.',
-  protocol: 'The connection closed unexpectedly. Reconnect to continue.',
+  network: 'Cannot reach the host. Check the network and try again.',
   terminal: 'The terminal session stopped. Reopen the session to continue.',
   storage: 'Saved hosts could not be read. Your data has not been changed.',
   unknown: 'Something went wrong. Try again.',
 };
-
-// Maps a protocol close code (see docs/protocol.md) to an error kind. Codes
-// 4000-4004 are the Remotly close range.
-export function kindFromCloseCode(code: number): RemotlyErrorKind {
-  switch (code) {
-    case 4000:
-      return 'protocol';
-    case 4001:
-      return 'auth';
-    case 4002:
-      return 'handshake';
-    case 4003:
-      // The pairing token was unknown, expired, or already used. None of
-      // those is fixed by dialing a different address, and treating it as a
-      // network failure made the app work through every remaining target
-      // with a token the daemon had already refused.
-      return 'auth';
-    case 4004:
-      return 'protocol';
-    default:
-      return 'unknown';
-  }
-}
 
 // Runtime brand check. Class identity does not survive the native bridge, so a
 // RemotlyError is recognized by its `__remotlyError` flag, set by
@@ -77,9 +43,6 @@ function isRemotlyError(value: unknown): value is RemotlyErrorInstance {
 
 const KINDS: readonly RemotlyErrorKind[] = [
   'network',
-  'handshake',
-  'auth',
-  'protocol',
   'terminal',
   'storage',
   'unknown',

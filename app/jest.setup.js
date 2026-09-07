@@ -12,21 +12,6 @@
 const emitter = () => jest.fn(() => ({ remove: jest.fn() }));
 const resolved = (v) => jest.fn().mockResolvedValue(v);
 
-jest.mock('./src/specs/NativeRemotlyHosts', () => ({
-  __esModule: true,
-  default: {
-    add: resolved({ id: 'mock-host', duplicate: false }),
-    list: resolved({ hosts: [] }),
-    remove: resolved(undefined),
-    touch: resolved(undefined),
-  },
-}));
-
-jest.mock('./src/specs/NativeRemotlyPairing', () => ({
-  __esModule: true,
-  default: { takePending: resolved({ uri: '' }) },
-}));
-
 jest.mock('./src/specs/NativeRemotlySshHost', () => ({
   __esModule: true,
   default: {
@@ -84,20 +69,13 @@ jest.mock('./src/specs/NativeRemotlySftp', () => ({
     onTransfer: () => ({ remove: () => {} }),
     status: resolved({ connected: false }),
     hostKey: resolved(undefined),
+    realPath: resolved({ path: '/home/user' }),
     list: resolved({ entries: [] }),
     stat: resolved(null),
     mkdir: resolved(undefined),
     rename: resolved(undefined),
     remove: resolved(undefined),
     close: resolved(undefined),
-  },
-}));
-
-jest.mock('./src/specs/NativeRemotlyFiles', () => ({
-  __esModule: true,
-  default: {
-    storeOpen: resolved(undefined),
-    takeOpen: resolved({ open: '' }),
   },
 }));
 
@@ -113,43 +91,10 @@ jest.mock('./src/specs/NativeRemotlyFileIO', () => ({
   },
 }));
 
-jest.mock('./src/specs/NativeRemotlyTransport', () => ({
-  __esModule: true,
-  default: {
-    connect: resolved({}),
-    close: resolved(undefined),
-    status: resolved({ connected: false, state: 'disconnected' }),
-    control: resolved({}),
-    writeTerm: resolved(undefined),
-    openFile: resolved(undefined),
-    writeFile: resolved(undefined),
-    onConnected: emitter(),
-    onDisconnected: emitter(),
-    onSessionUpdate: emitter(),
-    onChannelClose: emitter(),
-    onReplayComplete: emitter(),
-    onTermData: emitter(),
-    onFileData: emitter(),
-    onSessionEvent: emitter(),
-  },
-}));
-
-jest.mock('./src/specs/NativeRemotlyWorkspace', () => ({
-  __esModule: true,
-  default: {
-    load: resolved({ json: '' }),
-    save: resolved(undefined),
-    clear: resolved(undefined),
-    open: resolved(undefined),
-    takeOpen: resolved({ hostId: '' }),
-  },
-}));
-
 jest.mock('./src/specs/NativeRemotlySettings', () => ({
   __esModule: true,
   default: {
     get: resolved({
-      notifyEnabled: false,
       themeMode: 'system',
       dynamicColor: true,
       terminalFontSize: 14,
@@ -159,7 +104,6 @@ jest.mock('./src/specs/NativeRemotlySettings', () => ({
     }),
     set: resolved(undefined),
     reset: resolved({
-      notifyEnabled: false,
       themeMode: 'system',
       dynamicColor: true,
       terminalFontSize: 14,
@@ -179,14 +123,6 @@ jest.mock('./src/specs/NativeRemotlyAppInfo', () => ({
       protocolVersion: '1.0.0',
       androidSdk: 34,
     }),
-  },
-}));
-
-jest.mock('./src/specs/NativeRemotlyNotify', () => ({
-  __esModule: true,
-  default: {
-    post: resolved(undefined),
-    permission: resolved({ granted: true }),
   },
 }));
 

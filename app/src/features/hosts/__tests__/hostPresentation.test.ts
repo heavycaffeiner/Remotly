@@ -1,25 +1,11 @@
 import {
-  daemonStatus,
   filterHosts,
   mapWithConcurrency,
-  relTime,
-  toDaemonEntry,
   toSshEntry,
   withSessionCount,
   type HostListEntry,
 } from '../hostPresentation';
-import type { HostRecord } from '../../../lib/hosts';
 import type { SshHostView } from '../../../lib/sshHosts';
-
-const host = (over: Partial<HostRecord> = {}): HostRecord => ({
-  id: 'abcdef0123456789',
-  daemonName: 'dev-box',
-  daemonPub: 'pub',
-  hints: [],
-  pairedAt: 0,
-  lastConnectedAt: 0,
-  ...over,
-});
 
 const ssh = (over: Partial<SshHostView> = {}): SshHostView => ({
   id: 'ssh-1',
@@ -35,76 +21,7 @@ const ssh = (over: Partial<SshHostView> = {}): SshHostView => ({
   ...over,
 });
 
-describe('daemonStatus', () => {
-  it('reports a direct connection', () => {
-    expect(
-      daemonStatus(
-        { connected: true, state: 'connected', via: 'direct' },
-        false,
-      ),
-    ).toBe('connected-direct');
-  });
-
-  it('reports a relay connection', () => {
-    expect(
-      daemonStatus(
-        { connected: true, state: 'connected', via: 'relay' },
-        false,
-      ),
-    ).toBe('connected-relay');
-  });
-
-  it('reports connecting', () => {
-    expect(daemonStatus({ connected: false, state: 'connecting' }, false)).toBe(
-      'connecting',
-    );
-  });
-
-  it('reports offline for a disconnected host', () => {
-    expect(
-      daemonStatus({ connected: false, state: 'disconnected' }, false),
-    ).toBe('offline');
-  });
-
-  it('separates a failed status query from an offline host', () => {
-    expect(daemonStatus(undefined, true)).toBe('unavailable');
-    expect(daemonStatus(undefined, false)).toBe('offline');
-  });
-});
-
-describe('relTime', () => {
-  const now = 1_000_000_000_000;
-
-  it('reports never for an unset timestamp', () => {
-    expect(relTime(0, now)).toBe('never');
-  });
-
-  it('reports coarse relative times', () => {
-    const nowSec = Math.floor(now / 1000);
-    expect(relTime(nowSec - 10, now)).toBe('just now');
-    expect(relTime(nowSec - 120, now)).toBe('2m ago');
-    expect(relTime(nowSec - 7200, now)).toBe('2h ago');
-    expect(relTime(nowSec - 172800, now)).toBe('2d ago');
-  });
-
-  it('never reports a negative age for a clock skewed into the future', () => {
-    const nowSec = Math.floor(now / 1000);
-    expect(relTime(nowSec + 500, now)).toBe('just now');
-  });
-});
-
 describe('entry mapping', () => {
-  it('falls back to a shortened id when the daemon has no name', () => {
-    const entry = toDaemonEntry(host({ daemonName: '' }), 'offline');
-    expect(entry.name).toBe('abcdef012345');
-  });
-
-  it('keeps a CJK name exactly as stored', () => {
-    const entry = toDaemonEntry(host({ daemonName: '개발서버' }), 'offline');
-    expect(entry.name).toBe('개발서버');
-    expect(entry.accessibilityLabel).toContain('개발서버');
-  });
-
   it('reads the full endpoint in the accessible label', () => {
     const entry = toSshEntry(ssh());
     expect(entry.accessibilityLabel).toContain('deploy@example.com:22');
@@ -149,38 +66,35 @@ describe('withSessionCount', () => {
 });
 
 describe('filterHosts', () => {
+  // Only s3 carries example.com, so a query on the endpoint has to pick out
+  // one entry rather than matching a host every fixture happens to share.
   const entries: HostListEntry[] = [
-    toDaemonEntry(host({ id: 'd1', daemonName: '개발서버' }), 'offline'),
-    toDaemonEntry(host({ id: 'd2', daemonName: 'Laptop' }), 'connected-direct'),
-    toSshEntry(ssh({ id: 's1', displayName: 'Prod' })),
+    toSshEntry(ssh({ id: 's1', displayName: 'Laptop', host: 'laptop.lan' })),
+    toSshEntry(ssh({ id: 's2', displayName: '개발서버', host: 'dev.lan' })),
+    toSshEntry(ssh({ id: 's3', displayName: 'Prod', host: 'example.com' })),
   ];
 
-  it('returns everything for the all filter and an empty query', () => {
-    expect(filterHosts(entries, 'all', '')).toHaveLength(3);
-  });
-
-  it('filters by kind', () => {
-    expect(filterHosts(entries, 'daemon', '')).toHaveLength(2);
-    expect(filterHosts(entries, 'ssh', '')).toHaveLength(1);
+  it('returns everything for an empty query', () => {
+    expect(filterHosts(entries, '')).toHaveLength(3);
   });
 
   it('matches names case-insensitively', () => {
-    expect(filterHosts(entries, 'all', 'laptop')).toHaveLength(1);
-    expect(filterHosts(entries, 'all', 'LAPTOP')).toHaveLength(1);
+    expect(filterHosts(entries, 'laptop')).toHaveLength(1);
+    expect(filterHosts(entries, 'LAPTOP')).toHaveLength(1);
   });
 
   it('matches a CJK substring', () => {
-    const found = filterHosts(entries, 'all', '개발');
+    const found = filterHosts(entries, '개발');
     expect(found).toHaveLength(1);
     expect(found[0].name).toBe('개발서버');
   });
 
   it('matches the endpoint text', () => {
-    expect(filterHosts(entries, 'all', 'example.com')).toHaveLength(1);
+    expect(filterHosts(entries, 'example.com')).toHaveLength(1);
   });
 
   it('ignores surrounding whitespace in the query', () => {
-    expect(filterHosts(entries, 'all', '  laptop  ')).toHaveLength(1);
+    expect(filterHosts(entries, '  laptop  ')).toHaveLength(1);
   });
 });
 

@@ -1,9 +1,7 @@
 // Tab state for SSH terminals.
 //
 // SSH tabs are live-only. There is no replay, no cursor, and no persisted
-// document: a closed session is gone, and reconnecting starts a new one. That
-// is the whole difference from the daemon workspace in lib/workspace.ts, which
-// keeps a cursor and reconciles against sessions the daemon still holds.
+// document: a closed session is gone, and reconnecting starts a new one.
 //
 // Pure data. Every function returns new state, so the screen can apply an
 // action and render the result without a round trip.

@@ -77,9 +77,6 @@ forbid() {
   fi
 }
 
-# The retired client must leave no trace in a shipped artifact.
-forbid 'lynx|sparkling' "Lynx and Sparkling assets"
-
 # Terminal fonts define the cell grid, so a build without them renders on a
 # platform fallback and the grid geometry changes.
 require_resource 'font/jetbrains_mono_regular' "JetBrains Mono regular"

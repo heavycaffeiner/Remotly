@@ -5,7 +5,7 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.remotly.app.ssh.SshHub
 import com.remotly.app.terminal.TerminalStore
-import com.remotly.app.transport.Base64Std
+import com.remotly.app.util.Base64Std
 import com.remotly.app.specs.NativeRemotlySshSpec
 
 // One-shot hand-off of the host the SSH terminal page should open. The opening

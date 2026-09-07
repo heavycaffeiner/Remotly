@@ -113,6 +113,8 @@ export function SshHostEditorScreen(): React.ReactElement {
   useEffect(
     () =>
       onPick(f => {
+        // The terminal's image paste shares this event; only answer our own.
+        if (f.mode !== 'upload') return;
         void readFileText(f.uri)
           .then(text => {
             setKeyContents(text);

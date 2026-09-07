@@ -7,10 +7,4 @@ package com.remotly.app.settings
 object SettingsModule {
     @Volatile
     var store: SettingsStore? = null
-
-    // Native transport callbacks can arrive while the JS runtime is paused.
-    // Keep the user's notification choice in memory so those callbacks never
-    // need to synchronously read preferences on a socket or main-thread path.
-    @Volatile
-    var notifyEnabled: Boolean = false
 }

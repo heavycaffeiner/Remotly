@@ -1,4 +1,4 @@
-// The tabbed shell: Hosts, Sessions, and Settings.
+// The tabbed shell: Hosts and Settings.
 //
 // Compact widths get a bottom bar; expanded widths get a rail beside the
 // content. Selection carries a filled icon and an accessibilityState, so it
@@ -17,7 +17,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HostsScreen } from '../features/hosts/HostsScreen';
-import { SessionsScreen } from '../features/sessions/SessionsScreen';
 import { SettingsScreen } from '../features/settings/SettingsScreen';
 import { Icon, type IconName } from '../components/ui/icon';
 import { Text } from '../components/ui/text';
@@ -33,7 +32,6 @@ interface TabDef {
 
 const TABS: readonly TabDef[] = [
   { key: 'Hosts', title: 'Hosts', icon: 'server' },
-  { key: 'Sessions', title: 'Sessions', icon: 'layout-dashboard' },
   { key: 'Settings', title: 'Settings', icon: 'settings' },
 ];
 
@@ -54,9 +52,6 @@ export function MainNavigator({
     <>
       <Scene active={active === 'Hosts'}>
         <HostsScreen />
-      </Scene>
-      <Scene active={active === 'Sessions'}>
-        <SessionsScreen />
       </Scene>
       <Scene active={active === 'Settings'}>
         <SettingsScreen />

@@ -5,11 +5,10 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import java.io.File
 
-// Global app settings, schema version 2:
+// Global app settings, schema version 3:
 //
 //   {
-//     "v": 2,
-//     "notifyEnabled": <bool>,
+//     "v": 3,
 //     "themeMode": "system" | "light" | "dark",
 //     "dynamicColor": <bool>,
 //     "terminalFontSize": <int, 8..32>,
@@ -18,15 +17,12 @@ import java.io.File
 //     "cursorStyle": "block" | "bar" | "underline"
 //   }
 //
-// A version 1 file carried only notifyEnabled; it is migrated forward by
-// filling the rest with defaults rather than being quarantined, because
-// quarantining would silently drop the user's notification choice.
-//
-// `notifyEnabled` is the in-app master switch for terminal event
-// notifications. It defaults to off: the OS permission is requested only when
-// the user turns it on.
+// A file at an older version is missing fields this version added (or, for
+// version 1 and 2, still carries notifyEnabled from the deleted terminal
+// event notification feature). It is migrated forward by defaulting
+// anything missing rather than being quarantined, because quarantining
+// would silently drop the user's other preferences.
 data class AppSettings(
-    val notifyEnabled: Boolean = false,
     val themeMode: String = THEME_SYSTEM,
     val dynamicColor: Boolean = true,
     val terminalFontSize: Int = DEFAULT_FONT_SIZE,
@@ -82,7 +78,6 @@ class SettingsStore(private val file: File) {
         val normalized = normalize(settings)
         val obj = JsonObject().apply {
             addProperty("v", VERSION)
-            addProperty("notifyEnabled", normalized.notifyEnabled)
             addProperty("themeMode", normalized.themeMode)
             addProperty("dynamicColor", normalized.dynamicColor)
             addProperty("terminalFontSize", normalized.terminalFontSize)
@@ -124,19 +119,16 @@ class SettingsStore(private val file: File) {
             else throw SettingsStoreException("settings file is not a JSON object")
         val version = o.get("v")?.takeIf { it.isJsonPrimitive }?.asInt
             ?: throw SettingsStoreException("settings file has no version")
-        if (version != VERSION && version != VERSION_1) {
+        if (version < VERSION_1 || version > VERSION) {
             throw SettingsStoreException("settings file has unsupported version")
         }
-        val notify = bool(o, "notifyEnabled")
-            ?: throw SettingsStoreException("notifyEnabled is not a boolean")
-        if (version == VERSION_1) {
-            // Forward migration: keep the one field v1 had, default the rest.
-            return AppSettings(notifyEnabled = notify)
-        }
+        // Versions 1 and 2 also carried notifyEnabled, for the terminal event
+        // notification feature that no longer exists. It is simply dropped
+        // rather than validated: a stale field in an old file is not this
+        // version's problem.
         val defaults = AppSettings()
         return normalize(
             AppSettings(
-                notifyEnabled = notify,
                 themeMode = string(o, "themeMode") ?: defaults.themeMode,
                 dynamicColor = bool(o, "dynamicColor") ?: defaults.dynamicColor,
                 terminalFontSize = int(o, "terminalFontSize") ?: defaults.terminalFontSize,
@@ -190,7 +182,7 @@ class SettingsStore(private val file: File) {
         const val FILE_NAME = "settings.json"
 
         private const val TMP_SUFFIX = ".tmp"
-        private const val VERSION = 2
+        private const val VERSION = 3
         private const val VERSION_1 = 1
 
         private val GSON = Gson()

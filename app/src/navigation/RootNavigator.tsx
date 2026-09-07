@@ -9,15 +9,12 @@ import {
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { MainNavigator } from './MainNavigator';
-import { PairingScreen } from '../features/pairing/PairingScreen';
-import { WorkspaceScreen } from '../features/workspace/WorkspaceScreen';
 import { SshTerminalScreen } from '../features/ssh-terminal/SshTerminalScreen';
 import { SshHostEditorScreen } from '../features/hosts/SshHostEditorScreen';
 import { FilesScreen } from '../features/files/FilesScreen';
 import { TransferIndicator } from '../features/files/TransferIndicator';
 import { TransferSheet } from '../features/files/TransferSheet';
 import { themeColors, useAppliedColorScheme } from '../theme/useColorScheme';
-import { linking } from './linking';
 import type { RootStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -50,7 +47,7 @@ export function RootNavigator(): React.ReactElement {
   }, [scheme]);
 
   return (
-    <NavigationContainer linking={linking} theme={navTheme}>
+    <NavigationContainer theme={navTheme}>
       <StatusBar
         barStyle={scheme === 'dark' ? 'light-content' : 'dark-content'}
       />
@@ -59,8 +56,6 @@ export function RootNavigator(): React.ReactElement {
         screenOptions={{ headerShown: false }}
       >
         <Stack.Screen name="Main" component={MainNavigator} />
-        <Stack.Screen name="Pairing" component={PairingScreen} />
-        <Stack.Screen name="Workspace" component={WorkspaceScreen} />
         <Stack.Screen name="SshTerminal" component={SshTerminalScreen} />
         <Stack.Screen name="SshHostEditor" component={SshHostEditorScreen} />
         <Stack.Screen name="Files" component={FilesScreen} />

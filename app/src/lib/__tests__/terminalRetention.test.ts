@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { MAX_TABS } from '../workspace';
 import { MAX_SSH_TABS } from '../sshTabs';
 
 /**
@@ -11,8 +10,7 @@ import { MAX_SSH_TABS } from '../sshTabs';
  * TerminalStore evicts the least recently used one past its cap. Only the tab
  * on screen has a renderer, so every other retained terminal is eligible: a
  * cap below the tab limit destroys the scrollback of a session the user still
- * has open and is still running. The store held 8 while a daemon workspace
- * allows 16, so opening a ninth tab silently threw one away.
+ * has open and is still running.
  */
 describe('terminal retention cap', () => {
   const store = readFileSync(
@@ -42,7 +40,7 @@ describe('terminal retention cap', () => {
   };
 
   it('holds at least as many terminals as a host has tabs', () => {
-    expect(retained()).toBeGreaterThanOrEqual(Math.max(MAX_TABS, MAX_SSH_TABS));
+    expect(retained()).toBeGreaterThanOrEqual(MAX_SSH_TABS);
   });
 
   it('never evicts a terminal that has a renderer bound', () => {

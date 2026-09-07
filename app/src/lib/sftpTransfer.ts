@@ -107,7 +107,6 @@ function toError(e: unknown): Error {
  * by host, so a backend instance and a connection are the same thing.
  */
 export class SftpTransferBackend implements TransferBackend {
-  readonly kind = 'sftp' as const;
   readonly capabilities: FilesCapabilities = SFTP_CAPABILITIES;
 
   /** Bytes accepted per transfer, for status polling. */

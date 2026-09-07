@@ -1,12 +1,6 @@
 # Remotly
 
-Remote development companion. A Go daemon runs on your development machine and keeps
-terminal sessions alive; an Android app connects to it to run coding agents and remote
-terminals, and doubles as a standalone SSH and SFTP client.
-
-Sessions outlive the app. Closing the phone, losing the network, or switching hosts does
-not kill a running shell: the daemon owns the PTY and the app reattaches with a replay
-cursor, so the scrollback is there when it comes back.
+A standalone SSH and SFTP client for Android.
 
 | Hosts | Terminal |
 | --- | --- |
@@ -14,16 +8,15 @@ cursor, so the scrollback is there when it comes back.
 
 ## What it does
 
-- **Pairing by QR code or link.** A one-time token carries the daemon's public key; the
-  app pins that identity and never stores the pairing secret.
-- **Persistent sessions.** Shells and agents keep running on the daemon. The app attaches,
-  detaches, and reattaches without interrupting them.
-- **Full shell environment.** Every session starts from a login shell, so PATH, aliases,
-  functions, and version managers (nvm, pyenv, asdf) are all present.
-- **Standalone SSH and SFTP.** Plain SSH hosts work with no daemon: multiple tabs per
-  host, host-key verification on first use, and file transfer in both directions.
-- **CJK input.** Korean input commits one syllable at a time rather than one word, so a
-  TUI reading keys as they arrive behaves the way it does on a desktop terminal.
+- **Standalone SSH and SFTP.** Add a host and connect directly: multiple
+  terminal tabs per host, host-key verification on first use, and file
+  transfer in both directions.
+- **Full shell environment.** Every session starts from a login shell, so
+  PATH, aliases, functions, and version managers (nvm, pyenv, asdf) are all
+  present.
+- **CJK input.** Korean input commits one syllable at a time rather than one
+  word, so a TUI reading keys as they arrive behaves the way it does on a
+  desktop terminal.
 
 ## Layout
 
@@ -31,21 +24,12 @@ cursor, so the scrollback is there when it comes back.
 | --- | --- |
 | `app/` | React Native app (Android; iOS builds but is not feature-complete) |
 | `app/android/terminal-native/` | JNI bridge to libghostty-vt, the terminal core |
-| `daemon/` | The daemon: PTY sessions, transport, file transfer |
-| `relay/` | Optional relay for hosts that are not reachable directly |
 | `mobile/sshcore/` | Go SSH and SFTP core, built as an AAR for the app |
-| `docs/protocol.md` | Wire protocol, normative |
-| `docs/relay.md` | Running a self-hosted relay |
 
 ## Security
 
-The transport is Noise (XXpsk0 for pairing, IK afterwards) over a WebSocket, with
-ChaCha20-Poly1305 framing. The app pins the daemon's static key at pairing and refuses a
-changed key.
-
-Cleartext is permitted on the outer socket because the payload is already sealed end to
-end and a daemon on a private network has no CA-issued certificate. Nothing in the app
-trusts the transport layer for authentication.
+Host keys are verified on first use (TOFU) and pinned per host. If a host's
+key later changes, the app refuses to connect until the change is confirmed.
 
 ## Building
 
@@ -123,13 +107,9 @@ Pushing a `v*` tag builds and attaches to the GitHub release:
 | Artifact | What it is |
 | --- | --- |
 | `app-release.apk` | Signed Android app |
-| `remotly-<os>-<arch>` | Daemon: linux, darwin, and windows on amd64 and arm64 |
-| `remotly-relay-<os>-<arch>` | Relay: the same set minus windows/arm64 |
-| `SHA256SUMS` | Checksums for the binaries |
 
-The Go binaries are statically linked with CGO disabled, so they run on any
-glibc or musl host of the matching architecture. Windows builds carry a `.exe`
-suffix. `scripts/release.sh` builds the same set locally.
+`scripts/release.sh` builds the same signed APK locally, alongside a
+`SHA256SUMS` file for verification.
 
 ## License
 

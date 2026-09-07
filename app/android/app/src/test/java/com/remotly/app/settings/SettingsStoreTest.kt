@@ -21,57 +21,56 @@ class SettingsStoreTest {
     @Test
     fun `missing file loads defaults`() {
         val settings = store(File(tmp.root, "nope/settings.json")).load()
-        assertFalse(settings.notifyEnabled)
+        assertEquals(AppSettings(), settings)
     }
 
     @Test
     fun `save and load round-trip`() {
         val s = store()
-        s.save(AppSettings(notifyEnabled = true))
-        assertTrue(s.load().notifyEnabled)
-        s.save(AppSettings(notifyEnabled = false))
-        assertFalse(s.load().notifyEnabled)
+        s.save(AppSettings(dynamicColor = false))
+        assertFalse(s.load().dynamicColor)
+        s.save(AppSettings(dynamicColor = true))
+        assertTrue(s.load().dynamicColor)
     }
 
     @Test
     fun `corrupt file is quarantined and defaults returned`() {
         val s = store()
-        s.save(AppSettings(notifyEnabled = true))
+        s.save(AppSettings(dynamicColor = false))
         File(tmp.root, "settings.json").writeText("{\"v\":1,\"not")
         val settings = s.load()
-        assertFalse(settings.notifyEnabled)
+        assertEquals(AppSettings(), settings)
         val quarantined = tmp.root.listFiles { f -> f.name.startsWith("settings.corrupt-") }
         assertEquals(1, quarantined?.size ?: 0)
         // A fresh save works after quarantine.
-        s.save(AppSettings(notifyEnabled = true))
-        assertTrue(s.load().notifyEnabled)
+        s.save(AppSettings(dynamicColor = false))
+        assertFalse(s.load().dynamicColor)
     }
 
     @Test
     fun `wrong version is quarantined`() {
         val file = File(tmp.root, "settings.json")
-        file.writeText("""{"v":9,"notifyEnabled":true}""")
+        file.writeText("""{"v":9,"themeMode":"dark"}""")
         val settings = store(file).load()
-        assertFalse(settings.notifyEnabled)
+        assertEquals(AppSettings(), settings)
     }
 
     @Test
-    fun `version 1 file keeps the users notification choice`() {
-        // An upgrade must not silently reset a setting the user turned on.
+    fun `a version 1 file migrates to current defaults for every field it lacks`() {
+        // Version 1 predates every field this schema has; an upgrade must not
+        // fail to load just because the file is old.
         val file = File(tmp.root, "settings.json")
         file.writeText("""{"v":1,"notifyEnabled":true}""")
         val settings = store(file).load()
-        assertTrue(settings.notifyEnabled)
         assertEquals(AppSettings.THEME_SYSTEM, settings.themeMode)
         assertEquals(AppSettings.DEFAULT_FONT_SIZE, settings.terminalFontSize)
         assertEquals(AppSettings.CURSOR_BLOCK, settings.cursorStyle)
     }
 
     @Test
-    fun `all version 2 fields round-trip`() {
+    fun `all fields round-trip`() {
         val s = store()
         val saved = AppSettings(
-            notifyEnabled = true,
             themeMode = AppSettings.THEME_DARK,
             dynamicColor = false,
             terminalFontSize = 20,
@@ -96,7 +95,7 @@ class SettingsStoreTest {
     fun `an unknown theme or cursor falls back rather than failing the load`() {
         val file = File(tmp.root, "settings.json")
         file.writeText(
-            """{"v":2,"notifyEnabled":false,"themeMode":"neon","cursorStyle":"beam"}""",
+            """{"v":3,"themeMode":"neon","cursorStyle":"beam"}""",
         )
         val settings = store(file).load()
         assertEquals(AppSettings.THEME_SYSTEM, settings.themeMode)
@@ -108,7 +107,6 @@ class SettingsStoreTest {
         val s = store()
         s.save(
             AppSettings(
-                notifyEnabled = true,
                 themeMode = AppSettings.THEME_DARK,
                 dynamicColor = false,
                 terminalFontSize = 30,
@@ -125,13 +123,13 @@ class SettingsStoreTest {
     fun `a failed write leaves the previous settings readable`() {
         // A directory in the file's place makes the atomic replace fail.
         val s = store()
-        s.save(AppSettings(notifyEnabled = true))
+        s.save(AppSettings(dynamicColor = false))
         val before = s.load()
 
         val blocked = File(tmp.root, "blocked.json")
         assertTrue(blocked.mkdirs())
         try {
-            SettingsStore(blocked).save(AppSettings(notifyEnabled = false))
+            SettingsStore(blocked).save(AppSettings(dynamicColor = true))
             fail("expected a store exception")
         } catch (e: SettingsStoreException) {
             // expected
@@ -140,20 +138,11 @@ class SettingsStoreTest {
     }
 
     @Test
-    fun `missing version 2 fields fall back to defaults`() {
+    fun `missing fields fall back to defaults`() {
         val file = File(tmp.root, "settings.json")
-        file.writeText("""{"v":2,"notifyEnabled":true}""")
+        file.writeText("""{"v":3}""")
         val settings = store(file).load()
-        assertTrue(settings.notifyEnabled)
-        assertEquals(AppSettings(notifyEnabled = true), settings)
-    }
-
-    @Test
-    fun `bad boolean is quarantined`() {
-        val file = File(tmp.root, "settings.json")
-        file.writeText("""{"v":1,"notifyEnabled":"yes"}""")
-        val settings = store(file).load()
-        assertFalse(settings.notifyEnabled)
+        assertEquals(AppSettings(), settings)
     }
 
     @Test
@@ -163,7 +152,7 @@ class SettingsStoreTest {
         assertTrue(target.mkdirs())
         val s = SettingsStore(target)
         try {
-            s.save(AppSettings(notifyEnabled = true))
+            s.save(AppSettings(dynamicColor = false))
             fail("expected a store exception")
         } catch (e: SettingsStoreException) {
             assertTrue(e.message!!.contains("settings"))

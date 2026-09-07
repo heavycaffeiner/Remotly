@@ -51,7 +51,7 @@ describe('Empty', () => {
   /**
    * The hosts list hides its add-host button while empty, so the empty state
    * itself has to carry every way forward. Offering only one stranded a user
-   * with no paired daemon: there was no route to the SSH editor at all.
+   * with no saved hosts: there was no route to the SSH editor at all.
    */
   it('renders both actions when a secondary one is supplied', () => {
     const tree = render({

@@ -4,7 +4,7 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.remotly.app.specs.NativeRemotlyTerminalStoreSpec
 import com.remotly.app.terminal.TerminalStore
-import com.remotly.app.transport.Base64Std
+import com.remotly.app.util.Base64Std
 
 // Writes into a terminal that has no view attached (remotly.terminalStore.*).
 //

@@ -2,12 +2,11 @@ import { toRemotlyError } from '../errors';
 
 // A plain Error must take the caller's fallback kind.
 //
-// The pairing dial gives each target a timeout and rejects with a bare Error
-// when one does not answer. The loop then continues to the next target only
-// while the failure classifies as 'network': anything else means the payload
-// itself is wrong and no other address would do better. If a timeout landed on
-// 'unknown' instead, one dead address would abort the whole pairing, which is
-// the bug the timeout was added to prevent.
+// An SSH connect loop gives each host a timeout and rejects with a bare Error
+// when it does not answer. The caller continues only while the failure
+// classifies as 'network': anything else means the connection itself is wrong
+// and retrying would not help. If a timeout landed on 'unknown' instead, the
+// caller could not tell a dead host from a broken payload.
 describe('toRemotlyError fallback', () => {
   it('classifies a bare Error as the caller-supplied kind', () => {
     const err = toRemotlyError(
@@ -22,8 +21,8 @@ describe('toRemotlyError fallback', () => {
   });
 
   it('still honours an explicit kind on the value', () => {
-    const err = toRemotlyError({ kind: 'auth' }, 'network');
-    expect(err.kind).toBe('auth');
+    const err = toRemotlyError({ kind: 'storage' }, 'network');
+    expect(err.kind).toBe('storage');
   });
 
   it('defaults to unknown with no fallback given', () => {

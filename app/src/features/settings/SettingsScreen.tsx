@@ -1,9 +1,8 @@
-// The Settings destination: appearance, terminal, and notification
-// preferences, all persisted through the native settings store.
+// The Settings destination: appearance and terminal preferences, all
+// persisted through the native settings store.
 //
 // Every control writes immediately. A failed write rolls the control back and
 // says so, rather than leaving the UI showing a value that was not stored.
-
 import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import NativeCamera from '../../specs/NativeRemotlyCamera';
@@ -26,7 +25,6 @@ import {
   type ThemeMode,
 } from '../../lib/settings';
 import { getAppInfo, UNKNOWN_APP_INFO, type AppInfo } from '../../lib/appInfo';
-import { queryNotificationPermission } from '../../lib/notify';
 import { useSettings } from '../../theme/SettingsProvider';
 import { onSink, pickFolder } from '../../lib/fileIO';
 import { Button } from '../../components/ui/button';
@@ -44,8 +42,6 @@ const CURSOR_LABEL: Record<CursorStyle, string> = {
 };
 
 const SAVE_FAILED = 'That setting could not be saved.';
-const NOTIFY_DENIED =
-  'Android denied the notification permission, so the switch stayed off.';
 
 export function SettingsScreen(): React.ReactElement {
   const { settings, loadFailed, update, reset } = useSettings();
@@ -53,7 +49,6 @@ export function SettingsScreen(): React.ReactElement {
   const [info, setInfo] = useState<AppInfo>(UNKNOWN_APP_INFO);
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
-  const [notifyBlocked, setNotifyBlocked] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,36 +86,6 @@ export function SettingsScreen(): React.ReactElement {
       setNotice('Could not open the folder picker.');
     });
   }, [apply]);
-
-  /**
-   * The app switch and the OS permission are separate facts, and the switch
-   * must not claim to be on when Android will not deliver anything. Turning it
-   * on requests the permission first and stays off if that is refused.
-   */
-  const applyNotify = useCallback(
-    async (enabled: boolean) => {
-      if (!enabled) {
-        setNotifyBlocked(false);
-        await apply({ notifyEnabled: false });
-        return;
-      }
-      try {
-        const state = await queryNotificationPermission(true);
-        if (!state.granted || !state.osEnabled) {
-          setNotifyBlocked(true);
-          setNotice(NOTIFY_DENIED);
-          return;
-        }
-      } catch {
-        setNotifyBlocked(true);
-        setNotice(NOTIFY_DENIED);
-        return;
-      }
-      setNotifyBlocked(false);
-      await apply({ notifyEnabled: true });
-    },
-    [apply],
-  );
 
   const fontSize = settings.terminalFontSize;
   const stepFont = useCallback(
@@ -301,29 +266,6 @@ export function SettingsScreen(): React.ReactElement {
           </Button>
         </SettingRow>
 
-        <SectionHeader title="Notifications" />
-
-        <SettingRow
-          title="Session notifications"
-          description="Notify about bells, output matches, and completed terminal sessions."
-        >
-          <Switch
-            value={settings.notifyEnabled}
-            accessibilityLabel={`Session notifications, ${
-              settings.notifyEnabled ? 'on' : 'off'
-            }`}
-            onValueChange={v => void applyNotify(v)}
-          />
-        </SettingRow>
-
-        {notifyBlocked ? (
-          <Notice
-            tone="danger"
-            message="Android is blocking notifications for this app. Turn them on in system settings, then try again."
-            action={{ label: 'Settings', onPress: openAppSettings }}
-          />
-        ) : null}
-
         <SectionHeader title="About" />
 
         <SettingRow
@@ -335,20 +277,14 @@ export function SettingsScreen(): React.ReactElement {
           }
         />
         <SettingRow
-          title="Protocol version"
-          description={
-            info.protocolVersion !== '' ? info.protocolVersion : 'Unavailable'
-          }
-        />
-        <SettingRow
           title="Android system settings"
-          description="Permissions and notification channels for this app."
+          description="Permissions for this app."
           icon="cog"
           onPress={openAppSettings}
         />
         <SettingRow
           title="Reset settings"
-          description="Restores the defaults on this screen. Hosts, credentials, and saved workspaces are kept."
+          description="Restores the defaults on this screen. Hosts, SSH credentials, and accepted host keys are kept."
           icon="rotate-ccw"
           destructive
           onPress={() => setConfirmReset(true)}
@@ -364,7 +300,7 @@ export function SettingsScreen(): React.ReactElement {
         destructive
         busy={resetting}
         title="Reset settings?"
-        message="Appearance, terminal, and notification preferences return to their defaults. Your paired hosts, SSH credentials, accepted host keys, and saved workspaces are not affected."
+        message="Appearance and terminal preferences return to their defaults. Your saved hosts, SSH credentials, and accepted host keys are not affected."
         confirmLabel="Reset"
         onConfirm={() => void doReset()}
         onDismiss={() => setConfirmReset(false)}

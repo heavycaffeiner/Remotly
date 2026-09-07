@@ -4,11 +4,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
 
-import { getHosts } from '../../lib/hosts';
-import { getTransport } from '../../lib/transport';
-import { hintTarget } from '../../lib/pairing';
 import {
-  DaemonFilesBackend,
   SftpFilesBackend,
   isPlainName,
   viewEntries,
@@ -20,7 +16,6 @@ import {
   type FilesBackend,
 } from '../../lib/files';
 import { sftpBridge } from '../../lib/sftp';
-import { DaemonTransferBackend } from '../../lib/daemonTransfer';
 import { SftpTransferBackend } from '../../lib/sftpTransfer';
 import { openTransferSheet, useTransfers } from './TransferSheet';
 import { filesTabCwd, setFilesTabCwd } from '../../lib/filesTabs';
@@ -75,13 +70,9 @@ import { FileListItem } from './FileListItem';
 import { FilesToolbar } from './FilesToolbar';
 import { entryKey, formatSize, numberedName } from './filePresentation';
 
-// One file browser, two backends: the daemon filesystem (fs.* over the control
-// channel plus resumable transfers) and plain SSH SFTP (browse and metadata).
-// The route param picks the backend; the capability table labels resume and
-// integrity honestly (both are daemon-only). Names are rendered byte-faithful.
+// A file browser over SSH SFTP. Names are rendered byte-faithful.
 
 type Phase = 'init' | 'connecting' | 'hostKey' | 'ready' | 'error';
-type Kind = 'daemon' | 'sftp';
 
 interface HostKeyPrompt {
   algorithm: string;
@@ -109,7 +100,7 @@ interface Prompt {
 }
 
 const PAGE_SIZE = 500;
-// Matches the daemon chunk payload cap (1 MiB minus the 8-byte frame offset).
+// Bytes written per chunk on an upload (1 MiB minus an 8-byte frame offset).
 const UPLOAD_CHUNK = 1024 * 1024 - 8;
 const SFTP_POLL_MS = 150;
 const SFTP_POLL_MAX = 60;
@@ -124,7 +115,6 @@ interface FilesScreenProps {
    */
   embedded?: {
     hostId: string;
-    kind: 'daemon' | 'ssh';
     /** Identifies the tab, so its directory survives a switch away. */
     tabId: string;
   };
@@ -137,12 +127,9 @@ export function FilesScreen({
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<RootStackParamList, 'Files'>>();
   const hostIdParam = embedded?.hostId ?? route.params?.hostId ?? '';
-  const kindParam: 'daemon' | 'ssh' =
-    embedded?.kind ?? route.params?.kind ?? 'daemon';
 
   const [phase, setPhase] = useState<Phase>('init');
   const [backend, setBackend] = useState<FilesBackend | null>(null);
-  const [kind, setKind] = useState<Kind>('daemon');
   const tabId = embedded?.tabId ?? '';
   const [cwd, setCwd] = useState(() => filesTabCwd(tabId));
   const [entries, setEntries] = useState<FileEntry[] | null>(null);
@@ -267,51 +254,6 @@ export function FilesScreen({
 
   // --- backend setup ---
 
-  // Daemon: connect over the transport (direct hints first, network errors
-  // move on), then the control-channel backend plus the transfer engine.
-  async function initDaemon(hostId: string): Promise<void> {
-    setKind('daemon');
-    try {
-      const list = await getHosts().list();
-      const h = list.find(x => x.id === hostId) ?? null;
-      if (h === null) throw new Error('This host is no longer paired.');
-      const t = getTransport();
-      const status = await t.status(hostId);
-      if (status.connected !== true) {
-        let lastError: unknown = null;
-        for (const hint of h.hints) {
-          try {
-            await t.connect(hostId, hintTarget(hint), {
-              daemonPub: h.daemonPub,
-            });
-            lastError = null;
-            break;
-          } catch (e) {
-            lastError = e;
-            if (toRemotlyError(e, 'network').kind !== 'network') throw e;
-          }
-        }
-        if (lastError !== null) throw lastError;
-      }
-      if (disposedRef.current) return;
-      const b = new DaemonFilesBackend(req =>
-        getTransport().control(hostId, req),
-      );
-      backendRef.current = b;
-      xferRef.current = new DaemonTransferBackend(getTransport(), hostId);
-      setBackend(b);
-      setPhase('ready');
-      loadDir(cwdRef.current);
-    } catch (e) {
-      if (disposedRef.current) return;
-      log.error('files daemon connect failed', {
-        message: userFacingMessage(toRemotlyError(e, 'network')),
-      });
-      setError(userFacingMessage(toRemotlyError(e, 'network')));
-      setPhase('error');
-    }
-  }
-
   // Poll the SFTP session to a settled state: READY builds the backend, FAILED
   // errors out, HOST_KEY surfaces the approval prompt.
   async function pollSftp(hostId: string): Promise<void> {
@@ -351,7 +293,6 @@ export function FilesScreen({
   }
 
   async function initSftp(hostId: string): Promise<void> {
-    setKind('sftp');
     try {
       await sftpBridge.connect(hostId);
       await pollSftp(hostId);
@@ -449,7 +390,7 @@ export function FilesScreen({
     }
   }
 
-  // --- transfers (daemon only) ---
+  // --- transfers ---
 
   async function doUpload(
     picked: PickedFile,
@@ -924,7 +865,7 @@ export function FilesScreen({
         return;
       }
       const uri = await createInFolder(folder, name);
-      void doDownload({ uri, name, size: -1 }, path, 0, size);
+      void doDownload({ uri, name, size: -1, mode: 'download' }, path, 0, size);
     } catch (e) {
       setTransfer({
         kind: 'download',
@@ -954,7 +895,7 @@ export function FilesScreen({
     // The document already exists, so it is written in place rather than
     // created again. Opening it truncates, which is the replace.
     void doDownload(
-      { uri: c.existingUri, name: c.name, size: -1 },
+      { uri: c.existingUri, name: c.name, size: -1, mode: 'download' },
       c.remotePath,
       0,
       c.size,
@@ -974,7 +915,7 @@ export function FilesScreen({
         const candidate = await freeNameIn(folder, c.name);
         const uri = await createInFolder(folder, candidate);
         void doDownload(
-          { uri, name: candidate, size: -1 },
+          { uri, name: candidate, size: -1, mode: 'download' },
           c.remotePath,
           0,
           c.size,
@@ -1025,16 +966,15 @@ export function FilesScreen({
     if (hostIdParam === '') {
       setPhase('error');
       setError('No host to open. Open the files browser from a host.');
-    } else if (kindParam === 'ssh') {
-      setPhase('connecting');
-      void initSftp(hostIdParam);
     } else {
       setPhase('connecting');
-      void initDaemon(hostIdParam);
+      void initSftp(hostIdParam);
     }
 
     const unsubs = [
       onPick(f => {
+        // The terminal's image paste shares this event; only answer our own.
+        if (f.mode !== 'upload') return;
         void doUpload(f, 'fail');
       }),
       onSink(f => {
@@ -1060,25 +1000,12 @@ export function FilesScreen({
     return () => {
       disposedRef.current = true;
       unsubs.forEach(u => u());
-      // The transfer backend deliberately survives: transfers run in the
-      // background and the sheet shows them from anywhere in the app. Only the
-      // daemon's own channel bookkeeping is torn down, and only when nothing
-      // is still moving. A daemon download streams its chunks through this
-      // module, so disposing the backend under one stops the file mid-write.
-      const xb = xferRef.current;
-      if (
-        xb instanceof DaemonTransferBackend &&
-        activeTransfers().length === 0
-      ) {
-        xb.dispose();
-        xferRef.current = null;
-      }
       // Only this screen's claim on the transfer is dropped. The transfer
       // itself keeps running and reporting into the app-wide store.
       activeXferRef.current = null;
       // SFTP holds a live connection per host. It is kept open while a
       // transfer is still using it, and closed otherwise.
-      if (kindParam === 'ssh' && activeTransfers().length === 0)
+      if (activeTransfers().length === 0)
         void sftpBridge.close(hostIdParam).catch(() => undefined);
     };
     // The handlers read refs only, so the first-render closures stay valid.
@@ -1158,9 +1085,6 @@ export function FilesScreen({
   const canTransfer = xferRef.current !== null;
   const runningCount = useTransfers().filter(t => t.phase === 'active').length;
   const openTransfers = React.useCallback(() => openTransferSheet(), []);
-  const kindLabel = kind === 'sftp' ? 'SSH SFTP' : 'Daemon';
-  const canResume = backend?.capabilities.transferResume ?? false;
-  const canIntegrity = backend?.capabilities.transferIntegrity ?? false;
 
   const actions: ScreenAction[] = [
     {
@@ -1194,7 +1118,6 @@ export function FilesScreen({
   return (
     <Screen
       title="Files"
-      subtitle={kindLabel}
       bare={embedded !== undefined}
       {...(embedded === undefined ? { onBack: closePage } : {})}
       actions={actions}
@@ -1376,9 +1299,7 @@ export function FilesScreen({
           </Button>
           <Text variant="caption" className="ml-2 flex-shrink">
             {canTransfer
-              ? `Transfers: ${canResume ? 'resume available' : 'no resume'}${
-                  canIntegrity ? ', integrity checked' : ', no integrity check'
-                }`
+              ? 'Transfers: resume available, no integrity check'
               : 'Browsing and metadata only.'}
           </Text>
         </View>
@@ -1527,7 +1448,7 @@ export function FilesScreen({
           ) : (
             <Text variant="muted">
               This cannot be undone. Directories are removed only when empty;
-              the daemon reports a non-empty target as an error.
+              the server reports a non-empty target as an error.
             </Text>
           )}
         </DialogContent>

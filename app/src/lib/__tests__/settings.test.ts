@@ -16,7 +16,6 @@ describe('normalizeSettings', () => {
 
   it('keeps valid values', () => {
     const input = {
-      notifyEnabled: true,
       themeMode: 'dark',
       dynamicColor: false,
       terminalFontSize: 18,
@@ -116,9 +115,6 @@ describe('normalizeSettings', () => {
   });
 
   it('rejects a non-boolean where a boolean is required', () => {
-    expect(normalizeSettings({ notifyEnabled: 'yes' }).notifyEnabled).toBe(
-      false,
-    );
     expect(normalizeSettings({ dynamicColor: 1 }).dynamicColor).toBe(true);
   });
 
@@ -136,7 +132,6 @@ describe('bridge boundary', () => {
     // The stored file survives upgrades and downgrades, so a value that is out
     // of range on the way in is clamped rather than trusted.
     (NativeSettings.get as jest.Mock).mockResolvedValueOnce({
-      notifyEnabled: true,
       themeMode: 'neon',
       terminalFontSize: 999,
       cursorStyle: 'beam',
@@ -145,7 +140,6 @@ describe('bridge boundary', () => {
     expect(out.themeMode).toBe('system');
     expect(out.cursorStyle).toBe('block');
     expect(out.terminalFontSize).toBe(MAX_FONT_SIZE);
-    expect(out.notifyEnabled).toBe(true);
   });
 
   it('normalizes before writing', async () => {

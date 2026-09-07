@@ -1,7 +1,6 @@
 import { describe, it, expect } from '@jest/globals';
-import type { FileEntry, ControlFn, SftpBridge, SftpRawEntry } from '../files';
+import type { FileEntry, SftpBridge, SftpRawEntry } from '../files';
 import {
-  DaemonFilesBackend,
   SftpFilesBackend,
   sortEntries,
   baseName,
@@ -9,7 +8,6 @@ import {
   parentPath,
   joinPath,
   parseBreadcrumbs,
-  DAEMON_CAPABILITIES,
   SFTP_CAPABILITIES,
 } from '../files';
 
@@ -132,12 +130,6 @@ describe('path helpers', () => {
 });
 
 describe('capability tables', () => {
-  it('daemon proves resume and integrity', () => {
-    expect(DAEMON_CAPABILITIES.transferResume).toBe(true);
-    expect(DAEMON_CAPABILITIES.transferIntegrity).toBe(true);
-    expect(DAEMON_CAPABILITIES.remove).toBe(true);
-  });
-
   /**
    * SFTP resumes but cannot prove integrity. An upload reopens the remote file
    * and appends; a download seeks past what is already on disk. There is no
@@ -148,131 +140,6 @@ describe('capability tables', () => {
     expect(SFTP_CAPABILITIES.transferResume).toBe(true);
     expect(SFTP_CAPABILITIES.transferIntegrity).toBe(false);
     expect(SFTP_CAPABILITIES.list).toBe(true);
-  });
-});
-
-describe('DaemonFilesBackend', () => {
-  function mockControl(
-    handler: (req: Record<string, unknown>) => Record<string, unknown>,
-  ): ControlFn {
-    return async req => handler(req);
-  }
-
-  it('lists and sorts, honoring more/total', async () => {
-    const backend = new DaemonFilesBackend(
-      mockControl(req => {
-        expect(req.type).toBe('fs.list');
-        return {
-          id: 1,
-          type: 'fs.list',
-          entries: [
-            {
-              name: 'z.txt',
-              is_dir: false,
-              is_symlink: false,
-              size: 1,
-              mod_time: 0,
-              perm: 0,
-            },
-            {
-              name: 'adir',
-              is_dir: true,
-              is_symlink: false,
-              size: 0,
-              mod_time: 0,
-              perm: 0,
-            },
-            {
-              name: 'a.txt',
-              is_dir: false,
-              is_symlink: false,
-              size: 2,
-              mod_time: 0,
-              perm: 0,
-            },
-          ],
-          more: true,
-          total: 250,
-        };
-      }),
-    );
-    const res = await backend.list('/x', 0, 100);
-    expect(res.entries.map(e => e.name)).toEqual(['adir', 'a.txt', 'z.txt']);
-    expect(res.more).toBe(true);
-    expect(res.total).toBe(250);
-  });
-
-  it('maps daemon error codes to FilesError', async () => {
-    const backend = new DaemonFilesBackend(
-      mockControl(() => ({
-        id: 2,
-        type: 'fs.stat',
-        error: {
-          code: 'fs_not_found',
-          message: 'fs: no such file or directory',
-        },
-      })),
-    );
-    await expect(backend.stat('/nope')).rejects.toMatchObject({
-      code: 'fs_not_found',
-      name: 'FilesError',
-    });
-  });
-
-  it('stat returns a typed entry including link target', async () => {
-    const backend = new DaemonFilesBackend(
-      mockControl(() => ({
-        id: 3,
-        type: 'fs.stat',
-        entry: {
-          name: 'lnk',
-          is_dir: false,
-          is_symlink: true,
-          size: 0,
-          mod_time: 1712345678,
-          perm: 23552,
-          link_target: '/real/target',
-        },
-      })),
-    );
-    const e = await backend.stat('/lnk');
-    expect(e.isSymlink).toBe(true);
-    expect(e.linkTarget).toBe('/real/target');
-    expect(e.mtime).toBe(1712345678);
-  });
-
-  it('sends the right fs.* request for each mutation', async () => {
-    const seen: string[] = [];
-    const backend = new DaemonFilesBackend(
-      mockControl(req => {
-        seen.push(req.type as string);
-        return { id: 1, type: req.type };
-      }),
-    );
-    await backend.roots();
-    await backend.mkdir('/new');
-    await backend.rename('/a', '/b');
-    await backend.remove('/f', 'file');
-    expect(seen).toEqual(['fs.roots', 'fs.mkdir', 'fs.rename', 'fs.remove']);
-  });
-
-  it('remove_kind is dir for directory removal', async () => {
-    let kind = '';
-    const backend = new DaemonFilesBackend(
-      mockControl(req => {
-        kind = req.remove_kind as string;
-        return { id: 1, type: 'fs.remove' };
-      }),
-    );
-    await backend.remove('/d', 'dir');
-    expect(kind).toBe('dir');
-  });
-
-  it('roots returns the reported roots', async () => {
-    const backend = new DaemonFilesBackend(
-      mockControl(() => ({ id: 1, type: 'fs.roots', roots: ['/'] })),
-    );
-    expect(await backend.roots()).toEqual(['/']);
   });
 });
 
@@ -314,6 +181,7 @@ describe('SftpFilesBackend', () => {
         calls.push(`stat:${path}`);
         return sftpEntry(path, true);
       },
+      realPath: async (_h, path) => path,
       mkdir: async (_h, path) => {
         calls.push(`mkdir:${path}`);
       },
@@ -337,7 +205,6 @@ describe('SftpFilesBackend', () => {
       sftpEntry('a.txt', false, 5, 2500),
     ]);
     const backend = new SftpFilesBackend('host-1', bridge);
-    expect(backend.kind).toBe('sftp');
     expect(backend.capabilities.transferResume).toBe(true);
     expect(backend.capabilities.transferIntegrity).toBe(false);
     const res = await backend.list('/');
@@ -390,6 +257,7 @@ describe('SftpFilesBackend', () => {
         throw new Error('no such file');
       },
       stat: async () => ({} as SftpRawEntry),
+      realPath: async (_h, path) => path,
       mkdir: async () => {},
       rename: async () => {},
       remove: async () => {},

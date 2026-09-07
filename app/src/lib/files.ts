@@ -1,10 +1,4 @@
-// Backend-agnostic file browser model for the Remotly files browser (M4-06).
-//
-// One logical contract over two backends: the daemon filesystem (fs.* control
-// plus resumable transfers) and SSH SFTP (via the SshBridge). The model keeps
-// backend capability differences explicit rather than pretending they are
-// identical: the daemon proves offset resume and whole-file integrity, while
-// SSH SFTP offers only a from-start retry and no whole-file hash.
+// File browser model for the Remotly SFTP browser.
 //
 // Names are treated as untrusted, byte-faithful identifiers. Nothing here
 // normalizes NFC/NFD, folds case, or derives a local path from a remote name.
@@ -42,29 +36,19 @@ export interface FilesCapabilities {
   remove: boolean;
   upload: boolean;
   download: boolean;
-  /** Offset resume for an interrupted transfer. Daemon: proven. SSH: not
-   *  proven by the library and server, so false. */
+  /** Offset resume for an interrupted transfer. SFTP: implemented by
+   *  reopening and appending or seeking, but not proven by the protocol. */
   transferResume: boolean;
-  /** Whole-file integrity check on completion. Daemon: SHA-256. SSH SFTP:
-   *  no whole-file hash, so false. */
+  /** Whole-file integrity check on completion. SFTP carries no whole-file
+   *  hash, so this is always false. */
   transferIntegrity: boolean;
 }
 
-/** Daemon proves both resume and integrity; every metadata op is available. */
-export const DAEMON_CAPABILITIES: FilesCapabilities = {
-  list: true,
-  stat: true,
-  mkdir: true,
-  rename: true,
-  remove: true,
-  upload: true,
-  download: true,
-  transferResume: true,
-  transferIntegrity: true,
-};
-
-/** SSH SFTP exposes metadata and chunked transfer, but not proven offset
- *  resume or a whole-file hash. The UI must label SSH resume accordingly. */
+/** SFTP exposes metadata and chunked transfer. Resume is implemented: an
+ *  upload reopens the remote file and appends, and a download seeks past
+ *  what is already on disk. Integrity is not, and cannot be: the SFTP
+ *  protocol carries no whole-file hash, so proving one would mean
+ *  transferring the file a second time to read it back. */
 export const SFTP_CAPABILITIES: FilesCapabilities = {
   list: true,
   stat: true,
@@ -73,10 +57,6 @@ export const SFTP_CAPABILITIES: FilesCapabilities = {
   remove: true,
   upload: true,
   download: true,
-  // Resume is implemented: an upload reopens the remote file and appends,
-  // and a download seeks past what is already on disk. Integrity is not, and
-  // cannot be: the SFTP protocol carries no whole-file hash, so proving one
-  // would mean transferring the file a second time to read it back.
   transferResume: true,
   transferIntegrity: false,
 };
@@ -94,10 +74,8 @@ export class FilesError extends Error {
   }
 }
 
-/** The logical browser contract. Both backends implement it; the capability
- *  table records where the guarantees differ. */
+/** The logical browser contract, implemented over SSH SFTP. */
 export interface FilesBackend {
-  readonly kind: 'daemon' | 'sftp';
   readonly capabilities: FilesCapabilities;
   roots(): Promise<string[]>;
   list(path: string, offset?: number, limit?: number): Promise<ListResult>;
@@ -110,10 +88,9 @@ export interface FilesBackend {
 // --- deterministic, normalization-free display sorting ---------------------
 
 // UTF-8 byte-wise comparison of two raw names. It is locale-independent and
-// matches the daemon's own listing order (os.ReadDir sorts by byte name), so
-// the client and server agree. It deliberately does not use localeCompare or
-// any normalized form, so NFC and NFD spellings sort by their real bytes and
-// remain distinct.
+// deterministic across platforms. It deliberately does not use localeCompare
+// or any normalized form, so NFC and NFD spellings sort by their real bytes
+// and remain distinct.
 function compareNames(a: string, b: string): number {
   const ab = utf8(a);
   const bb = utf8(b);
@@ -162,7 +139,7 @@ function utf8(s: string): Uint8Array {
 }
 /* eslint-enable no-bitwise */
 
-/** How a listing is ordered. Applies to both backends. */
+/** How a listing is ordered. */
 export type SortKey = 'name' | 'size' | 'mtime' | 'kind';
 export type SortDirection = 'asc' | 'desc';
 
@@ -382,49 +359,11 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// --- daemon backend --------------------------------------------------------
-
-// A minimal control channel: send one control request, get the parsed
-// response back. The transport's control() fits this shape. The daemon answers
-// errors as { id, type, error: { code, message } }.
-export type ControlFn = (
-  request: Record<string, unknown>,
-) => Promise<Record<string, unknown>>;
-
 const FS_MAX_PAGE = 500;
-
-// Maps a daemon filesystem error code to a FilesError. Unknown codes pass
-// through so the UI can still show a typed (if generic) error.
-function fsError(code: string, message: string): FilesError {
-  return new FilesError(code, message);
-}
-
-function checkError(resp: Record<string, unknown>): void {
-  const err = resp.error as { code?: string; message?: string } | undefined;
-  if (err && typeof err.code === 'string') {
-    throw fsError(err.code, err.message ?? err.code);
-  }
-}
-
-function toEntry(raw: Record<string, unknown>): FileEntry {
-  return {
-    name: typeof raw.name === 'string' ? raw.name : '',
-    isDir: raw.is_dir === true,
-    isSymlink: raw.is_symlink === true,
-    size: typeof raw.size === 'number' ? raw.size : 0,
-    mtime: typeof raw.mod_time === 'number' ? raw.mod_time : 0,
-    perm: typeof raw.perm === 'number' ? raw.perm : 0,
-    linkTarget:
-      typeof raw.link_target === 'string' && raw.link_target !== ''
-        ? raw.link_target
-        : undefined,
-  };
-}
 
 // --- SFTP backend ----------------------------------------------------------
 
-// One SFTP entry as the native bridge serializes it (GSON of SftpEntry). Field
-// names differ from the daemon wire shape, so this maps to FileEntry separately.
+// One SFTP entry as the native bridge serializes it (GSON of SftpEntry).
 export interface SftpRawEntry {
   name: string;
   isDirectory: boolean;
@@ -457,6 +396,10 @@ export interface SftpBridge {
   hostKey(hostId: string, accept: boolean): Promise<void>;
   list(hostId: string, path: string): Promise<SftpRawEntry[]>;
   stat(hostId: string, path: string): Promise<SftpRawEntry>;
+  /** Resolves a path to an absolute one on the server. Resolving "." gives
+   *  the SFTP start directory, which is the user's home on OpenSSH whatever
+   *  the server runs. */
+  realPath(hostId: string, path: string): Promise<string>;
   mkdir(hostId: string, path: string): Promise<void>;
   rename(hostId: string, from: string, to: string): Promise<void>;
   remove(hostId: string, path: string, isDir: boolean): Promise<void>;
@@ -483,7 +426,6 @@ function sftpToEntry(raw: SftpRawEntry): FileEntry {
 // session is not ready or the server rejects the operation. Listing is
 // client-side paginated because SFTP readDir returns the whole directory.
 export class SftpFilesBackend implements FilesBackend {
-  readonly kind = 'sftp' as const;
   readonly capabilities = SFTP_CAPABILITIES;
   constructor(private hostId: string, private bridge: SftpBridge) {}
 
@@ -553,18 +495,16 @@ export interface TransferStatus {
   error?: string;
 }
 
-// The resumable-transfer contract. The daemon implements offset resume and a
-// whole-file SHA-256 (via a file channel); SSH SFTP implements a from-start
-// retry with no whole-file hash. The UI reads capabilities to offer resume only
-// where the backend proves it.
+// The resumable-transfer contract. SFTP implements a from-start retry with
+// no whole-file hash. The UI reads capabilities to offer resume only where
+// the backend proves it.
 //
 // Uploads are app-driven: the caller writes chunks in order and completes.
-// Downloads are push-driven: the backend (the daemon pumps over the file
-// channel) delivers chunks to onChunk and settles with onDone or onError. The
-// caller decides the sink (for example a content URI); this contract only moves
-// bytes, so it is testable without a device.
+// Downloads are push-driven: the backend delivers chunks to onChunk and
+// settles with onDone or onError. The caller decides the sink (for example a
+// content URI); this contract only moves bytes, so it is testable without a
+// device.
 export interface TransferBackend {
-  readonly kind: 'daemon' | 'sftp';
   readonly capabilities: FilesCapabilities;
   startUpload(
     path: string,
@@ -608,67 +548,4 @@ export interface TransferBackend {
   ): Promise<TransferHandle>;
   status(id: string): Promise<TransferStatus>;
   cancel(id: string): Promise<void>;
-}
-
-/** The daemon filesystem backend, driven entirely by fs.* control requests.
- *  Transfers are a separate concern (file channel) and are not modeled here. */
-export class DaemonFilesBackend implements FilesBackend {
-  readonly kind = 'daemon' as const;
-  readonly capabilities = DAEMON_CAPABILITIES;
-  private control: ControlFn;
-
-  constructor(control: ControlFn) {
-    this.control = control;
-  }
-
-  async roots(): Promise<string[]> {
-    const resp = await this.control({ type: 'fs.roots' });
-    checkError(resp);
-    const roots = resp.roots;
-    return Array.isArray(roots) ? (roots as string[]) : [];
-  }
-
-  async list(
-    path: string,
-    offset = 0,
-    limit = FS_MAX_PAGE,
-  ): Promise<ListResult> {
-    const resp = await this.control({
-      type: 'fs.list',
-      path,
-      offset,
-      limit: Math.max(1, Math.min(limit, FS_MAX_PAGE)),
-    });
-    checkError(resp);
-    const raw = Array.isArray(resp.entries)
-      ? (resp.entries as Record<string, unknown>[])
-      : [];
-    return {
-      entries: sortEntries(raw.map(toEntry)),
-      more: resp.more === true,
-      total: typeof resp.total === 'number' ? resp.total : raw.length,
-    };
-  }
-
-  async stat(path: string): Promise<FileEntry> {
-    const resp = await this.control({ type: 'fs.stat', path });
-    checkError(resp);
-    const e = resp.entry as Record<string, unknown> | undefined;
-    if (!e) throw fsError('fs_invalid_path', 'stat returned no entry');
-    return toEntry(e);
-  }
-
-  async mkdir(path: string): Promise<void> {
-    checkError(await this.control({ type: 'fs.mkdir', path }));
-  }
-
-  async rename(from: string, to: string): Promise<void> {
-    checkError(await this.control({ type: 'fs.rename', from, to }));
-  }
-
-  async remove(path: string, kind: RemoveKind): Promise<void> {
-    checkError(
-      await this.control({ type: 'fs.remove', path, remove_kind: kind }),
-    );
-  }
 }

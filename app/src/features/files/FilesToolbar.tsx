@@ -1,8 +1,7 @@
 // Search, hidden-file toggle, and sort order for the file browser.
 //
-// The controls are backend-agnostic: they act on the listing the browser
-// already holds, so the daemon and SSH behave identically and neither backend
-// needs a server-side filter.
+// The controls act on the listing the browser already holds, so no server-side
+// filter is needed.
 
 import React, { useCallback } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
