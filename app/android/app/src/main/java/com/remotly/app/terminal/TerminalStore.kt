@@ -191,8 +191,20 @@ object TerminalStore {
             // A session whose view has never mounted still produces output. It
             // is given a terminal here rather than left to a queue that grows
             // for as long as the tab stays unopened.
+            //
+            // The size a bound view is already running at wins over the one the
+            // caller passed. The caller's is the host's last measured viewport,
+            // which is a placeholder until the first real measurement, and a
+            // terminal created at the wrong size is reflowed the moment a view
+            // adopts it. Reflow moves rows between the active area and the
+            // scrollback, so that cost the session its history, and whether it
+            // happened at all came down to whether output arrived before the
+            // first measurement.
+            val bound = renderers[sessionId]
+            val useCols = bound?.gridCols?.takeIf { it > 0 } ?: cols
+            val useRows = bound?.gridRows?.takeIf { it > 0 } ?: rows
             val handle = synchronized(lock) { handles[sessionId] }
-                ?: create(sessionId, cols, rows)
+                ?: create(sessionId, useCols, useRows)
             if (handle == 0L) {
                 onDone(false)
                 return@onMain

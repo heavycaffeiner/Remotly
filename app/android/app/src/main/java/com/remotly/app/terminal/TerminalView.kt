@@ -335,6 +335,15 @@ class TerminalView @JvmOverloads constructor(
   private var cols = 0
   private var rows = 0
 
+  /**
+   * The grid this view measured, for the store to create a terminal at.
+   *
+   * Zero until the first measurement. A terminal created at any other size is
+   * reflowed when a view adopts it, which costs the session its scrollback.
+   */
+  val gridCols: Int get() = cols
+  val gridRows: Int get() = rows
+
   init {
     setBackgroundColor(Color.BLACK)
     isFocusable = true
@@ -559,10 +568,16 @@ class TerminalView @JvmOverloads constructor(
         }
       }
       MotionEvent.ACTION_UP -> {
-        // A touch that never scrolled is a click, and this is the first point
-        // at which that is known. Sending the press on ACTION_DOWN instead
-        // made every scroll start with a click.
-        if (mouseTracking && !scrollTracker.isScrolling && !selecting) {
+        // A touch that never moved is a click, and this is the first point at
+        // which that is known. Sending the press on ACTION_DOWN instead made
+        // every scroll start with a click.
+        //
+        // The test is the tap detector, not the scroll tracker: the tracker
+        // only sees vertical travel, so a horizontal drag left it reporting
+        // "not scrolling" and every swipe to change tabs ended as a click.
+        // That is what wrote 0;32;29M and its release into the session, where
+        // a shell with no mouse tracking printed them as text.
+        if (mouseTracking && tapDetector.isCandidate && !selecting) {
           mouseTracking = false
           if (sendMouse(MOUSE_PRESS, MOUSE_BUTTON_LEFT, event.x, event.y)) {
             sendMouse(MOUSE_RELEASE, MOUSE_BUTTON_LEFT, event.x, event.y)
@@ -1103,11 +1118,11 @@ class TerminalView @JvmOverloads constructor(
     TerminalStore.bindRenderer(sessionId, this)
     appliedCols = cols
     appliedRows = rows
-    // Only when the terminal is not already at this size. Resizing reflows the
-    // screen, and reflowing one that holds a full-screen application moves
-    // rows between the active area and the scrollback: a tab adopted back at
-    // the size it already had lost history it did not need to lose, and the
-    // next real resize was what appeared to bring it back.
+    // Only when the terminal is not already at this size. A resize reflows the
+    // screen, and reflowing one that holds a full-screen application moves rows
+    // between the active area and the scrollback, so a needless one costs the
+    // session its history. An adopted terminal is usually already right,
+    // because the store now creates it at the size the bound view measured.
     if (RemotlyTerminal.nativeCols(h) != cols ||
       RemotlyTerminal.nativeRows(h) != rows
     ) {
