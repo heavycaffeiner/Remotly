@@ -1,7 +1,9 @@
 // The terminal's compact top bar.
 //
 // Deliberately shorter than a screen app bar: every dp here is a terminal row
-// the user does not get.
+// the user does not get. The title and the subtitle share one line for the
+// same reason, since stacking them costs a row and the subtitle is reference
+// information rather than something read continuously.
 
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
@@ -56,14 +58,18 @@ export function TerminalToolbar({
       style={{ paddingTop: insets.top }}
       className="border-b border-border bg-card"
     >
-      <View className="h-12 flex-row items-center px-1">
+      <View className="h-10 flex-row items-center px-1">
         <IconButton icon="arrow-left" label="Go back" onPress={onBack} />
-        <View className="flex-1">
-          <Text className="text-base font-medium" numberOfLines={1}>
+        <View className="flex-1 flex-row items-baseline gap-2">
+          <Text className="shrink text-sm font-medium" numberOfLines={1}>
             {title}
           </Text>
           {subtitle === undefined ? null : (
-            <Text variant="caption" numberOfLines={1}>
+            <Text
+              variant="caption"
+              numberOfLines={1}
+              className="shrink text-xs"
+            >
               {subtitle}
             </Text>
           )}

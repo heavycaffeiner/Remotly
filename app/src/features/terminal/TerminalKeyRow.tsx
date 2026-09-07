@@ -11,6 +11,7 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import { Pressable, ScrollView, Vibration, View } from 'react-native';
 import { cn } from '../../lib/utils';
+import { IconButton } from '../../components/Screen';
 import { Icon, type IconName } from '../../components/ui/icon';
 import { Text } from '../../components/ui/text';
 import { KeyRepeater } from './keyRepeat';
@@ -70,6 +71,8 @@ interface TerminalKeyRowProps {
   repeatDelayMs: number;
   /** Vibrate on each key. */
   haptics: boolean;
+  /** Opens the keyboard. Pinned beside the scrolling keys. */
+  onKeyboard: () => void;
 }
 
 export function TerminalKeyRow({
@@ -78,6 +81,7 @@ export function TerminalKeyRow({
   activeModifier,
   repeatDelayMs,
   haptics,
+  onKeyboard,
 }: TerminalKeyRowProps): React.ReactElement {
   // One repeater for the whole row. A per-key repeater cannot enforce that
   // only one key is held: a finger sliding from one key to the next, or the
@@ -146,13 +150,16 @@ export function TerminalKeyRow({
   }, []);
 
   return (
-    <View className="border-t border-border bg-card">
+    <View className="flex-row items-center border-t border-border bg-card">
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
         keyboardShouldPersistTaps="always"
         contentContainerStyle={{ paddingHorizontal: 8, gap: 6 }}
-        className="py-1.5"
+        // flex-1 bounds the strip to the space left beside the pinned button.
+        // Without it the row sizes to its content and pushes the button off
+        // the edge once there are enough keys to overflow.
+        className="flex-1 py-1.5"
         onScrollBeginDrag={beginScroll}
         onScrollEndDrag={endScroll}
         onMomentumScrollEnd={endScroll}
@@ -168,6 +175,16 @@ export function TerminalKeyRow({
           />
         ))}
       </ScrollView>
+      {/* Outside the ScrollView so it holds one position: the keyboard is
+          wanted most when the row has been scrolled away from its start, which
+          is exactly when a key inside the strip would be off screen. */}
+      <View className="border-l border-border px-1">
+        <IconButton
+          icon="keyboard"
+          label="Show the keyboard"
+          onPress={onKeyboard}
+        />
+      </View>
     </View>
   );
 }

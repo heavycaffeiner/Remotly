@@ -12,7 +12,7 @@ export interface FocusPolicy {
   onReady(): boolean;
   /** A tap or toolbar action. Always focuses. */
   requestFocus(): boolean;
-  /** A daemon tab switch. */
+  /** A tab switch. */
   onSessionSwitch(): boolean;
   onKeyboardShown(): void;
   onKeyboardHidden(): void;

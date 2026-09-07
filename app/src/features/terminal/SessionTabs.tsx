@@ -1,6 +1,6 @@
-// The terminal session tab strip, shared by daemon workspaces and SSH hosts.
+// The terminal session tab strip.
 //
-// One strip for both: a tab is a tab, and the caller supplies the list and the
+// A tab is a tab, and the caller supplies the list and the
 // handlers. Selection is exposed through accessibilityState and the close
 // action names its tab, so a screen reader user is never asked to close "tab".
 
@@ -67,10 +67,7 @@ interface SessionTabsProps {
     icon: IconName;
     onPress: () => void;
   }[];
-  /**
-   * Renames a tab. The daemon workspace sends the new name to the daemon,
-   * which owns it; the SSH strip keeps it locally.
-   */
+  /** Renames a tab. The name is kept locally. */
   onRename?: (sessionId: string, title: string) => void;
   /**
    * Opens the rename dialog for the active tab when this changes.
