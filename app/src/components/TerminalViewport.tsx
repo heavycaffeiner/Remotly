@@ -2,9 +2,9 @@
 //
 // RN-06: this renders the Fabric `RemotlyTerminalView` (SimpleViewManager over the
 // existing TerminalView, libghostty-vt). The prop surface and the imperative
-// handle are the app half of the terminal module boundary: the transport calls
-// `write` with session output and consumes `onInput`/`onPtyWrite` to drive a
-// session.
+// handle are the app half of the terminal module boundary: the owning screen
+// calls `write` with session output and consumes `onInput`/`onPtyWrite` to
+// drive a session.
 //
 // No terminal emulation, I/O, or security behavior happens in this module. The
 // native component is the only thing that touches a pty or a transport. Raw
@@ -52,6 +52,14 @@ export interface TerminalViewportHandle {
   clearSelection(): Promise<void>;
   /** Drops an open IME preedit without sending it. */
   clearComposition(): Promise<void>;
+  /**
+   * Sends pasted text as a paste rather than as typed input.
+   *
+   * The native side wraps it for bracketed paste when the running application
+   * asked for it, so a multi-line block arrives as one insertion instead of a
+   * line-by-line run of Enter keys.
+   */
+  pasteText(text: string): Promise<void>;
   /** Resizes the terminal to the size the remote pty has been told. */
   applyRemoteSize(cols: number, rows: number): Promise<void>;
 }
@@ -138,15 +146,25 @@ export const TerminalViewport = forwardRef<
     [onError],
   );
 
+  // Input and pty writes carry the session they were produced for. Delivery is
+  // asynchronous, so bytes encoded just before a tab switch can arrive after
+  // it; routing those by whichever tab is now active wrote one session's wheel
+  // reports into another's pty, where they showed up as literal text.
+  //
+  // Only a tag naming a different session drops the bytes. An absent or empty
+  // tag is the untagged case (a view with no sessionId of its own), and
+  // treating that as a mismatch would silently discard everything it produced.
   const handleInput = useCallback(
-    (e: { nativeEvent: { data: string } }) => {
+    (e: { nativeEvent: { data: string; sessionId?: string } }) => {
+      const from = e.nativeEvent.sessionId ?? '';
+      if (from !== '' && from !== (sessionId ?? '')) return;
       try {
         onInput?.(decodeBase64(e.nativeEvent.data));
       } catch (err) {
         console.warn('failed to decode terminal input', err);
       }
     },
-    [onInput],
+    [onInput, sessionId],
   );
 
   const handleResize = useCallback(
@@ -168,14 +186,16 @@ export const TerminalViewport = forwardRef<
   );
 
   const handlePtyWrite = useCallback(
-    (e: { nativeEvent: { data: string } }) => {
+    (e: { nativeEvent: { data: string; sessionId?: string } }) => {
+      const from = e.nativeEvent.sessionId ?? '';
+      if (from !== '' && from !== (sessionId ?? '')) return;
       try {
         onPtyWrite?.(decodeBase64(e.nativeEvent.data));
       } catch (err) {
         console.warn('failed to decode terminal pty output', err);
       }
     },
-    [onPtyWrite],
+    [onPtyWrite, sessionId],
   );
 
   const handleFocusChange = useCallback(
@@ -272,6 +292,11 @@ export const TerminalViewport = forwardRef<
           const node = el();
           if (node == null) throw new Error('terminal is not attached');
           Commands.clearComposition(node);
+        },
+        async pasteText(text: string) {
+          const node = el();
+          if (node == null) throw new Error('terminal is not attached');
+          Commands.pasteText(node, text);
         },
         async applyRemoteSize(cols: number, rows: number) {
           const node = el();

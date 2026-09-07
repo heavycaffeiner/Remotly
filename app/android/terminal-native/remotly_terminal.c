@@ -3,10 +3,10 @@
 // API that the Kotlin layer drives from the main thread.
 //
 // Data flow:
-//   output (daemon -> app): nativeWrite() feeds bytes into the terminal.
-//   input  (app -> daemon): nativeSendText()/nativeSendKey() encode input and
-//     report it to the app via the listener's onInput(); the app forwards it
-//     to the daemon, which writes the PTY.
+//   output (session -> app): nativeWrite() feeds bytes into the terminal.
+//   input  (app -> session): nativeSendText()/nativeSendKey()/nativePasteText()
+//     encode input and report it to the app via the listener's onInput(); the
+//     app forwards it to the SSH session, which writes the PTY.
 //   effects: bell / title / terminal-initiated PTY writes are delivered to the
 //     listener via onBell() / onTitle() / onPtyWrite().
 //
@@ -385,6 +385,82 @@ Java_com_remotly_app_terminal_RemotlyTerminal_nativeSendText(JNIEnv *env,
   ghostty_key_encoder_setopt_from_terminal(st->encoder, st->terminal);
   encode_text_as_keys(st, utf8, len);
   free(utf8);
+}
+
+// Pasted text, encoded the way the running application expects to receive it.
+//
+// Bracketed paste is the part that matters. With mode 2004 set, a shell or an
+// editor reads the wrapped block as one literal insertion; without the
+// wrapper, every newline in the block is an Enter, so a multi-line paste runs
+// each line as a command and an editor applies autoindent to all of them.
+// ghostty_paste_encode also strips control bytes that could smuggle an escape
+// sequence through a paste, and rewrites newlines as carriage returns when the
+// application did not ask for bracketing.
+//
+// This deliberately bypasses the key encoder: a paste is a block of text, not
+// a run of keystrokes, and encoding it per codepoint is what produced the
+// broken multi-line result.
+JNIEXPORT void JNICALL
+Java_com_remotly_app_terminal_RemotlyTerminal_nativePasteText(JNIEnv *env,
+                                                              jclass,
+                                                              jlong handle,
+                                                              jstring text) {
+  RemotlyTerm *st = from_handle(handle);
+  if (!st || !text) return;
+  size_t len = 0;
+  uint8_t *utf8 = jstring_to_utf8(env, text, &len);
+  if (!utf8 || len == 0) {
+    free(utf8);
+    return;
+  }
+
+  GhosttyTerminalModeConfig bracketed = {0};
+  bracketed.mode = GHOSTTY_MODE_BRACKETED_PASTE;
+  bracketed.value = false;
+  ghostty_terminal_get(st->terminal, GHOSTTY_TERMINAL_DATA_MODE, &bracketed);
+
+  // The encoder needs room for the bracketing sequences on top of the data. It
+  // reports the required size rather than truncating, so a short buffer is
+  // retried at the size it asks for instead of guessing again.
+  size_t cap = len + 16;
+  char *out = malloc(cap);
+  if (!out) {
+    free(utf8);
+    return;
+  }
+  size_t written = 0;
+  GhosttyResult r = ghostty_paste_encode((char *)utf8, len, bracketed.value,
+                                         out, cap, &written);
+  if (r == GHOSTTY_OUT_OF_SPACE && written > 0) {
+    char *grown = realloc(out, written);
+    if (!grown) {
+      free(out);
+      free(utf8);
+      return;
+    }
+    out = grown;
+    cap = written;
+    // The first call modifies data in place, so the retry re-reads the buffer
+    // it already normalized. That is idempotent: stripping runs again over
+    // bytes that carry nothing left to strip.
+    r = ghostty_paste_encode((char *)utf8, len, bracketed.value, out, cap,
+                             &written);
+  }
+  free(utf8);
+
+  if (r != GHOSTTY_SUCCESS || written == 0) {
+    free(out);
+    return;
+  }
+
+  uint8_t *delivered = malloc(written);
+  if (!delivered) {
+    free(out);
+    return;
+  }
+  memcpy(delivered, out, written);
+  free(out);
+  deliver_bytes(st, st->onInput, delivered, written);
 }
 
 // Encodes a run of committed UTF-8 as individual key presses.
@@ -808,15 +884,53 @@ Java_com_remotly_app_terminal_RemotlyTerminal_nativeGetFrame(JNIEnv *env,
   uint8_t *buf = (*env)->GetDirectBufferAddress(env, dst);
   jlong dst_cap = (*env)->GetDirectBufferCapacity(env, dst);
   if (!buf || dst_cap <= 0) return 0;
+  // Size the frame before updating. Updating consumes the terminal's dirty
+  // state, so a capacity miss that returned after it would spend that state on
+  // a frame the caller never receives; the retry would then update again and
+  // find nothing dirty left. The grid is read from the terminal here for that
+  // reason, and the render state is only updated once the buffer is known to
+  // be big enough to hold the result.
+  uint16_t cols = 0, rows = 0;
+  ghostty_terminal_get(st->terminal, GHOSTTY_TERMINAL_DATA_COLS, &cols);
+  ghostty_terminal_get(st->terminal, GHOSTTY_TERMINAL_DATA_ROWS, &rows);
+  if (cols == 0 || rows == 0) return 0;
+  if ((size_t)cols * rows > REMOTLY_MAX_CELLS) return 0;
+  // A frame costs 9 fixed bytes plus up to 64 of UTF-8 per cell.
+  size_t cell_cap = 9 + 64;
+  size_t cap = 16 + (size_t)cols * rows * cell_cap;
+  if (cap > (size_t)dst_cap) return -(jint)cap;
+
   if (ghostty_render_state_update(st->render_state, st->terminal) !=
       GHOSTTY_SUCCESS)
     return 0;
 
-  uint16_t cols = 0, rows = 0;
+  // Re-read from the render state: the rows below are iterated from it, and
+  // its grid is the one they belong to. The two normally agree, since the
+  // update was taken from this same terminal a moment ago.
+  //
+  // A disagreement cannot ask the caller for a bigger buffer: the update has
+  // already consumed the terminal's dirty state, so a retry would update again
+  // and find nothing dirty. Serializing a grid larger than the buffer is not
+  // an option either. The frame is dropped instead, which leaves the last good
+  // screen on display, and the state is cleaned so the next draw starts from a
+  // consistent point rather than inheriting half-consumed flags.
+  uint16_t state_cols = 0, state_rows = 0;
   ghostty_render_state_get(st->render_state, GHOSTTY_RENDER_STATE_DATA_COLS,
-                           &cols);
+                           &state_cols);
   ghostty_render_state_get(st->render_state, GHOSTTY_RENDER_STATE_DATA_ROWS,
-                           &rows);
+                           &state_rows);
+  if (state_cols == 0 || state_rows == 0) {
+    ghostty_render_state_clean(st->render_state);
+    return 0;
+  }
+  if ((size_t)state_cols * state_rows > REMOTLY_MAX_CELLS ||
+      16 + (size_t)state_cols * state_rows * cell_cap > (size_t)dst_cap) {
+    ghostty_render_state_clean(st->render_state);
+    return 0;
+  }
+  cols = state_cols;
+  rows = state_rows;
+  cap = 16 + (size_t)cols * rows * cell_cap;
 
   GhosttyRenderStateColors pal = GHOSTTY_INIT_SIZED(GhosttyRenderStateColors);
   ghostty_render_state_get(st->render_state, GHOSTTY_RENDER_STATE_DATA_COLORS,
@@ -832,13 +946,6 @@ Java_com_remotly_app_terminal_RemotlyTerminal_nativeGetFrame(JNIEnv *env,
                            GHOSTTY_RENDER_STATE_DATA_CURSOR_VISIBLE,
                            &cursor_visible);
 
-  // A frame costs 73 bytes per cell. Refuse absurd grids instead of asking for
-  // a gigabyte of buffer on every draw.
-  if (cols == 0 || rows == 0) return 0;
-  if ((size_t)cols * rows > REMOTLY_MAX_CELLS) return 0;
-  size_t cell_cap = 9 + 64;  // fixed 9 bytes + up to 64 utf8 bytes
-  size_t cap = 16 + (size_t)cols * rows * cell_cap;
-  if (cap > (size_t)dst_cap) return -(jint)cap;
   size_t o = 0;
   #define PUT8(v)  do { if (o + 1 <= cap) buf[o++] = (uint8_t)(v); } while (0)
   #define PUT16(v)                                                              \
@@ -971,6 +1078,11 @@ Java_com_remotly_app_terminal_RemotlyTerminal_nativeGetFrame(JNIEnv *env,
   #undef PUT8
   #undef PUT16
   #undef PUT3
+
+  // The frame reached the caller intact, so the dirty state it was built from
+  // is spent. Leaving it set makes the next update see stale per-row flags on
+  // top of the new ones.
+  ghostty_render_state_clean(st->render_state);
 
   return (jint)o;
 }

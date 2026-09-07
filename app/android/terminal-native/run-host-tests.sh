@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 # Build and run the host-side terminal-core tests. Compiles test_terminal.c
 # against a host build of libghostty-vt (pinned in PIN.txt) and runs the
-# fixtures from spikes/.
+# fixtures alongside it.
 #
-# Usage: run-host-tests.sh [fixtures-m0-02 [fixtures-m0-03]]
+# Usage: run-host-tests.sh [terminal-fixtures [cjk-fixtures]]
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$HERE/../../.." && pwd)"
 
 if [ -f "$HOME/.bashrc.d/android-toolchain.sh" ]; then
   # shellcheck source=/dev/null
@@ -15,8 +14,8 @@ if [ -f "$HOME/.bashrc.d/android-toolchain.sh" ]; then
 fi
 
 GHOSTTY_DIR="${GHOSTTY_DIR:-$HOME/opt/ghostty}"
-FIXTURES_02="${1:-$REPO_ROOT/spikes/m0-02-embedding/fixtures}"
-FIXTURES_03="${2:-$REPO_ROOT/spikes/m0-03-cjk-ime/fixtures}"
+FIXTURES_02="${1:-$HERE/fixtures/terminal}"
+FIXTURES_03="${2:-$HERE/fixtures/cjk}"
 
 for d in "$FIXTURES_02" "$FIXTURES_03"; do
   if [ ! -d "$d" ]; then

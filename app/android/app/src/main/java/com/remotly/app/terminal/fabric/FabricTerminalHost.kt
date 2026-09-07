@@ -38,7 +38,14 @@ internal class FabricTerminalHost(
   }
 
   override fun onInput(data: ByteArray) {
-    dispatch(TerminalInputEvent(surfaceId(), view.id, Base64.encodeToString(data, Base64.NO_WRAP)))
+    dispatch(
+      TerminalInputEvent(
+        surfaceId(),
+        view.id,
+        Base64.encodeToString(data, Base64.NO_WRAP),
+        view.sessionId,
+      )
+    )
   }
 
   override fun onResize(cols: Int, rows: Int) {
@@ -63,7 +70,12 @@ internal class FabricTerminalHost(
 
   override fun onPtyWrite(data: ByteArray) {
     dispatch(
-      TerminalPtyWriteEvent(surfaceId(), view.id, Base64.encodeToString(data, Base64.NO_WRAP))
+      TerminalPtyWriteEvent(
+        surfaceId(),
+        view.id,
+        Base64.encodeToString(data, Base64.NO_WRAP),
+        view.sessionId,
+      )
     )
   }
 }

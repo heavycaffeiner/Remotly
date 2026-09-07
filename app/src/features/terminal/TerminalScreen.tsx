@@ -1,8 +1,8 @@
-// The terminal scaffold shared by daemon workspaces and SSH sessions.
+// The terminal scaffold shared by every SSH session.
 //
 // This layer knows about raw bytes and viewport size. It deliberately knows
-// nothing about daemon channel ids or SSH host ids: the owning screen supplies
-// a send function and the terminal supplies bytes back.
+// nothing about host ids or connections: the owning screen supplies a send
+// function and the terminal supplies bytes back.
 
 import React, {
   forwardRef,
@@ -91,7 +91,7 @@ export interface TerminalScreenProps {
    * connecting state does.
    */
   pane?: React.ReactNode;
-  /** Session tabs. Both daemon workspaces and SSH hosts supply one. */
+  /** Session tabs, supplied by the owning screen. */
   tabStrip?: React.ReactNode;
   /**
    * Moves to the previous or next session. A horizontal swipe across the
@@ -116,7 +116,7 @@ export interface TerminalScreenHandle {
   copy(): Promise<string | null>;
   /** Scrolls the scrollback by whole rows. Negative moves toward the top. */
   scrollByRows(rows: number): void;
-  /** Sends the clipboard's text to the session as ordinary input. */
+  /** Sends the clipboard's text to the session as a paste. */
   paste(): void;
   /** Pins the viewport back to the active area. */
   scrollToBottom(): void;
@@ -372,9 +372,10 @@ export const TerminalScreen = forwardRef<
     setHasSelection(active);
   }, []);
 
-  // Pasted text is sent as ordinary input, so the shell sees it exactly as if
-  // it had been typed. Nothing is added: a trailing newline in the clipboard
-  // submits the line, which is what the user copied.
+  // Pasted text goes through the native paste command, not the ordinary input
+  // path. The terminal wraps it for bracketed paste when the running
+  // application asked for that, which is what keeps a multi-line block one
+  // insertion instead of a line-by-line run of Enter keys.
   const paste = useCallback(() => {
     void NativeCamera.readClipboard()
       .then(result => {
@@ -383,10 +384,12 @@ export const TerminalScreen = forwardRef<
           setNotice('The clipboard is empty');
           return;
         }
-        onSend(new TextEncoder().encode(text));
+        void viewport.current?.pasteText(text).catch(() => {
+          setNotice('Could not paste');
+        });
       })
       .catch(() => setNotice('Could not read the clipboard'));
-  }, [onSend]);
+  }, []);
 
   useImperativeHandle(
     ref,
@@ -533,6 +536,7 @@ export const TerminalScreen = forwardRef<
           activeModifier={modifier}
           repeatDelayMs={keyRepeatDelayMs}
           haptics={haptics}
+          onKeyboard={focusPolicy.requestFocus}
         />
       ) : null}
       {/* Gboard already owns the bottom navigation inset while it is visible.

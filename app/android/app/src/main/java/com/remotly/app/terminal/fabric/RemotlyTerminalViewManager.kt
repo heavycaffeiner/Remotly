@@ -81,6 +81,10 @@ class RemotlyTerminalViewManager :
     runOnMain { view.feed(Base64.decode(dataB64, Base64.NO_WRAP)) }
   }
 
+  override fun pasteText(view: TerminalView, text: String) {
+    runOnMain { view.pasteText(text) }
+  }
+
   // Delegates to the view, which shows the IME unconditionally. The previous
   // version only did so when requestFocus returned true, so a view that was
   // already focused (the state after the user dismisses the keyboard) got

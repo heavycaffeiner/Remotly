@@ -86,6 +86,20 @@ class TerminalView @JvmOverloads constructor(
   var sessionId: String = ""
     set(value) {
       if (field == value) return
+      // A gesture belongs to the session it started on. A fling still running
+      // here would keep encoding wheel reports against the terminal this view
+      // is about to point at, and those bytes reach the new session's pty: a
+      // tab that never enabled mouse tracking shows them as literal text like
+      // 0;31;32M. The same goes for a half-finished touch and any carried
+      // wheel travel.
+      stopFling()
+      mouseTracking = false
+      wheelTicker.reset()
+      tapDetector.onCancel()
+      scrollTracker.onCancel()
+      cancelSelectionLongPress()
+      selecting = false
+      releaseVelocityTracker()
       // Switching a mounted view to another session hands the current
       // terminal back rather than destroying it.
       if (handle != 0L && field.isNotEmpty()) {
@@ -153,36 +167,14 @@ class TerminalView @JvmOverloads constructor(
   /** When the viewport last moved, so the scrollbar can fade out after it. */
   private var lastScrollAtMs = 0L
 
-  /**
-   * True when the next draw was scheduled only to advance the scrollbar fade.
-   *
-   * Such a draw reuses the frame it already has instead of serializing and
-   * parsing the whole grid again, which is the most expensive thing this view
-   * does and changes nothing while the terminal is idle. Cleared by every
-   * other repaint path, so a write landing mid-fade is never drawn from the
-   * frame that preceded it.
-   */
-  private var scrollbarFadeOnly = false
-
   /** True while a scrollbar fade frame is posted but has not run. */
   private var scrollbarFadePosted = false
 
-  /**
-   * Repaints to advance the scrollbar fade, without re-reading the terminal.
-   *
-   * Driven by its own frame callback rather than postInvalidateOnAnimation:
-   * that routes back through [invalidate], which exists to clear the very flag
-   * this sets.
-   */
+  /** Repaints to advance the scrollbar fade. */
   private val scrollbarFadeCallback = Choreographer.FrameCallback {
     scrollbarFadePosted = false
-    if (handle != 0L) {
-      scrollbarFadeOnly = true
-      superInvalidate()
-    }
+    if (handle != 0L) invalidate()
   }
-
-  private fun superInvalidate() = super.invalidate()
 
   private fun scheduleScrollbarFade() {
     if (scrollbarFadePosted) return
@@ -1238,27 +1230,14 @@ class TerminalView @JvmOverloads constructor(
    * how the bytes arrive.
    */
   private fun scheduleFrame() {
-    // The terminal changed, so the next draw must read it again even if a
-    // scrollbar fade had already scheduled one.
-    scrollbarFadeOnly = false
+    // The terminal changed, so a fade frame already posted has nothing left to
+    // add: this repaint reads the terminal anyway.
     cancelScrollbarFade()
     // Draws in the frame the choreographer is already preparing, and repeated
     // calls before it runs collapse into one. Posting a frame callback that
     // then called invalidate cost an extra frame on every write, which is felt
     // directly as echo lag while typing.
     postInvalidateOnAnimation()
-  }
-
-  /**
-   * Every repaint other than the scrollbar fade arrives here.
-   *
-   * Clearing the flag centrally is what keeps the fade's frame reuse safe: a
-   * caller cannot forget to, and a repaint that has any other reason reads the
-   * terminal again.
-   */
-  override fun invalidate() {
-    scrollbarFadeOnly = false
-    super.invalidate()
   }
 
   override fun onVisibilityAggregated(isVisible: Boolean) {
@@ -1270,6 +1249,21 @@ class TerminalView @JvmOverloads constructor(
 
   fun selectAll() {
     if (handle != 0L) RemotlyTerminal.nativeSelectAll(handle)
+  }
+
+  /**
+   * Sends pasted text to the session.
+   *
+   * Bracketing is decided natively from the terminal's own mode, so an
+   * application that asked for bracketed paste receives the block as one
+   * literal insertion instead of a line-by-line run of Enter keys.
+   */
+  fun pasteText(text: String) {
+    if (handle == 0L || text.isEmpty()) return
+    RemotlyTerminal.nativePasteText(handle, text)
+    // A paste is input, so the viewport returns to the prompt the way typing
+    // does.
+    scrollToBottom()
   }
 
   /** Copy the active selection to the system clipboard; returns the text. */
@@ -1308,13 +1302,10 @@ class TerminalView @JvmOverloads constructor(
   override fun onDraw(canvas: Canvas) {
     super.onDraw(canvas)
     if (handle == 0L) return
-    // A repaint driven only by the scrollbar fade reuses the frame it already
-    // has: the terminal did not change, and re-serializing the whole grid to
-    // move a few pixels of alpha is the most expensive thing this view does.
-    // A frame emptied by a session switch is refreshed regardless.
-    val reuse = scrollbarFadeOnly && (frame?.cols ?: 0) > 0
-    scrollbarFadeOnly = false
-    val fresh = reuse || refreshFrame()
+    // Read fresh every draw. The frame is what the terminal currently holds,
+    // and reusing the last one to save a serialization is what left a stale or
+    // half-empty screen after a session switch until a resize forced a reread.
+    val fresh = refreshFrame()
     val f = frame
     // Nothing to draw: either the terminal had no frame to give, or it was
     // emptied by a session switch. Returning here would leave the previous

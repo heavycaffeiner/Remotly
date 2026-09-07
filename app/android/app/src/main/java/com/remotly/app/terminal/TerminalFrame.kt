@@ -106,9 +106,13 @@ class TerminalFrame {
    * Buffer that [RemotlyTerminal.nativeGetFrame] can serialize into.
    *
    * Direct, so native writes into it without a copy through the JVM heap, and
-   * kept for the life of the frame so a draw allocates nothing.
+   * kept for the life of the frame so a draw allocates nothing. Sized for the
+   * worst case the serializer declares, which is 16 header bytes plus 73 per
+   * cell: a smaller guess makes every draw serialize twice, once to be told
+   * the size and again to get the frame.
    */
-  var buffer: java.nio.ByteBuffer = java.nio.ByteBuffer.allocateDirect(INITIAL_CELLS * 10)
+  var buffer: java.nio.ByteBuffer =
+    java.nio.ByteBuffer.allocateDirect(HEADER_SIZE + INITIAL_CELLS * BYTES_PER_CELL)
     private set
 
   /** Grows [buffer] to at least [required] bytes. */
@@ -238,6 +242,15 @@ class TerminalFrame {
 
   private companion object {
     const val HEADER_SIZE = 16
+
+    /**
+     * Worst-case bytes one cell serializes to: 9 fixed plus up to 64 of UTF-8.
+     *
+     * Matches the cap the native serializer sizes its own buffer with. The
+     * frame buffer is allocated at this rate so the first draw of a grid does
+     * not have to be told the size and then repeat the whole serialization.
+     */
+    const val BYTES_PER_CELL = 73
     const val INITIAL_CELLS = 80 * 24
     const val INITIAL_CHARS = INITIAL_CELLS * 2
 

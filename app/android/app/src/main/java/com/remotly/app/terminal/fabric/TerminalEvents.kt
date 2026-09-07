@@ -51,10 +51,16 @@ internal class TerminalErrorEvent(
   }
 }
 
+// User input: committed text and encoded key events.
+//
+// Carries the session the view was bound to when the bytes were encoded, for
+// the same reason the pty-write event does: delivery is asynchronous, so input
+// produced just before a tab switch must not land in the tab switched to.
 internal class TerminalInputEvent(
   surfaceId: Int,
   viewTag: Int,
   private val dataB64: String,
+  private val sessionId: String,
 ) : Event<TerminalInputEvent>(surfaceId, viewTag) {
   override fun getEventName(): String = NAME
   override fun canCoalesce(): Boolean = false
@@ -62,6 +68,7 @@ internal class TerminalInputEvent(
     Arguments.createMap().apply {
       putInt("target", viewTag)
       putString("data", dataB64)
+      putString("sessionId", sessionId)
     }
 
   companion object {
@@ -193,10 +200,17 @@ internal class TerminalFontSizeEvent(
   }
 }
 
+// A terminal-initiated pty write: query replies, and mouse or wheel reports.
+//
+// Carries the session the terminal was bound to when the bytes were produced.
+// Event delivery is asynchronous, so a report encoded just before a tab switch
+// can arrive after it, and routing by whichever tab is active on arrival wrote
+// one session's mouse reports into another's pty.
 internal class TerminalPtyWriteEvent(
   surfaceId: Int,
   viewTag: Int,
   private val dataB64: String,
+  private val sessionId: String,
 ) : Event<TerminalPtyWriteEvent>(surfaceId, viewTag) {
   override fun getEventName(): String = NAME
   override fun canCoalesce(): Boolean = false
@@ -204,6 +218,7 @@ internal class TerminalPtyWriteEvent(
     Arguments.createMap().apply {
       putInt("target", viewTag)
       putString("data", dataB64)
+      putString("sessionId", sessionId)
     }
 
   companion object {

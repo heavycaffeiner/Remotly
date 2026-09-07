@@ -1,0 +1,20 @@
+{
+  "shell-prompt.bin": {
+    "bytes": 232
+  },
+  "tui-redraw.bin": {
+    "bytes": 5745
+  },
+  "burst-1mb.bin": {
+    "bytes": 1048576
+  },
+  "split-utf8.bin": {
+    "bytes": 560
+  },
+  "invalid-utf8.bin": {
+    "bytes": 38
+  },
+  "long-lines.bin": {
+    "bytes": 4008
+  }
+}

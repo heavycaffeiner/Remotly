@@ -14,12 +14,12 @@ import type {
 type ReadyEvent = Readonly<{ cols: Int32; rows: Int32 }>;
 /** A bounded native renderer failure. Never contains terminal contents. */
 type ErrorEvent = Readonly<{ code: string }>;
-type InputEvent = Readonly<{ data: string }>;
+type InputEvent = Readonly<{ data: string; sessionId: string }>;
 type ResizeEvent = Readonly<{ cols: Int32; rows: Int32 }>;
 type SelectionEvent = Readonly<{ active: boolean }>;
 type PasteEvent = Readonly<{ target: Int32 }>;
 type TitleEvent = Readonly<{ title: string }>;
-type PtyWriteEvent = Readonly<{ data: string }>;
+type PtyWriteEvent = Readonly<{ data: string; sessionId: string }>;
 // Copy result: `ok` is false when there was no selection. `data` is the copied
 // text (base64 is not used here because the selection is already UTF-8 text).
 type CopyEvent = Readonly<{ ok: boolean; data: string }>;
@@ -58,6 +58,18 @@ interface NativeCommands {
   write: (
     ref: React.ElementRef<HostComponent<NativeProps>>,
     dataB64: string,
+  ) => void;
+  /**
+   * Sends pasted text to the session.
+   *
+   * Separate from `write` because the native side wraps the block for
+   * bracketed paste when the running application asked for it. Sending a
+   * multi-line paste as ordinary input instead makes every newline an Enter,
+   * so each line runs as its own command.
+   */
+  pasteText: (
+    ref: React.ElementRef<HostComponent<NativeProps>>,
+    text: string,
   ) => void;
   /** Requests focus and opens the software keyboard. */
   focusTerminal: (ref: React.ElementRef<HostComponent<NativeProps>>) => void;
@@ -104,6 +116,7 @@ interface NativeCommands {
 export const Commands = codegenNativeCommands<NativeCommands>({
   supportedCommands: [
     'write',
+    'pasteText',
     'focusTerminal',
     'hideKeyboard',
     'selectAll',

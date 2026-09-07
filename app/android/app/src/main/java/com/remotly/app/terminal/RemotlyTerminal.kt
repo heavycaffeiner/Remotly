@@ -6,10 +6,10 @@ package com.remotly.app.terminal
  * thread; the library does no internal locking for the caller.
  *
  * Data flow:
- *  - [feed] pushes daemon output bytes into the terminal.
- *  - [sendText]/[sendKey] encode user input and report it to [listener.onInput]
- *    so the app can forward it to the daemon.
- *  - Effects (bell/title/terminal-initiated PTY writes) arrive via [listener].
+ *  - [nativeWrite] pushes SSH session output bytes into the terminal.
+ *  - [nativeSendText]/[nativeSendKey]/[nativePasteText] encode user input and
+ *    report it to [Listener.onInput] so the app can forward it to the session.
+ *  - Effects (bell/title/terminal-initiated PTY writes) arrive via the listener.
  */
 object RemotlyTerminal {
   private val libraryError: String? = try {
@@ -58,6 +58,16 @@ object RemotlyTerminal {
   external fun nativeTotalRows(handle: Long): Int
   external fun nativeTitle(handle: Long): ByteArray?
   external fun nativeSendText(handle: Long, text: String)
+
+  /**
+   * Sends pasted text, wrapped for bracketed paste when the application asked
+   * for it.
+   *
+   * Separate from [nativeSendText] because a paste is a block of text rather
+   * than a run of keystrokes. Encoding it per keystroke turns every newline
+   * into Enter, so a multi-line paste runs each line as a command.
+   */
+  external fun nativePasteText(handle: Long, text: String)
 
   /**
    * Encodes a mouse event and writes it to the pty.
