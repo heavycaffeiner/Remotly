@@ -8,7 +8,7 @@ A standalone SSH and SFTP client for Android.
 
 ## What it does
 
-- **Standalone SSH and SFTP.** Add a host and connect directly: multiple
+- **SSH and SFTP, no server side.** Add a host and connect directly: several
   terminal tabs per host, host-key verification on first use, and file
   transfer in both directions.
 - **Full shell environment.** Every session starts from a login shell, so
@@ -17,6 +17,15 @@ A standalone SSH and SFTP client for Android.
 - **CJK input.** Korean input commits one syllable at a time rather than one
   word, so a TUI reading keys as they arrive behaves the way it does on a
   desktop terminal.
+- **Inline images.** The Kitty graphics protocol renders images in the grid,
+  so a tool that draws one has somewhere to draw it.
+- **Desktop notifications.** A program can raise one with OSC 9 or OSC 777,
+  which is how a long build says it finished.
+- **Clipboard.** Tapping a link copies it, OSC 8 or bare URL alike. A program
+  can write the clipboard with OSC 52, and a multi-line paste arrives as one
+  block through bracketed paste rather than as a run of Enter keys.
+- **Image paste.** Pick an image and it uploads over SFTP, then types the
+  remote path, which is what an agent reading files from disk expects.
 
 ## Layout
 
@@ -33,7 +42,8 @@ key later changes, the app refuses to connect until the change is confirmed.
 
 ## Building
 
-Requires JDK 21, the Android SDK with an NDK, Go 1.26, Node 22+, and pnpm.
+Requires JDK 17 or later, the Android SDK with an NDK, Go 1.26, Node 22+, and
+pnpm. `scripts/check-toolchain.sh` verifies the set.
 
 The app links a Go SSH/SFTP core built with gomobile. It is a build output
 rather than a checked-in binary, so a fresh clone builds it once before Gradle

@@ -1,8 +1,8 @@
 # Remotly app
 
-The React Native client for Remotly: a standalone SSH terminal and SFTP client.
-It keeps several shells per host, browses and transfers files over SFTP, and
-renders the terminal with libghostty-vt.
+The React Native client: a standalone SSH terminal and SFTP client. Several
+shells per host, SFTP browsing and transfer, and a terminal rendered by
+libghostty-vt with inline images, desktop notifications, and bracketed paste.
 
 Android is the shipped platform. iOS builds from the same source but is not
 feature-complete and is not released.
