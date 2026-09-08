@@ -30,6 +30,7 @@ import {
   type SessionTabView,
 } from '../terminal/SessionTabs';
 import { useSshTabs, type SshHostKeyPrompt } from './useSshTabs';
+import { herdrKeys, type MuxAction } from '../terminal/muxKeys';
 import { FilesScreen } from '../files/FilesScreen';
 import { Toast } from '../../components/Toast';
 import { Button } from '../../components/ui/button';
@@ -183,8 +184,49 @@ export function SshTerminalScreen(): React.ReactElement {
     }
   }, [hostId, ssh]);
 
+  // The same moves the swipes make. A gesture is the fast way to reach them
+  // and the only way for nobody who cannot make one, so they are here too,
+  // where a screen reader and a keyboard can get at them.
+  const muxActions = useMemo<TerminalMenuAction[]>(() => {
+    if (activeTab?.mux === undefined) return [];
+    const move = (action: MuxAction) => () => ssh.send(herdrKeys(action));
+    return [
+      {
+        key: 'mux-tab-next',
+        title: 'Next herdr tab',
+        icon: 'arrow-right',
+        onPress: move('tab-next'),
+      },
+      {
+        key: 'mux-tab-previous',
+        title: 'Previous herdr tab',
+        icon: 'arrow-left',
+        onPress: move('tab-previous'),
+      },
+      {
+        key: 'mux-pane-next',
+        title: 'Next pane',
+        icon: 'view-dashboard',
+        onPress: move('pane-next'),
+      },
+      {
+        key: 'mux-workspace-next',
+        title: 'Next workspace',
+        icon: 'arrow-down',
+        onPress: move('workspace-next'),
+      },
+      {
+        key: 'mux-workspace-previous',
+        title: 'Previous workspace',
+        icon: 'arrow-up',
+        onPress: move('workspace-previous'),
+      },
+    ];
+  }, [activeTab?.mux, ssh]);
+
   const actions = useMemo<TerminalMenuAction[]>(
     () => [
+      ...muxActions,
       { key: 'files', title: 'Files', icon: 'folder', onPress: openFiles },
       {
         key: 'new',
@@ -246,6 +288,7 @@ export function SshTerminalScreen(): React.ReactElement {
       },
     ],
     [
+      muxActions,
       openFiles,
       ssh.newTab,
       closeTab,
@@ -371,6 +414,7 @@ export function SshTerminalScreen(): React.ReactElement {
         onReady={ssh.onViewportReady}
         onTitle={ssh.reportTitle}
         onNotify={postTerminalNotification}
+        {...(activeTab?.mux === undefined ? {} : { mux: activeTab.mux })}
         {...(state.tabs.length > 1 ? { onSwitchSession: switchSession } : {})}
         sessionIndex={state.tabs.findIndex(
           t => t.sessionId === state.activeSessionId,

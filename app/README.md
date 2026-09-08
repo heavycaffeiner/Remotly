@@ -139,6 +139,15 @@ mirror the first. `herdr workspace focus` takes no client scope and the root
 command takes no `--workspace`, so this is herdr's model, not a shortcut here.
 Two workspaces on screen at once means two sessions, each with its own tab.
 
+Swipes across an attached terminal are addressed to herdr rather than to the
+app's own tabs: one finger sideways moves between its tabs, two fingers
+sideways between panes, two fingers up and down between workspaces. They go
+out as the chords herdr already binds, since a gesture has to land in the
+frame it was made and a socket call is a fresh exec channel plus a snapshot
+read. Workspace movement ships unbound, so that one drives the picker: open,
+move the selection, confirm. Every one of them is in the terminal's menu too,
+for anyone who cannot make the gesture.
+
 To exercise the screen against a real server, run one in a container with
 herdr installed and `herdr server` started, publish its SSH port, and add a
 host pointing at it (`10.0.2.2:2222` from an emulator).

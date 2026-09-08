@@ -39,6 +39,11 @@ export interface SshTab {
    * after that, so a shell repainting its title cannot take the name back.
    */
   titlePinned?: boolean;
+  /**
+   * The multiplexer this tab attached to, when it was opened to attach to
+   * one. What the terminal's swipe gestures are addressed to.
+   */
+  mux?: 'herdr';
 }
 
 export interface SshTabsState {

@@ -399,7 +399,7 @@ function stopSession(hostId: string, sessionId: string): void {
  */
 export function openSshTab(
   hostId: string,
-  opts: { title?: string; runs?: string } = {},
+  opts: { title?: string; runs?: string; mux?: 'herdr' } = {},
 ): void {
   const e = entry(hostId);
   if (e.state.tabs.length >= MAX_SSH_TABS) return;
@@ -417,10 +417,19 @@ export function openSshTab(
   // A given title is pinned: it says which workspace the tab is attached to,
   // and herdr repaints the terminal's title on every redraw, which otherwise
   // replaces it with the hostname.
-  e.state =
+  const named =
     opts.title === undefined
       ? next
       : setSshTabTitle(next, sessionId, opts.title, true);
+  e.state =
+    opts.mux === undefined
+      ? named
+      : {
+          ...named,
+          tabs: named.tabs.map(t =>
+            t.sessionId === sessionId ? { ...t, mux: opts.mux } : t,
+          ),
+        };
   if (opts.runs !== undefined && opts.runs !== '') {
     pendingRuns.set(runKey(hostId, sessionId), opts.runs);
   }
@@ -495,7 +504,7 @@ export function openSshAttachTab(
     selectSshTab(hostId, live.sessionId);
     return;
   }
-  openSshTab(hostId, { title, runs });
+  openSshTab(hostId, { title, runs, mux: 'herdr' });
 }
 
 /**

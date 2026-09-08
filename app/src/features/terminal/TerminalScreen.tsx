@@ -34,6 +34,8 @@ import {
   type TerminalResizeHandle,
 } from './useTerminalResize';
 import { SwipePager } from '../../components/SwipePager';
+import { MuxSwipe } from './MuxSwipe';
+import { herdrKeys, type MuxAction } from './muxKeys';
 import { useKeyboardOverlap } from '../../components/KeyboardLifted';
 import { Button } from '../../components/ui/button';
 import { Text } from '../../components/ui/text';
@@ -103,6 +105,13 @@ export interface TerminalScreenProps {
    * terminal calls this; omit it where there is nothing to move between.
    */
   onSwitchSession?: (direction: -1 | 1) => void;
+  /**
+   * The multiplexer this session is attached to, when it is attached to one.
+   * Swipes across the terminal are addressed to it: one finger sideways moves
+   * between its tabs, two fingers sideways between panes, and two fingers up
+   * and down between workspaces.
+   */
+  mux?: 'herdr';
   /** Position in the tab strip, so the switch animates in the right
    *  direction. Omit where there is only one session. */
   sessionIndex?: number;
@@ -168,6 +177,7 @@ export const TerminalScreen = forwardRef<
     pane,
     tabStrip,
     onSwitchSession,
+    mux,
     sessionIndex,
     onReady,
     onBell,
@@ -250,6 +260,13 @@ export const TerminalScreen = forwardRef<
   modifierRef.current = modifier;
   const sendRef = useRef(onSend);
   sendRef.current = onSend;
+
+  // A gesture is a chord the multiplexer already understands, so it goes out
+  // as ordinary input rather than through a herdr command: the round trip a
+  // command needs is longer than the gesture it answers.
+  const handleMuxAction = useCallback((action: MuxAction) => {
+    sendRef.current(herdrKeys(action));
+  }, []);
 
   const handleInput = useCallback((bytes: Uint8Array) => {
     const result = applyModifier(bytes, modifierRef.current);
@@ -518,40 +535,46 @@ export const TerminalScreen = forwardRef<
             // The native view owns the tap: it distinguishes a one-finger tap
             // from a pinch and calls performClick itself, which a JS responder
             // wrapped around the Fabric leaf could not do reliably.
-            <SwipePager
-              pageKey={sessionKey}
-              {...(sessionIndex === undefined
-                ? {}
-                : { pageIndex: sessionIndex })}
-              {...(onSwitchSession === undefined
-                ? {}
-                : { onSwitch: onSwitchSession })}
+            <MuxSwipe
+              enabled={mux !== undefined}
               disabled={hasSelection}
+              onAction={handleMuxAction}
             >
-              <TerminalViewport
-                // Keyed by session as well as attempt. Without the session in
-                // the key, switching tabs reused the same native view and its
-                // terminal, so a second shell rendered the first one's screen.
-                key={`${sessionKey}:${rendererAttempt}`}
-                ref={viewport}
-                {...(sessionId === undefined ? {} : { sessionId })}
-                fontSize={fontSize}
-                {...(cursorStyle === undefined ? {} : { cursorStyle })}
-                onReady={handleReady}
-                onError={handleRendererError}
-                onInput={handleInput}
-                onPtyWrite={handlePtyWrite}
-                onResize={handleResize}
-                onFocusChange={focusPolicy.onNativeFocusChange}
-                onFontSizeChange={handleFontSizeChange}
-                onSelectionChange={handleSelectionChange}
-                onPasteRequest={paste}
-                {...(onBell ? { onBell } : {})}
-                {...(onTitle ? { onTitle } : {})}
-                {...(onNotify ? { onNotify } : {})}
-                onLinkCopied={handleLinkCopied}
-              />
-            </SwipePager>
+              <SwipePager
+                pageKey={sessionKey}
+                {...(sessionIndex === undefined
+                  ? {}
+                  : { pageIndex: sessionIndex })}
+                {...(onSwitchSession === undefined || mux !== undefined
+                  ? {}
+                  : { onSwitch: onSwitchSession })}
+                disabled={hasSelection}
+              >
+                <TerminalViewport
+                  // Keyed by session as well as attempt. Without the session in
+                  // the key, switching tabs reused the same native view and its
+                  // terminal, so a second shell rendered the first one's screen.
+                  key={`${sessionKey}:${rendererAttempt}`}
+                  ref={viewport}
+                  {...(sessionId === undefined ? {} : { sessionId })}
+                  fontSize={fontSize}
+                  {...(cursorStyle === undefined ? {} : { cursorStyle })}
+                  onReady={handleReady}
+                  onError={handleRendererError}
+                  onInput={handleInput}
+                  onPtyWrite={handlePtyWrite}
+                  onResize={handleResize}
+                  onFocusChange={focusPolicy.onNativeFocusChange}
+                  onFontSizeChange={handleFontSizeChange}
+                  onSelectionChange={handleSelectionChange}
+                  onPasteRequest={paste}
+                  {...(onBell ? { onBell } : {})}
+                  {...(onTitle ? { onTitle } : {})}
+                  {...(onNotify ? { onNotify } : {})}
+                  onLinkCopied={handleLinkCopied}
+                />
+              </SwipePager>
+            </MuxSwipe>
           )}
 
           {__DEV__ && gridSize !== null ? (
