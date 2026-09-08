@@ -11,17 +11,9 @@ export function paperTheme(
   dynamic: DynamicOverride = {},
 ): Theme {
   const base = scheme === 'dark' ? DarkTheme : LightTheme;
+  if (Object.keys(dynamic).length === 0) return base;
   return {
     ...base,
-    shapes: { ...base.shapes, corner: { ...base.shapes.corner, ...CORNER } },
     colors: { ...base.colors, ...dynamic },
   };
 }
-
-// Material's extra-small corner is 4dp, which reads as a hard edge on the
-// small surfaces that use it: menus, tooltips, the segmented buttons, and the
-// snackbar. The rest of the scale is left alone so cards and dialogs keep
-// their Material radii. Text fields are not covered: they take this corner
-// from an imported constant rather than the theme, so nothing here reaches
-// them.
-const CORNER = { extraSmall: 10 } as const;
