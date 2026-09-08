@@ -5,6 +5,7 @@
 // stays put.
 
 import * as React from 'react';
+import { Animated, Easing } from 'react-native';
 import { useKeyboardHeight } from './KeyboardLifted';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Surface, useTheme } from 'react-native-paper';
@@ -55,41 +56,81 @@ export function Toast({
   // is added to the offset rather than replacing it.
   const keyboard = useKeyboardHeight();
 
+  // Shown for a moment after the message clears, so it fades out instead of
+  // being deleted mid-sentence.
+  const [visible, setVisible] = React.useState(message !== '');
+  const enter = React.useRef(new Animated.Value(0)).current;
+
+  React.useEffect(() => {
+    if (message !== '') {
+      setVisible(true);
+      Animated.timing(enter, {
+        toValue: 1,
+        duration: 160,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+      return;
+    }
+    Animated.timing(enter, {
+      toValue: 0,
+      duration: 140,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) setVisible(false);
+    });
+  }, [message, enter]);
+
   React.useEffect(() => {
     if (message === '') return undefined;
     const timer = setTimeout(() => dismissRef.current(), durationMs);
     return () => clearTimeout(timer);
   }, [message, durationMs]);
 
-  if (message === '') return null;
+  if (!visible) return null;
 
   return (
-    <Surface
-      elevation={3}
+    <Animated.View
       pointerEvents="none"
+      accessibilityLiveRegion="polite"
       style={{
         position: 'absolute',
         left: 16,
         right: 16,
         zIndex: 20,
-        borderRadius: 8,
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        backgroundColor: colors.inverseSurface as string,
+        opacity: enter,
+        transform: [
+          {
+            translateY: enter.interpolate({
+              inputRange: [0, 1],
+              outputRange: [12, 0],
+            }),
+          },
+        ],
         bottom:
           insets.bottom +
           16 +
           keyboard +
           (barVisible ? TRANSFER_BAR_CLEARANCE : 0),
       }}
-      accessibilityLiveRegion="polite"
     >
-      <Text
-        style={{ color: colors.inverseOnSurface as string }}
-        numberOfLines={2}
+      <Surface
+        elevation={3}
+        style={{
+          borderRadius: 16,
+          paddingHorizontal: 16,
+          paddingVertical: 10,
+          backgroundColor: colors.inverseSurface as string,
+        }}
       >
-        {message}
-      </Text>
-    </Surface>
+        <Text
+          style={{ color: colors.inverseOnSurface as string }}
+          numberOfLines={2}
+        >
+          {message}
+        </Text>
+      </Surface>
+    </Animated.View>
   );
 }

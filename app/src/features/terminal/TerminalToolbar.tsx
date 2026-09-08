@@ -128,8 +128,9 @@ export function TerminalToolbar({
                 a.onPress();
               }}
               style={{
-                height: 48,
-                borderRadius: 14,
+                height: 44,
+                borderRadius: 16,
+                overflow: 'hidden',
                 paddingHorizontal: 12,
                 justifyContent: 'center',
                 opacity: a.disabled === true ? 0.4 : 1,

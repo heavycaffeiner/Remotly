@@ -294,8 +294,9 @@ function MenuRow({
       accessibilityLabel={label}
       onPress={onPress}
       style={{
-        minHeight: 48,
-        borderRadius: 14,
+        minHeight: 44,
+        borderRadius: 16,
+        overflow: 'hidden',
         paddingHorizontal: 12,
         paddingVertical: 6,
         justifyContent: 'center',

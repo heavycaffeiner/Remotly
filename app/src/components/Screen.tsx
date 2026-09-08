@@ -86,7 +86,7 @@ export function Screen({
       ) : (
         // Shorter than Material's 64dp: the title and its subtitle take one
         // line of type each, and the rest of that height was empty.
-        <Appbar.Header style={{ height: 56 }}>
+        <Appbar.Header style={{ height: 52 }}>
           {onBack === undefined ? null : (
             <Appbar.BackAction accessibilityLabel="Go back" onPress={onBack} />
           )}
@@ -141,8 +141,9 @@ export function Screen({
                 a.onPress();
               }}
               style={{
-                height: 48,
-                borderRadius: 14,
+                height: 44,
+                borderRadius: 16,
+                overflow: 'hidden',
                 paddingHorizontal: 12,
                 justifyContent: 'center',
                 opacity: a.disabled === true ? 0.4 : 1,

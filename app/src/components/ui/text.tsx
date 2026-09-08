@@ -14,14 +14,20 @@ export type TextVariant =
   | 'code'
   | 'muted';
 
-/** The Material type scale slot each app variant renders in. */
+/**
+ * The Material type scale slot each app variant renders in.
+ *
+ * One step down from Material's own defaults for body and headings: this is a
+ * terminal client, and 16sp body text with a 24sp screen title left the lists
+ * showing half as many rows as they had room for.
+ */
 const SCALE: Record<TextVariant, TypescaleKey> = {
-  default: 'bodyLarge',
-  h1: 'headlineLarge',
-  h2: 'headlineMedium',
-  h3: 'headlineSmall',
+  default: 'bodyMedium',
+  h1: 'headlineMedium',
+  h2: 'headlineSmall',
+  h3: 'titleLarge',
   title: 'titleMedium',
-  body: 'bodyLarge',
+  body: 'bodyMedium',
   callout: 'bodyMedium',
   caption: 'bodySmall',
   code: 'bodyMedium',

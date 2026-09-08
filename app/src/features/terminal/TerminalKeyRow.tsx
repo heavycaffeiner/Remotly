@@ -258,12 +258,16 @@ function KeyButton({
       }
       onPressIn={pressIn}
       onPressOut={pressOut}
+      // A key cap drew no press state of its own, so a tap that repeated and
+      // one that did nothing looked the same.
+      android_ripple={{ color: colors.primary as string, borderless: false }}
       style={{
-        height: 40,
-        minWidth: 40,
+        height: 38,
+        minWidth: 38,
         alignItems: 'center',
         justifyContent: 'center',
-        borderRadius: 10,
+        borderRadius: 14,
+        overflow: 'hidden',
         borderWidth: 1,
         paddingHorizontal: 12,
         borderColor: active
