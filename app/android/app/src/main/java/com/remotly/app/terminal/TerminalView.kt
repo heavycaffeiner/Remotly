@@ -1623,14 +1623,14 @@ class TerminalView @JvmOverloads constructor(
 
   private companion object {
     // Mouse actions and buttons, matching the native encoder.
+    const val MOUSE_PRESS = 0
+    const val MOUSE_RELEASE = 1
+    const val MOUSE_BUTTON_LEFT = 1
+
     // How far the fingers have to close or spread before a two-finger drag
     // counts as a pinch. A parallel drag drifts a few dp; a pinch passes this
     // in the first moment.
     const val PINCH_SLOP_DP = 24f
-
-    const val MOUSE_PRESS = 0
-    const val MOUSE_RELEASE = 1
-    const val MOUSE_BUTTON_LEFT = 1
 
 
     const val MAX_COLS = 512
