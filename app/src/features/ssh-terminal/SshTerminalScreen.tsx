@@ -210,6 +210,12 @@ export function SshTerminalScreen(): React.ReactElement {
         onPress: move('pane-next'),
       },
       {
+        key: 'mux-pane-previous',
+        title: 'Previous pane',
+        icon: 'view-dashboard',
+        onPress: move('pane-previous'),
+      },
+      {
         key: 'mux-workspace-next',
         title: 'Next workspace',
         icon: 'arrow-down',

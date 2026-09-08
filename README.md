@@ -31,7 +31,8 @@ A standalone SSH and SFTP client for Android.
   focused, and closed from the app over SSH. They keep running on the machine,
   so closing Remotly or losing the connection leaves every workspace where it
   was. Opening a terminal attaches to the session and follows the workspace in
-  focus, one attached tab per session, because that is what a session shows.
+  focus, one attached tab per session, because that is what a session shows. A
+  second session, created from the same screen, gets a terminal of its own.
   Verified against herdr 0.9.0; the wire format has been stable since 0.8.2.
 - **Terminal gestures.** In a terminal attached to herdr, one finger sideways
   moves between its tabs, two fingers sideways between panes, and two fingers

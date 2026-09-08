@@ -138,6 +138,9 @@ session state rather than per client, so a second attached terminal would only
 mirror the first. `herdr workspace focus` takes no client scope and the root
 command takes no `--workspace`, so this is herdr's model, not a shortcut here.
 Two workspaces on screen at once means two sessions, each with its own tab.
+The screen's menu creates one: `herdr --session <name>` starts a session that
+is not there yet, so attaching is the creation, and reuse is keyed on which
+session a tab attached to rather than on its title.
 
 Swipes across an attached terminal are addressed to herdr rather than to the
 app's own tabs: one finger sideways moves between its tabs, two fingers

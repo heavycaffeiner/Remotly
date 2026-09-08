@@ -573,13 +573,13 @@ describe('a tab opened with a command', () => {
 
   it('reveals the tab a workspace is already attached in', () => {
     const id = freshHost();
-    openSshAttachTab(id, 'api', 'herdr');
+    openSshAttachTab(id, { title: 'api', runs: 'herdr' });
     const first = only(id);
     ssh.__state(id, first, { state: 'active' });
     openSshTab(id);
     selectSshTab(id, sshHostState(id).tabs[1].sessionId);
 
-    openSshAttachTab(id, 'api', 'herdr');
+    openSshAttachTab(id, { title: 'api', runs: 'herdr' });
 
     expect(sshHostState(id).tabs).toHaveLength(2);
     expect(sshHostState(id).activeSessionId).toBe(first);
@@ -587,12 +587,48 @@ describe('a tab opened with a command', () => {
 
   it('opens a new one when that tab has since closed', () => {
     const id = freshHost();
-    openSshAttachTab(id, 'api', 'herdr');
+    openSshAttachTab(id, { title: 'api', runs: 'herdr' });
     const first = only(id);
     ssh.__state(id, first, { state: 'closed' });
 
-    openSshAttachTab(id, 'api', 'herdr');
+    openSshAttachTab(id, { title: 'api', runs: 'herdr' });
 
     expect(sshHostState(id).tabs).toHaveLength(2);
+  });
+
+  // Two workspaces at once means two herdr sessions, so each session has to
+  // get a tab of its own rather than reveal the other one's.
+  it('gives a second herdr session its own tab', () => {
+    const id = freshHost();
+    openSshAttachTab(id, { title: 'herdr', runs: 'herdr' });
+    ssh.__state(id, only(id), { state: 'active' });
+
+    openSshAttachTab(id, {
+      title: 'herdr: work',
+      runs: "herdr --session 'work'",
+      session: 'work',
+    });
+
+    expect(sshHostState(id).tabs.map(t => t.title)).toEqual([
+      'herdr',
+      'herdr: work',
+    ]);
+  });
+
+  // The title is the one thing the user can change, so reuse must not depend
+  // on it.
+  it('reveals the attached tab even after it was renamed', () => {
+    const id = freshHost();
+    openSshAttachTab(id, { title: 'herdr', runs: 'herdr' });
+    const attached = only(id);
+    ssh.__state(id, attached, { state: 'active' });
+    renameSshTab(id, attached, 'my terminal');
+    openSshTab(id);
+    selectSshTab(id, sshHostState(id).tabs[1].sessionId);
+
+    openSshAttachTab(id, { title: 'herdr', runs: 'herdr' });
+
+    expect(sshHostState(id).tabs).toHaveLength(2);
+    expect(sshHostState(id).activeSessionId).toBe(attached);
   });
 });

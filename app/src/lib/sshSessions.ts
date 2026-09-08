@@ -399,7 +399,12 @@ function stopSession(hostId: string, sessionId: string): void {
  */
 export function openSshTab(
   hostId: string,
-  opts: { title?: string; runs?: string; mux?: 'herdr' } = {},
+  opts: {
+    title?: string;
+    runs?: string;
+    mux?: 'herdr';
+    muxSession?: string;
+  } = {},
 ): void {
   const e = entry(hostId);
   if (e.state.tabs.length >= MAX_SSH_TABS) return;
@@ -414,9 +419,9 @@ export function openSshTab(
     opts.title ?? `Shell ${nextShellNumber(e.state.tabs)}`,
   );
   if (tab === null) return;
-  // A given title is pinned: it says which workspace the tab is attached to,
-  // and herdr repaints the terminal's title on every redraw, which otherwise
-  // replaces it with the hostname.
+  // A given title is pinned: it names the herdr session the tab is attached
+  // to, and herdr repaints the terminal's title on every redraw, which
+  // otherwise replaces it with the hostname.
   const named =
     opts.title === undefined
       ? next
@@ -427,7 +432,9 @@ export function openSshTab(
       : {
           ...named,
           tabs: named.tabs.map(t =>
-            t.sessionId === sessionId ? { ...t, mux: opts.mux } : t,
+            t.sessionId === sessionId
+              ? { ...t, mux: opts.mux, muxSession: opts.muxSession ?? '' }
+              : t,
           ),
         };
   if (opts.runs !== undefined && opts.runs !== '') {
@@ -477,34 +484,36 @@ function nextShellNumber(tabs: readonly { title: string }[]): number {
 }
 
 /**
- * Opens, or reveals, the tab that a workspace is attached in.
+ * Opens, or reveals, the tab attached to a herdr session.
  *
- * Pressing "Open terminal" twice on the same workspace should land in the
- * session already attached to it rather than stack a second one, and a tab
- * that has since closed is opened again rather than revealed dead.
- *
- * Matched by title, which holds because the title a workspace opens with is
- * pinned and herdr's own repaints cannot take it. A user who renames that tab
- * by hand gets a second one on the next press, which is the honest reading of
- * a tab they deliberately called something else.
+ * Pressing "Open terminal" twice should land in the session already attached
+ * rather than stack a second one, and a tab that has since closed is opened
+ * again rather than revealed dead. Matched on which herdr session the tab is
+ * attached to, not on its title, so a tab the user renamed is still the
+ * attached one, and a second session gets a tab of its own.
  */
 export function openSshAttachTab(
   hostId: string,
-  title: string,
-  runs: string,
+  opts: { title: string; runs: string; session?: string },
 ): void {
+  const session = opts.session ?? '';
   const e = entry(hostId);
   const live = e.state.tabs.find(
     t =>
-      t.title === title &&
-      t.kind === 'shell' &&
+      t.mux === 'herdr' &&
+      (t.muxSession ?? '') === session &&
       (t.phase === 'active' || t.phase === 'connecting'),
   );
   if (live !== undefined) {
     selectSshTab(hostId, live.sessionId);
     return;
   }
-  openSshTab(hostId, { title, runs, mux: 'herdr' });
+  openSshTab(hostId, {
+    title: opts.title,
+    runs: opts.runs,
+    mux: 'herdr',
+    muxSession: session,
+  });
 }
 
 /**

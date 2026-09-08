@@ -76,7 +76,8 @@ type Route = RouteProp<RootStackParamList, 'HerdrWorkspaces'>;
 type Subject = { kind: 'workspace' | 'tab'; id: string; label: string };
 type CreateTarget =
   | { kind: 'workspace' }
-  | { kind: 'tab'; workspaceId: string };
+  | { kind: 'tab'; workspaceId: string }
+  | { kind: 'session' };
 
 /** The name herdr uses for the unnamed session, for its stop and delete calls. */
 const DEFAULT_SESSION = 'default';
@@ -250,7 +251,11 @@ export function HerdrWorkspacesScreen(): React.ReactElement {
             ? 'herdr'
             : joinShell(['herdr', '--session', session]);
         const title = session === null ? 'herdr' : `herdr: ${session}`;
-        openSshAttachTab(hostId, title, runs);
+        openSshAttachTab(hostId, {
+          title,
+          runs,
+          ...(session === null ? {} : { session }),
+        });
         navigation.navigate('SshTerminal', { hostId });
       } catch (e) {
         setNotice(message(e));
@@ -298,10 +303,23 @@ export function HerdrWorkspacesScreen(): React.ReactElement {
     const target = createFor;
     const trimmed = label.trim();
     if (target === null || creating) return;
-    if (target.kind === 'workspace' && trimmed === '') return;
+    if (target.kind !== 'tab' && trimmed === '') return;
     setCreating(true);
     try {
       const where = cwd.trim() === '' ? {} : { cwd: cwd.trim() };
+      if (target.kind === 'session') {
+        // A session is created by attaching to it: `herdr --session <name>`
+        // starts one that is not there yet. Nothing to ask the server first,
+        // and the terminal that opens is the session.
+        openSshAttachTab(hostId, {
+          title: `herdr: ${trimmed}`,
+          runs: joinShell(['herdr', '--session', trimmed]),
+          session: trimmed,
+        });
+        setCreateFor(null);
+        navigation.navigate('SshTerminal', { hostId });
+        return;
+      }
       if (target.kind === 'workspace') {
         await createHerdrWorkspace(
           hostId,
@@ -328,7 +346,7 @@ export function HerdrWorkspacesScreen(): React.ReactElement {
     } finally {
       setCreating(false);
     }
-  }, [createFor, label, cwd, creating, hostId, session, load]);
+  }, [createFor, label, cwd, creating, hostId, session, load, navigation]);
 
   const commitClose = useCallback(async () => {
     const subject = closeFor;
@@ -390,6 +408,12 @@ export function HerdrWorkspacesScreen(): React.ReactElement {
       phase === 'ready'
         ? [
             {
+              key: 'new-session',
+              icon: 'plus',
+              title: 'New session',
+              onPress: () => beginCreate({ kind: 'session' }),
+            },
+            {
               key: 'stop-session',
               icon: 'stop',
               title: 'Stop this session',
@@ -404,11 +428,17 @@ export function HerdrWorkspacesScreen(): React.ReactElement {
             },
           ]
         : [],
-    [phase],
+    [phase, beginCreate],
   );
 
   const sessionName = session ?? DEFAULT_SESSION;
   const creatingTab = createFor !== null && createFor.kind === 'tab';
+  const creatingSession = createFor !== null && createFor.kind === 'session';
+  const createTitle = creatingSession
+    ? 'New session'
+    : creatingTab
+    ? 'New tab'
+    : 'New workspace';
 
   return (
     <Screen
@@ -547,11 +577,11 @@ export function HerdrWorkspacesScreen(): React.ReactElement {
 
       <Dialog open={createFor !== null} onClose={() => setCreateFor(null)}>
         <DialogHeader>
-          <DialogTitle>{creatingTab ? 'New tab' : 'New workspace'}</DialogTitle>
+          <DialogTitle>{createTitle}</DialogTitle>
         </DialogHeader>
         <DialogContent>
           <Field
-            label="Label"
+            label={creatingSession ? 'Name' : 'Label'}
             value={label}
             onChangeText={setLabel}
             autoCapitalize="none"
@@ -561,17 +591,23 @@ export function HerdrWorkspacesScreen(): React.ReactElement {
                   placeholder: 'Optional',
                   hint: 'Left empty, herdr numbers the tab.',
                 }
+              : creatingSession
+              ? {
+                  hint: 'A session of its own, with its own workspaces and its own terminal here.',
+                }
               : { hint: 'Shown in herdr and in this list.' })}
           />
-          <Field
-            label="Working directory"
-            value={cwd}
-            onChangeText={setCwd}
-            autoCapitalize="none"
-            autoCorrect={false}
-            placeholder="Optional"
-            hint="Left empty, herdr uses the session default."
-          />
+          {creatingSession ? null : (
+            <Field
+              label="Working directory"
+              value={cwd}
+              onChangeText={setCwd}
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder="Optional"
+              hint="Left empty, herdr uses the session default."
+            />
+          )}
         </DialogContent>
         <DialogFooter>
           <Button

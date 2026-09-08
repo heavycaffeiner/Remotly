@@ -249,21 +249,38 @@ class TerminalView @JvmOverloads constructor(
     flingFrameNanos = 0L
     flingReportsWheel = false
   }
+  // Where the fingers started, so a two-finger drag that keeps them the same
+  // distance apart is not read as a pinch. Two fingers moving together is the
+  // gesture that navigates the multiplexer, and they never travel perfectly
+  // parallel, so the span drifts enough to zoom without this.
+  private var scaleBeginSpan = 0f
+  private var scaleLive = false
+
   private val scaleDetector = ScaleGestureDetector(
     context,
     object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
       override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
         tapDetector.onPointerDown()
+        scaleBeginSpan = detector.currentSpan
+        scaleLive = false
         return true
       }
 
       override fun onScale(detector: ScaleGestureDetector): Boolean {
+        if (!scaleLive) {
+          if (kotlin.math.abs(detector.currentSpan - scaleBeginSpan) < PINCH_SLOP_DP * resources.displayMetrics.density) {
+            return true
+          }
+          scaleLive = true
+        }
         val nextSp = TerminalZoom.scale(fontSizePx / spToPx(1f), detector.scaleFactor)
         fontSizePx = spToPx(nextSp)
         return true
       }
 
       override fun onScaleEnd(detector: ScaleGestureDetector) {
+        if (!scaleLive) return
+        scaleLive = false
         val settled = TerminalZoom.settle(fontSizePx / spToPx(1f))
         fontSizePx = spToPx(settled.toFloat())
         host?.onFontSizeChange(settled)
@@ -1606,6 +1623,11 @@ class TerminalView @JvmOverloads constructor(
 
   private companion object {
     // Mouse actions and buttons, matching the native encoder.
+    // How far the fingers have to close or spread before a two-finger drag
+    // counts as a pinch. A parallel drag drifts a few dp; a pinch passes this
+    // in the first moment.
+    const val PINCH_SLOP_DP = 24f
+
     const val MOUSE_PRESS = 0
     const val MOUSE_RELEASE = 1
     const val MOUSE_BUTTON_LEFT = 1

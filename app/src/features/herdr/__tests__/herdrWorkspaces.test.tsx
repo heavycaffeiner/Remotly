@@ -17,7 +17,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { encodeBase64String } from '../../../lib/base64';
 import { HerdrWorkspacesScreen } from '../HerdrWorkspacesScreen';
 import NativeHerdr from '../../../specs/NativeRemotlyHerdr';
-import { sshHostState } from '../../../lib/sshSessions';
+import { closeSshHost, sshHostState } from '../../../lib/sshSessions';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 400, height: 800 },
@@ -217,6 +217,9 @@ async function typeInto(
 
 beforeEach(() => {
   exec.mockReset();
+  // The session store is module state keyed by host, so a tab one test opened
+  // is still there for the next one.
+  closeSshHost('h1');
 });
 
 describe('HerdrWorkspacesScreen', () => {

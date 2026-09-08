@@ -44,6 +44,8 @@ export interface SshTab {
    * one. What the terminal's swipe gestures are addressed to.
    */
   mux?: 'herdr';
+  /** Which of the multiplexer's sessions, when it has named ones. */
+  muxSession?: string;
 }
 
 export interface SshTabsState {
