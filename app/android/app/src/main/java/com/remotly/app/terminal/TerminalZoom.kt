@@ -15,10 +15,17 @@ object TerminalZoom {
     SWIPE,
   }
 
-  /** Travel, on either measure, before the gesture is called. */
+  /**
+   * Travel, on either measure, before the gesture is called, and how far one
+   * measure has to lead the other.
+   *
+   * A matched pair with `TWO_FINGER_SLOP_PX` and `TWO_FINGER_BIAS` in
+   * features/terminal/muxGestures.ts, which decides the same gesture for the
+   * swipe. Nothing shares a constant across the bridge, so both are written to
+   * the same numbers on purpose: read differently, one side zooms while the
+   * other moves the workspace.
+   */
   const val DECIDE_SLOP_DP = 16f
-
-  /** How far one measure has to lead the other to decide. */
   const val DECIDE_BIAS = 1.5f
 
   /**

@@ -3,10 +3,14 @@
 // Wraps the terminal and claims a drag once it is clearly one of the three
 // moves. Claimed with the capture responder because the native terminal view
 // handles touches itself; without capturing, the drag never reaches here.
+//
+// Two fingers are read the same way the terminal reads them for the pinch:
+// distance between them against travel of the point between them. Both sides
+// have to agree, or a gesture zooms and moves the workspace at once.
 
 import React, { useMemo, useRef } from 'react';
-import { PanResponder, View } from 'react-native';
-import { muxAction } from './muxGestures';
+import { PanResponder, View, type GestureResponderEvent } from 'react-native';
+import { muxAction, twoFingerIsPinch, twoFingerIsSwipe } from './muxGestures';
 import type { MuxAction } from './muxKeys';
 import { SWIPE_AXIS_RATIO, SWIPE_CLAIM_PX } from '../../lib/swipeNav';
 
@@ -19,16 +23,21 @@ interface MuxSwipeProps {
   children: React.ReactNode;
 }
 
-/** Travel before a two-finger drag is taken, on either axis. */
-function claims(fingers: number, dx: number, dy: number): boolean {
-  if (fingers >= 2) {
-    const far = Math.abs(dx) > SWIPE_CLAIM_PX || Math.abs(dy) > SWIPE_CLAIM_PX;
-    return far;
-  }
-  return (
-    Math.abs(dx) > SWIPE_CLAIM_PX &&
-    Math.abs(dx) > Math.abs(dy) * SWIPE_AXIS_RATIO
-  );
+/** What two fingers turned out to be doing, once it is clear. */
+type Verdict = 'unknown' | 'swipe' | 'pinch';
+
+/** The distance between the first two touches, and the point between them. */
+function twoFingerShape(
+  e: GestureResponderEvent,
+): { span: number; x: number; y: number } | null {
+  const touches = e.nativeEvent.touches;
+  if (touches.length < 2) return null;
+  const [a, b] = touches;
+  return {
+    span: Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY),
+    x: (a.pageX + b.pageX) / 2,
+    y: (a.pageY + b.pageY) / 2,
+  };
 }
 
 export function MuxSwipe({
@@ -46,17 +55,48 @@ export function MuxSwipe({
   // lifted by then, so the highest count during the drag is what identifies
   // the gesture.
   const fingers = useRef(0);
+  const verdict = useRef<Verdict>('unknown');
+  const start = useRef<{ span: number; x: number; y: number } | null>(null);
+
+  const reset = () => {
+    fingers.current = 0;
+    verdict.current = 'unknown';
+    start.current = null;
+  };
 
   const responder = useMemo(
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponderCapture: (e, g) => {
           if (!live.current.enabled || live.current.disabled) return false;
-          fingers.current = Math.max(
-            fingers.current,
-            e.nativeEvent.touches.length,
+          const shape = twoFingerShape(e);
+          if (shape !== null) {
+            fingers.current = Math.max(fingers.current, 2);
+            if (start.current === null) {
+              start.current = shape;
+              return false;
+            }
+            if (verdict.current === 'unknown') {
+              const travel = Math.hypot(
+                shape.x - start.current.x,
+                shape.y - start.current.y,
+              );
+              const spanChange = shape.span - start.current.span;
+              if (twoFingerIsPinch(travel, spanChange)) {
+                // Left to the terminal for the rest of the gesture: it is the
+                // one that resizes the font.
+                verdict.current = 'pinch';
+              } else if (twoFingerIsSwipe(travel, spanChange)) {
+                verdict.current = 'swipe';
+              }
+            }
+            return verdict.current === 'swipe';
+          }
+          if (fingers.current >= 2) return verdict.current === 'swipe';
+          return (
+            Math.abs(g.dx) > SWIPE_CLAIM_PX &&
+            Math.abs(g.dx) > Math.abs(g.dy) * SWIPE_AXIS_RATIO
           );
-          return claims(fingers.current, g.dx, g.dy);
         },
         onPanResponderRelease: (_e, g) => {
           const action = muxAction({
@@ -66,12 +106,11 @@ export function MuxSwipe({
             vx: g.vx,
             vy: g.vy,
           });
-          fingers.current = 0;
-          if (action !== null) live.current.onAction(action);
+          const pinched = verdict.current === 'pinch';
+          reset();
+          if (action !== null && !pinched) live.current.onAction(action);
         },
-        onPanResponderTerminate: () => {
-          fingers.current = 0;
-        },
+        onPanResponderTerminate: reset,
       }),
     [],
   );

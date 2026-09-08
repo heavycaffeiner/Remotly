@@ -22,6 +22,41 @@ export interface MuxSwipe {
   vy: number;
 }
 
+/**
+ * How far a two-finger gesture has to go before it is called, and how far one
+ * measure has to lead the other.
+ *
+ * A matched pair with `TerminalZoom.DECIDE_SLOP_DP` and `DECIDE_BIAS` on the
+ * native side, which decides the same gesture for the pinch. They cannot share
+ * a constant across the bridge, so they are written to the same numbers on
+ * purpose: if one side reads a gesture as a swipe while the other reads it as
+ * a pinch, the font size changes and the workspace moves at once.
+ */
+export const TWO_FINGER_SLOP_PX = 16;
+export const TWO_FINGER_BIAS = 1.5;
+
+/**
+ * Whether two fingers are travelling together rather than pinching.
+ *
+ * `travel` is how far the point between them moved, `spanChange` how much the
+ * distance between them changed. A pinch leads on the second, a swipe on the
+ * first, and neither leading means neither: the gesture is left alone.
+ */
+export function twoFingerIsSwipe(travel: number, spanChange: number): boolean {
+  return (
+    Math.abs(travel) > TWO_FINGER_SLOP_PX &&
+    Math.abs(travel) > Math.abs(spanChange) * TWO_FINGER_BIAS
+  );
+}
+
+/** Whether they are pinching rather than travelling together. */
+export function twoFingerIsPinch(travel: number, spanChange: number): boolean {
+  return (
+    Math.abs(spanChange) > TWO_FINGER_SLOP_PX &&
+    Math.abs(spanChange) > Math.abs(travel) * TWO_FINGER_BIAS
+  );
+}
+
 /** Whether travel or speed along one axis is enough to commit. */
 function committed(distance: number, velocity: number): boolean {
   return (

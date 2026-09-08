@@ -6,7 +6,7 @@
 // terminal with a scroll and a pinch, so what counts and what is ignored is
 // the whole contract here.
 
-import { muxAction } from '../muxGestures';
+import { muxAction, twoFingerIsPinch, twoFingerIsSwipe } from '../muxGestures';
 import { herdrKeys } from '../muxKeys';
 
 /** A released drag, with the fields the responder reports. */
@@ -59,6 +59,31 @@ describe('a swipe across an attached terminal', () => {
   });
 });
 
+// The same rule the terminal applies natively for the pinch. Both sides have
+// to read a gesture the same way, or one zooms while the other moves the
+// workspace.
+describe('telling two fingers travelling from two fingers pinching', () => {
+  it('calls fingers moving together a swipe', () => {
+    expect(twoFingerIsSwipe(300, 30)).toBe(true);
+    expect(twoFingerIsPinch(300, 30)).toBe(false);
+  });
+
+  it('calls fingers moving apart a pinch, in either direction', () => {
+    expect(twoFingerIsPinch(20, 400)).toBe(true);
+    expect(twoFingerIsPinch(20, -400)).toBe(true);
+    expect(twoFingerIsSwipe(20, 400)).toBe(false);
+  });
+
+  it('calls neither when neither leads', () => {
+    expect(twoFingerIsSwipe(120, 100)).toBe(false);
+    expect(twoFingerIsPinch(120, 100)).toBe(false);
+  });
+
+  it('calls neither before the gesture has gone anywhere', () => {
+    expect(twoFingerIsSwipe(10, 2)).toBe(false);
+    expect(twoFingerIsPinch(2, 10)).toBe(false);
+  });
+});
 describe('the keys a gesture sends to herdr', () => {
   /** Ctrl+B, herdr's prefix. */
   const PREFIX = 0x02;
