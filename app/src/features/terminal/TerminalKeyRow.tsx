@@ -169,7 +169,7 @@ export function TerminalKeyRow({
         // flex:1 bounds the strip to the space left beside the pinned button.
         // Without it the row sizes to its content and pushes the button off
         // the edge once there are enough keys to overflow.
-        style={{ flex: 1, paddingVertical: 6 }}
+        style={{ flex: 1, paddingVertical: 4 }}
         onScrollBeginDrag={beginScroll}
         onScrollEndDrag={endScroll}
         onMomentumScrollEnd={endScroll}
@@ -259,11 +259,11 @@ function KeyButton({
       onPressIn={pressIn}
       onPressOut={pressOut}
       style={{
-        height: 44,
-        minWidth: 44,
+        height: 40,
+        minWidth: 40,
         alignItems: 'center',
         justifyContent: 'center',
-        borderRadius: 8,
+        borderRadius: 10,
         borderWidth: 1,
         paddingHorizontal: 12,
         borderColor: active

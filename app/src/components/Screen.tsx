@@ -84,7 +84,9 @@ export function Screen({
           </Surface>
         )
       ) : (
-        <Appbar.Header>
+        // Shorter than Material's 64dp: the title and its subtitle take one
+        // line of type each, and the rest of that height was empty.
+        <Appbar.Header style={{ height: 56 }}>
           {onBack === undefined ? null : (
             <Appbar.BackAction accessibilityLabel="Go back" onPress={onBack} />
           )}
@@ -139,9 +141,9 @@ export function Screen({
                 a.onPress();
               }}
               style={{
-                height: 56,
-                borderRadius: 16,
-                paddingHorizontal: 16,
+                height: 48,
+                borderRadius: 14,
+                paddingHorizontal: 12,
                 justifyContent: 'center',
                 opacity: a.disabled === true ? 0.4 : 1,
               }}
@@ -150,13 +152,13 @@ export function Screen({
                 style={{
                   flexDirection: 'row',
                   alignItems: 'center',
-                  gap: 16,
+                  gap: 12,
                 }}
               >
                 <View
                   style={{
-                    height: 40,
-                    width: 40,
+                    height: 34,
+                    width: 34,
                     alignItems: 'center',
                     justifyContent: 'center',
                     borderRadius: 999,
@@ -165,7 +167,7 @@ export function Screen({
                 >
                   <Icon
                     name={a.icon}
-                    size={22}
+                    size={20}
                     color={
                       a.destructive === true
                         ? (colors.error as string)

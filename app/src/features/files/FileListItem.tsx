@@ -39,17 +39,17 @@ export function FileListItem({
       onPress={open}
       onLongPress={menu}
       style={{
-        minHeight: 56,
-        paddingHorizontal: 16,
-        paddingVertical: 10,
+        minHeight: 48,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
         justifyContent: 'center',
       }}
     >
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
         <View
           style={{
-            height: 40,
-            width: 40,
+            height: 34,
+            width: 34,
             alignItems: 'center',
             justifyContent: 'center',
             borderRadius: 999,

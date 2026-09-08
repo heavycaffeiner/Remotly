@@ -11,9 +11,15 @@ export function paperTheme(
   dynamic: DynamicOverride = {},
 ): Theme {
   const base = scheme === 'dark' ? DarkTheme : LightTheme;
-  if (Object.keys(dynamic).length === 0) return base;
   return {
     ...base,
+    shapes: { ...base.shapes, corner: { ...base.shapes.corner, ...CORNER } },
     colors: { ...base.colors, ...dynamic },
   };
 }
+
+// Material's extra-small corner is 4dp, and it lands on the shapes this app
+// shows most of: every text field outline, and the terminal's key caps. At 4dp
+// a field reads as a box drawn around the text; the rest of the scale is left
+// alone so cards and dialogs keep their Material radii.
+const CORNER = { extraSmall: 10 } as const;

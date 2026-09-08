@@ -119,7 +119,7 @@ function NavigationBar({ active, onSelect }: NavProps): React.ReactElement {
       elevation={2}
       accessibilityRole="tablist"
       style={{
-        height: 80 + insets.bottom,
+        height: 60 + insets.bottom,
         flexDirection: 'row',
         paddingBottom: insets.bottom,
         backgroundColor: colors.surfaceContainer,
@@ -208,7 +208,7 @@ function NavItem({
       accessibilityLabel={tab.title}
       accessibilityState={{ selected }}
       style={[
-        { height: 80, alignItems: 'center', justifyContent: 'center' },
+        { height: 60, alignItems: 'center', justifyContent: 'center' },
         style,
       ]}
     >

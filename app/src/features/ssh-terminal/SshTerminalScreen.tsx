@@ -90,7 +90,7 @@ export function SshTerminalScreen(): React.ReactElement {
   }, []);
 
   const ssh = useSshTabs(hostId, write);
-  const { state, disconnect } = ssh;
+  const { state, disconnect, closeTab } = ssh;
 
   // The bare session id, which is what lib/sshSessions writes background output
   // under. Prefixing it with the host pointed the native view at a different
@@ -201,6 +201,15 @@ export function SshTerminalScreen(): React.ReactElement {
         onPress: () => setRenameRequest(n => n + 1),
       },
       {
+        key: 'close',
+        title: 'Close session',
+        icon: 'close',
+        disabled: activeTab === null,
+        onPress: () => {
+          if (activeTab !== null) closeTab(activeTab.sessionId);
+        },
+      },
+      {
         key: 'select-all',
         title: 'Select all',
         icon: 'select-all',
@@ -239,6 +248,7 @@ export function SshTerminalScreen(): React.ReactElement {
     [
       openFiles,
       ssh.newTab,
+      closeTab,
       ssh.canAdd,
       disconnectAll,
       activeTab,
@@ -365,8 +375,11 @@ export function SshTerminalScreen(): React.ReactElement {
         sessionIndex={state.tabs.findIndex(
           t => t.sessionId === state.activeSessionId,
         )}
+        // One session needs no strip: the chip would repeat what the bar
+        // already says, and it costs two terminal rows. Everything it carries
+        // (new, rename, close) is in the overflow menu.
         tabStrip={
-          state.tabs.length > 0 ? (
+          state.tabs.length > 1 ? (
             <SessionTabs
               tabs={tabViews}
               activeSessionId={state.activeSessionId}

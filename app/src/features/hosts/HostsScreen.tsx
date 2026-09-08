@@ -6,7 +6,8 @@
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { FlatList, View } from 'react-native';
-import { Card, FAB, TouchableRipple, useTheme } from 'react-native-paper';
+import { Card, TouchableRipple, useTheme } from 'react-native-paper';
+import { Fab } from '../../components/ui/fab';
 import type { IconName } from '../../lib/icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -215,11 +216,11 @@ export function HostsScreen(): React.ReactElement {
       ) : null}
 
       {phase === 'ready' ? (
-        <FAB
+        <Fab
           icon="plus"
           accessibilityLabel="Add a host"
           onPress={() => setAddOpen(true)}
-          style={{ position: 'absolute', bottom: 24, right: 24, zIndex: 10 }}
+          style={{ position: 'absolute', bottom: 20, right: 20, zIndex: 10 }}
         />
       ) : null}
 
@@ -293,18 +294,18 @@ function MenuRow({
       accessibilityLabel={label}
       onPress={onPress}
       style={{
-        minHeight: 56,
-        borderRadius: 16,
-        paddingHorizontal: 16,
-        paddingVertical: 8,
+        minHeight: 48,
+        borderRadius: 14,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
         justifyContent: 'center',
       }}
     >
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
         <View
           style={{
-            height: 44,
-            width: 44,
+            height: 36,
+            width: 36,
             alignItems: 'center',
             justifyContent: 'center',
             borderRadius: 999,
@@ -361,14 +362,15 @@ function HostRow({ entry, onOpen, onMenu }: HostRowProps): React.ReactElement {
         style={{
           flexDirection: 'row',
           alignItems: 'center',
-          gap: 14,
-          padding: 16,
+          gap: 12,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
         }}
       >
         <View
           style={{
-            height: 40,
-            width: 40,
+            height: 34,
+            width: 34,
             alignItems: 'center',
             justifyContent: 'center',
             borderRadius: 999,

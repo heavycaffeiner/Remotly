@@ -75,7 +75,7 @@ export function FilesToolbar({
         borderBottomColor: colors.outlineVariant as string,
         backgroundColor: colors.surfaceContainerLow as string,
         paddingHorizontal: 8,
-        paddingVertical: 8,
+        paddingVertical: 6,
       }}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>

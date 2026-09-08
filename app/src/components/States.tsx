@@ -217,8 +217,8 @@ export function SectionHeader({
       variant="caption"
       style={{
         paddingHorizontal: 16,
-        paddingBottom: 4,
-        paddingTop: 20,
+        paddingBottom: 2,
+        paddingTop: 14,
         fontWeight: '600',
         textTransform: 'uppercase',
         letterSpacing: 1,

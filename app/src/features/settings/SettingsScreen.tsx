@@ -344,7 +344,7 @@ function SettingRow({
         alignItems: 'center',
         gap: 12,
         paddingHorizontal: 16,
-        paddingVertical: 12,
+        paddingVertical: 8,
       }}
     >
       {icon === undefined ? null : (

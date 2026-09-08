@@ -128,9 +128,9 @@ export function TerminalToolbar({
                 a.onPress();
               }}
               style={{
-                height: 56,
-                borderRadius: 16,
-                paddingHorizontal: 16,
+                height: 48,
+                borderRadius: 14,
+                paddingHorizontal: 12,
                 justifyContent: 'center',
                 opacity: a.disabled === true ? 0.4 : 1,
               }}
@@ -139,13 +139,13 @@ export function TerminalToolbar({
                 style={{
                   flexDirection: 'row',
                   alignItems: 'center',
-                  gap: 16,
+                  gap: 12,
                 }}
               >
                 <View
                   style={{
-                    height: 40,
-                    width: 40,
+                    height: 34,
+                    width: 34,
                     alignItems: 'center',
                     justifyContent: 'center',
                     borderRadius: 999,

@@ -10,7 +10,8 @@
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { FlatList, View } from 'react-native';
-import { Card, FAB, TouchableRipple, useTheme } from 'react-native-paper';
+import { Card, TouchableRipple, useTheme } from 'react-native-paper';
+import { Fab } from '../../components/ui/fab';
 import {
   useFocusEffect,
   useNavigation,
@@ -507,11 +508,11 @@ export function HerdrWorkspacesScreen(): React.ReactElement {
       ) : null}
 
       {phase === 'ready' && workspaces.length > 0 ? (
-        <FAB
+        <Fab
           icon="plus"
           accessibilityLabel="New workspace"
           onPress={() => beginCreate({ kind: 'workspace' })}
-          style={{ position: 'absolute', bottom: 24, right: 24, zIndex: 10 }}
+          style={{ position: 'absolute', bottom: 20, right: 20, zIndex: 10 }}
         />
       ) : null}
 
@@ -673,12 +674,12 @@ function WorkspaceCard({
 
   return (
     <Card mode="outlined">
-      <View style={{ padding: 16, gap: 12 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+      <View style={{ padding: 12, gap: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <View
             style={{
-              height: 40,
-              width: 40,
+              height: 32,
+              width: 32,
               alignItems: 'center',
               justifyContent: 'center',
               borderRadius: 999,
@@ -727,22 +728,25 @@ function WorkspaceCard({
           />
         </View>
 
-        {focused || working ? (
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            {focused ? <StatusChip tone="ok" label="Focused" /> : null}
-            {working ? (
-              <Badge
-                variant="secondary"
-                icon="robot"
-                label={String(workspace.agentStatus)}
-              />
-            ) : null}
-          </View>
-        ) : null}
-
+        {/* Status and actions share a row: on a phone the card is a list item,
+            and a row of its own for one chip pushed the tabs off screen. */}
         <View
-          style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            gap: 8,
+          }}
         >
+          {focused ? <StatusChip tone="ok" label="Focused" /> : null}
+          {working ? (
+            <Badge
+              variant="secondary"
+              icon="robot"
+              label={String(workspace.agentStatus)}
+            />
+          ) : null}
+          <View style={{ flex: 1 }} />
           {focused ? null : (
             <Button
               variant="outline"
@@ -774,7 +778,7 @@ function WorkspaceCard({
           }`}
           accessibilityState={{ expanded: open }}
           onPress={onToggle}
-          style={{ borderRadius: 8, paddingVertical: 8 }}
+          style={{ borderRadius: 8, paddingVertical: 6 }}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Icon

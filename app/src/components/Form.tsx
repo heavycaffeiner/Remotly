@@ -24,7 +24,7 @@ export function FormSection({
 }: FormSectionProps): React.ReactElement {
   const { colors } = useTheme();
   return (
-    <View style={{ gap: 8, paddingHorizontal: 16, paddingTop: 16 }}>
+    <View style={{ gap: 6, paddingHorizontal: 16, paddingTop: 12 }}>
       <Text
         role="heading"
         variant="caption"
@@ -77,8 +77,10 @@ type FieldProps = React.ComponentProps<typeof Input> & {
 /**
  * A labelled text field.
  *
- * The visible label is also the accessible name, so a placeholder is never
- * left doing that job.
+ * The label sits in the outline rather than above it: it is the same label
+ * either way, and stacking it cost a line of height in every field of every
+ * form. It is also the accessible name, so a placeholder is never left doing
+ * that job.
  */
 export function Field({
   label,
@@ -87,11 +89,13 @@ export function Field({
   ...props
 }: FieldProps): React.ReactElement {
   return (
-    <View style={{ gap: 6 }}>
-      <Text variant="callout" style={{ fontWeight: '500' }}>
-        {label}
-      </Text>
-      <Input accessibilityLabel={label} invalid={error !== ''} {...props} />
+    <View style={{ gap: 4 }}>
+      <Input
+        label={label}
+        accessibilityLabel={label}
+        invalid={error !== ''}
+        {...props}
+      />
       {error !== '' ? (
         <FieldError message={error} />
       ) : hint === undefined ? null : (
