@@ -2,9 +2,9 @@
 
 A standalone SSH and SFTP client for Android.
 
-| Hosts | Terminal |
-| --- | --- |
-| ![Hosts screen](docs/images/hosts.png) | ![SSH terminal](docs/images/terminal.png) |
+| Hosts | Terminal | Herdr workspaces |
+| --- | --- | --- |
+| ![Hosts screen](docs/images/hosts.png) | ![SSH terminal](docs/images/terminal.png) | ![Herdr workspaces](docs/images/workspaces.png) |
 
 ## What it does
 
@@ -26,6 +26,11 @@ A standalone SSH and SFTP client for Android.
   block through bracketed paste rather than as a run of Enter keys.
 - **Image paste.** Pick an image and it uploads over SFTP, then types the
   remote path, which is what an agent reading files from disk expects.
+- **Herdr workspaces.** Where herdr runs on the host, its workspaces and tabs
+  are listed, created, renamed, focused, and closed from the app over SSH.
+  They keep running on the machine, so closing Remotly or losing the
+  connection leaves every workspace where it was. Verified against herdr
+  0.9.0; the wire format has been stable since 0.8.2.
 
 ## Layout
 
@@ -39,6 +44,10 @@ A standalone SSH and SFTP client for Android.
 
 Host keys are verified on first use (TOFU) and pinned per host. If a host's
 key later changes, the app refuses to connect until the change is confirmed.
+
+The herdr screen runs each command as its own one-shot SSH exec, which has
+nowhere to show that prompt, so a host is unreachable there until its key has
+been accepted in the terminal once. The screen says so and offers the way in.
 
 ## Building
 

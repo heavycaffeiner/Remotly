@@ -1,8 +1,13 @@
 # Remotly app
 
 The React Native client: a standalone SSH terminal and SFTP client. Several
-shells per host, SFTP browsing and transfer, and a terminal rendered by
-libghostty-vt with inline images, desktop notifications, and bracketed paste.
+shells per host, SFTP browsing and transfer, herdr workspace management over
+SSH, and a terminal rendered by libghostty-vt with inline images, desktop
+notifications, and bracketed paste.
+
+The interface is React Native Paper (Material Design 3): every color comes
+from the Paper theme, which follows the wallpaper on devices that support
+dynamic color.
 
 Android is the shipped platform. iOS builds from the same source but is not
 feature-complete and is not released.
@@ -96,6 +101,29 @@ cd mobile && go test ./...
 
 The result is `android/app/libs/sshcore.aar`, consumed as an AAR dependency.
 
+## Herdr
+
+The Workspaces screen drives the `herdr` CLI on the remote host.
+`src/lib/herdr.ts` builds each command string and parses the document it
+prints; `src/lib/herdrClient.ts` runs it through the herdr bridge, one SSH
+exec per call.
+
+That shape decides what can be exposed. A command that prints one document and
+exits works. `session attach`, `agent attach`, and the streaming `pane`
+commands need a PTY and stay attached, so they cannot cross the bridge at all;
+reaching those means opening a terminal on the host and running herdr there.
+
+A failure arrives as a `{ error: { code, message } }` document. Which stream
+carries it depends on the command: `session list --json` answers on stdout,
+while the socket-API commands write the document to stderr and exit non-zero.
+
+A host is unreachable here until its key has been accepted in the terminal
+once, because a one-shot exec has nowhere to show the first-use prompt.
+
+To exercise the screen against a real server, run one in a container with
+herdr installed and `herdr server` started, publish its SSH port, and add a
+host pointing at it (`10.0.2.2:2222` from an emulator).
+
 ## Release
 
 ```sh
@@ -112,10 +140,10 @@ production guidance; supply your own for distribution.
 src/
   components/    shared UI and the terminal viewport mount point
   features/      screen-level features
-  lib/           pure logic: ssh, sftp, files, sessions, errors
+  lib/           pure logic: ssh, sftp, files, sessions, herdr, errors
   navigation/    route map, linking, navigators
   specs/         TurboModule and Fabric component specs (codegen input)
-  theme/         theme tokens and layout scale
+  theme/         Paper theme, dynamic color, and the terminal's own colors
 android/
   app/src/main/java/com/remotly/app/
     bridge/      TurboModule implementations
