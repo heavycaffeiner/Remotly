@@ -16,7 +16,7 @@
 // version changes the shape, so the parsers validate the envelope before
 // trusting it.
 
-import { joinShell } from './shell';
+import { joinShell, shellQuote } from './shell';
 
 // --- typed model -----------------------------------------------------------
 
@@ -127,6 +127,50 @@ export class HerdrError extends Error {
 // session is the running server and takes no flag.
 function herdrPrefix(session: string | null): string[] {
   return session ? ['herdr', '--session', session] : ['herdr'];
+}
+
+// The exec channel gets a plain non-interactive shell, so PATH is the system
+// default. A user's herdr often lives somewhere only their own shell knows
+// about, and with zsh that PATH is usually set in .zshrc, which a login shell
+// skips unless it is interactive. The lookup therefore asks one interactive
+// login shell where herdr is, with markers around the answer because rc files
+// print.
+const LOOKUP_OPEN = '__remotly_herdr_path__';
+const LOOKUP_CLOSE = '__remotly_herdr_end__';
+
+/** Ask the user's own shell where herdr is. Exits zero even when it knows of
+ *  none, so the empty answer is read rather than mapped to a failure. */
+export function herdrLookupCommand(): string {
+  const script = `echo ${LOOKUP_OPEN}; command -v herdr || true; echo ${LOOKUP_CLOSE}`;
+  return `exec "\${SHELL:-/bin/sh}" -ilc ${shellQuote(script)}`;
+}
+
+/**
+ * The herdr path the shell reported, or null when it knows of none.
+ *
+ * Only an absolute path counts: `command -v` also answers for an alias or a
+ * shell function, and neither is something another shell can run.
+ */
+export function parseHerdrLookup(stdout: string): string | null {
+  const open = stdout.indexOf(LOOKUP_OPEN);
+  const close = stdout.indexOf(LOOKUP_CLOSE, open + LOOKUP_OPEN.length);
+  if (open === -1 || close === -1) return null;
+  const body = stdout.slice(open + LOOKUP_OPEN.length, close);
+  for (const line of body.split('\n')) {
+    const path = line.trim();
+    if (path.startsWith('/')) return path;
+  }
+  return null;
+}
+
+/**
+ * Runs a command with `dir` ahead of PATH.
+ *
+ * The directory rather than the binary path, so that herdr resolves whatever
+ * it shells out to the way an interactive session would.
+ */
+export function withPathPrefix(dir: string, command: string): string {
+  return `PATH=${shellQuote(dir)}:"$PATH" ${command}`;
 }
 
 /** List the named herdr sessions available on the host. */

@@ -20,9 +20,11 @@ import { decodeBase64, decodeUtf8 } from './base64';
 import {
   HerdrError,
   apiSnapshotCommand,
+  herdrLookupCommand,
   paneReadCommand,
   parseCliError,
   parseCreatedWorkspace,
+  parseHerdrLookup,
   parseSessions,
   parseSnapshot,
   sessionDeleteCommand,
@@ -32,6 +34,7 @@ import {
   tabCreateCommand,
   tabFocusCommand,
   tabRenameCommand,
+  withPathPrefix,
   workspaceCloseCommand,
   workspaceCreateCommand,
   workspaceFocusCommand,
@@ -54,11 +57,61 @@ function textOf(encoded: string): string {
  *
  * Exported so a caller can run a command this module does not wrap yet without
  * reimplementing the failure mapping.
+ *
+ * A shell that cannot find herdr is not a failure yet: the lookup runs, and
+ * the command is repeated with the directory it named ahead of PATH. What that
+ * directory is holds for the host from then on.
  */
 export async function execHerdr(
   hostId: string,
   command: string,
 ): Promise<string> {
+  const dir = herdrDir.get(hostId);
+  if (dir !== undefined) return runHerdr(hostId, withPathPrefix(dir, command));
+  try {
+    return await runHerdr(hostId, command);
+  } catch (e) {
+    if (!(e instanceof HerdrError) || !isMissingBinary(e)) throw e;
+    const found = await locateHerdr(hostId);
+    herdrDir.set(hostId, found);
+    return runHerdr(hostId, withPathPrefix(found, command));
+  }
+}
+
+/** Where herdr was found on a host, once a lookup has had to run. */
+const herdrDir = new Map<string, string>();
+
+/**
+ * Whether the shell could not find herdr at all.
+ *
+ * The wording is the shell's, not herdr's: zsh says "command not found: herdr",
+ * bash "herdr: command not found", dash "herdr: not found". A shell that says
+ * something else is reported as it is rather than guessed at.
+ */
+function isMissingBinary(e: HerdrError): boolean {
+  return e.code === 'herdr_cli' && /not found/i.test(e.detail);
+}
+
+/**
+ * The directory holding herdr, asked of the user's own shell.
+ *
+ * Reached only after a plain call failed, so the cost is paid on hosts that
+ * need it and never on hosts where herdr is already on the default PATH.
+ */
+async function locateHerdr(hostId: string): Promise<string> {
+  const found = parseHerdrLookup(await runHerdr(hostId, herdrLookupCommand()));
+  if (found === null) {
+    throw new HerdrError(
+      'herdr_missing',
+      'herdr was not found on this host, not even by your own shell.',
+    );
+  }
+  const cut = found.lastIndexOf('/');
+  return cut > 0 ? found.slice(0, cut) : '/';
+}
+
+/** Runs one command as given and maps its outcome. */
+async function runHerdr(hostId: string, command: string): Promise<string> {
   const res = await NativeHerdr.exec(hostId, command);
   if (!res.ok) {
     throw new HerdrError(

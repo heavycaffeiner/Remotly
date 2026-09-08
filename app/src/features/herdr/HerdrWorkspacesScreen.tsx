@@ -105,6 +105,9 @@ function message(e: unknown): string {
     if (e.code === 'herdr_unreachable') {
       return `The host could not be reached. ${e.detail}`;
     }
+    if (e.code === 'herdr_missing') {
+      return 'herdr is not installed on this host, or your shell cannot find it. Installing it where a login shell looks is what fixes this.';
+    }
     if (e.code === 'herdr_bad_json') {
       return 'The host answered with something other than herdr output. Check that herdr is installed and on the PATH.';
     }

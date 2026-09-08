@@ -112,15 +112,92 @@ describe('execHerdr', () => {
   it('falls back to stderr when the command printed no document', async () => {
     exec.mockResolvedValue(
       result({
-        exitCode: 127,
-        stderr: encodeBase64String('herdr: command not found\n'),
+        exitCode: 1,
+        stderr: encodeBase64String('herdr: permission denied\n'),
       }),
     );
 
     await expect(execHerdr('h1', 'herdr session list')).rejects.toMatchObject({
       code: 'herdr_cli',
-      detail: 'herdr: command not found',
+      detail: 'herdr: permission denied',
     });
+  });
+
+  // The exec channel's shell is not the one that set the user's PATH, so a
+  // herdr under ~/.local/bin or a version manager's shims is invisible to it.
+  it('asks the shell where herdr is, then repeats the command with it', async () => {
+    const sent: string[] = [];
+    exec.mockImplementation(async (_host: string, command: string) => {
+      sent.push(command);
+      if (command.includes('-ilc')) {
+        return result({
+          stdout: encodeBase64String(
+            // An rc file printing is why the answer is bracketed.
+            'Welcome back\n__remotly_herdr_path__\n/home/dev/.local/bin/herdr\n__remotly_herdr_end__\n',
+          ),
+        });
+      }
+      if (command.startsWith('PATH=')) {
+        return result({ stdout: encodeBase64String('done\n') });
+      }
+      return result({
+        exitCode: 127,
+        stderr: encodeBase64String('zsh:1: command not found: herdr\n'),
+      });
+    });
+
+    await expect(execHerdr('hzsh', 'herdr session list')).resolves.toBe(
+      'done\n',
+    );
+    expect(sent[2]).toBe(
+      `PATH='/home/dev/.local/bin':"$PATH" herdr session list`,
+    );
+  });
+
+  it('remembers where herdr is, so a later call looks nothing up', async () => {
+    const sent: string[] = [];
+    exec.mockImplementation(async (_host: string, command: string) => {
+      sent.push(command);
+      if (command.includes('-ilc')) {
+        return result({
+          stdout: encodeBase64String(
+            '__remotly_herdr_path__\n/opt/herdr/bin/herdr\n__remotly_herdr_end__\n',
+          ),
+        });
+      }
+      if (command.startsWith('PATH=')) {
+        return result({ stdout: encodeBase64String('done\n') });
+      }
+      return result({
+        exitCode: 127,
+        stderr: encodeBase64String('herdr: not found\n'),
+      });
+    });
+
+    await execHerdr('hcache', 'herdr session list');
+    sent.length = 0;
+    await execHerdr('hcache', 'herdr api snapshot');
+
+    expect(sent).toEqual([`PATH='/opt/herdr/bin':"$PATH" herdr api snapshot`]);
+  });
+
+  it('reports a missing herdr when the shell knows of none either', async () => {
+    exec.mockImplementation(async (_host: string, command: string) =>
+      command.includes('-ilc')
+        ? result({
+            stdout: encodeBase64String(
+              '__remotly_herdr_path__\n\n__remotly_herdr_end__\n',
+            ),
+          })
+        : result({
+            exitCode: 127,
+            stderr: encodeBase64String('zsh:1: command not found: herdr\n'),
+          }),
+    );
+
+    await expect(
+      execHerdr('hmiss', 'herdr session list'),
+    ).rejects.toMatchObject({ code: 'herdr_missing' });
   });
 
   it('reports the exit status when the command said nothing at all', async () => {

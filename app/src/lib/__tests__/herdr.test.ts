@@ -12,8 +12,32 @@ import {
   parseCreatedWorkspace,
   parseCliError,
   HerdrError,
+  parseHerdrLookup,
 } from '../herdr';
 
+describe('herdr lookup', () => {
+  it('takes the path out of whatever the rc files printed around it', () => {
+    expect(
+      parseHerdrLookup(
+        'p10k: warning\n__remotly_herdr_path__\n/home/d/.local/bin/herdr\n__remotly_herdr_end__\n$ ',
+      ),
+    ).toBe('/home/d/.local/bin/herdr');
+  });
+
+  // `command -v` answers for an alias or a function too, and neither is
+  // something the next shell can run.
+  it('rejects an answer that is not an absolute path', () => {
+    expect(
+      parseHerdrLookup(
+        '__remotly_herdr_path__\nherdr: aliased to herdr --session work\n__remotly_herdr_end__\n',
+      ),
+    ).toBeNull();
+  });
+
+  it('reads nothing when the shell never got that far', () => {
+    expect(parseHerdrLookup('zsh: permission denied\n')).toBeNull();
+  });
+});
 describe('shell quoting', () => {
   it('wraps a plain value in single quotes', () => {
     expect(shellQuote('abc')).toBe("'abc'");

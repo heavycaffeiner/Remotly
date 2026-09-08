@@ -120,6 +120,18 @@ while the socket-API commands write the document to stderr and exit non-zero.
 A host is unreachable here until its key has been accepted in the terminal
 once, because a one-shot exec has nowhere to show the first-use prompt.
 
+An exec channel gets a plain non-interactive shell, so PATH is the system
+default and a herdr under `~/.local/bin` or a version manager's shims is
+invisible to it. When a command comes back "command not found", one lookup runs
+`$SHELL -ilc 'command -v herdr'` and the command is repeated with the directory
+it named ahead of PATH; the answer is kept for the host. An interactive login
+shell because that is the one that read the user's rc files: zsh sets PATH in
+`.zshrc`, which a non-interactive login shell skips.
+
+What the host still has to supply is a running `herdr server`. Without it the
+CLI answers with a `server_not_running` document, which the screen reports as
+such.
+
 To exercise the screen against a real server, run one in a container with
 herdr installed and `herdr server` started, publish its SSH port, and add a
 host pointing at it (`10.0.2.2:2222` from an emulator).
