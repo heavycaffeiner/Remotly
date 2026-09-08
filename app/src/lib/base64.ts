@@ -23,7 +23,7 @@ for (let i = 0; i < ALPHABET.length; i++) {
 // UTF-8 encodes a string to bytes. Hand-rolled because Hermes (and the RN
 // tsconfig, which omits the dom lib) provides no TextEncoder. Output matches
 // the encoder in files.ts byte for byte.
-function utf8(s: string): Uint8Array {
+export function encodeUtf8(s: string): Uint8Array {
   const out: number[] = [];
   for (let i = 0; i < s.length; i++) {
     let cp = s.charCodeAt(i);
@@ -59,7 +59,7 @@ function utf8(s: string): Uint8Array {
 // Base64-encodes a string after UTF-8 encoding it. Carries a PEM private key
 // across the bridge, where the native side expects standard base64.
 export function encodeBase64String(s: string): string {
-  return encodeBase64(utf8(s));
+  return encodeBase64(encodeUtf8(s));
 }
 
 export function encodeBase64(bytes: Uint8Array): string {

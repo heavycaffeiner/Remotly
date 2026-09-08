@@ -2,8 +2,10 @@ import {
   attachSshSink,
   closeSshHost,
   closeSshTab,
+  openSshAttachTab,
   openSshTab,
   renameSshTab,
+  reportSshTerminalTitle,
   resizeSshHost,
   selectSshTab,
   sshHostSized,
@@ -52,6 +54,7 @@ jest.mock('../ssh', () => {
   // and rejects any name from outside its own scope, which a type annotation
   // in a generic argument also trips. The typed view of it is `ssh` below.
   const handlers = new Map();
+  const states = new Map();
   return {
     __esModule: true,
     stageMessage: () => null,
@@ -62,13 +65,19 @@ jest.mock('../ssh', () => {
       hostKey: jest.fn().mockResolvedValue(undefined),
       close: jest.fn().mockResolvedValue(undefined),
       closeHost: jest.fn().mockResolvedValue(undefined),
-      onState: jest.fn(() => () => undefined),
+      onState: jest.fn((h: unknown, s: unknown, handler: unknown) => {
+        states.set(`${h}:${s}`, handler);
+        return () => states.delete(`${h}:${s}`);
+      }),
       onData: jest.fn((h: unknown, s: unknown, handler: unknown) => {
         handlers.set(`${h}:${s}`, handler);
         return () => handlers.delete(`${h}:${s}`);
       }),
       __emit: (h: unknown, s: unknown, payload: unknown, fastPath = false) => {
         handlers.get(`${h}:${s}`)?.(payload, fastPath);
+      },
+      __state: (h: unknown, s: unknown, payload: unknown) => {
+        states.get(`${h}:${s}`)?.(payload);
       },
     },
   };
@@ -81,6 +90,7 @@ type MockSsh = typeof remotlySsh & {
     bytes: Uint8Array,
     fastPath?: boolean,
   ) => void;
+  __state: (hostId: string, sessionId: string, state: unknown) => void;
 };
 const ssh = remotlySsh as MockSsh;
 
@@ -499,5 +509,90 @@ describe('subscription', () => {
     listener.mockClear();
     openSshTab(id);
     expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+// Attaching to a herdr workspace is a command typed into the shell, not a
+// channel command: the exec channel's PATH does not carry what a user
+// installed for themselves.
+describe('a tab opened with a command', () => {
+  /** The session id of the host's only tab. */
+  function only(id: string): string {
+    const tabs = sshHostState(id).tabs;
+    expect(tabs).toHaveLength(1);
+    return tabs[0].sessionId;
+  }
+
+  it('types it once the shell reports ready, and not before', () => {
+    const id = freshHost();
+    openSshTab(id, { title: 'api', runs: 'herdr' });
+    const sessionId = only(id);
+    expect(ssh.write).not.toHaveBeenCalled();
+
+    ssh.__state(id, sessionId, { state: 'active' });
+
+    expect(ssh.write).toHaveBeenCalledTimes(1);
+    const [, , bytes] = (ssh.write as jest.Mock).mock.calls[0] as [
+      string,
+      string,
+      Uint8Array,
+    ];
+    expect(String.fromCharCode(...bytes)).toBe('herdr\n');
+  });
+
+  // A reconnect reports active again, and a second attach would run herdr
+  // inside the herdr already attached.
+  it('does not type it again on a later ready', () => {
+    const id = freshHost();
+    openSshTab(id, { title: 'api', runs: 'herdr' });
+    const sessionId = only(id);
+    ssh.__state(id, sessionId, { state: 'active' });
+    ssh.__state(id, sessionId, { state: 'active' });
+
+    expect(ssh.write).toHaveBeenCalledTimes(1);
+  });
+
+  it('takes the title it was given rather than the next shell number', () => {
+    const id = freshHost();
+    openSshTab(id, { title: 'api', runs: 'herdr' });
+
+    expect(sshHostState(id).tabs[0].title).toBe('api');
+  });
+
+  // herdr repaints the terminal title on every redraw, with the hostname in
+  // it, and the workspace name has to survive that.
+  it('keeps that name when the program repaints the title', () => {
+    const id = freshHost();
+    openSshTab(id, { title: 'api', runs: 'herdr' });
+    only(id);
+
+    reportSshTerminalTitle(id, 'host: api');
+
+    expect(sshHostState(id).tabs[0].title).toBe('api');
+  });
+
+  it('reveals the tab a workspace is already attached in', () => {
+    const id = freshHost();
+    openSshAttachTab(id, 'api', 'herdr');
+    const first = only(id);
+    ssh.__state(id, first, { state: 'active' });
+    openSshTab(id);
+    selectSshTab(id, sshHostState(id).tabs[1].sessionId);
+
+    openSshAttachTab(id, 'api', 'herdr');
+
+    expect(sshHostState(id).tabs).toHaveLength(2);
+    expect(sshHostState(id).activeSessionId).toBe(first);
+  });
+
+  it('opens a new one when that tab has since closed', () => {
+    const id = freshHost();
+    openSshAttachTab(id, 'api', 'herdr');
+    const first = only(id);
+    ssh.__state(id, first, { state: 'closed' });
+
+    openSshAttachTab(id, 'api', 'herdr');
+
+    expect(sshHostState(id).tabs).toHaveLength(2);
   });
 });

@@ -9,7 +9,7 @@
 // attaches to the focused workspace and tab rather than a fresh shell.
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { FlatList, View } from 'react-native';
+import { FlatList, LayoutAnimation, View } from 'react-native';
 import { Card, TouchableRipple, useTheme } from 'react-native-paper';
 import { Fab } from '../../components/ui/fab';
 import {
@@ -64,6 +64,8 @@ import {
   renameHerdrWorkspace,
   stopHerdrSession,
 } from '../../lib/herdrClient';
+import { joinShell } from '../../lib/shell';
+import { openSshAttachTab } from '../../lib/sshSessions';
 import type { RootStackParamList } from '../../navigation/types';
 
 type Phase = 'loading' | 'ready' | 'error';
@@ -232,13 +234,21 @@ export function HerdrWorkspacesScreen(): React.ReactElement {
     [act, hostId, session],
   );
 
-  // Focus first, then attach: a terminal opened without focusing lands on
-  // whichever workspace herdr had, not the one the user just chose.
+  // Focus, then open a terminal that attaches. Focusing alone changed nothing
+  // a user could see: the tab that opened was a plain login shell, so the
+  // workspace it named was somewhere else entirely. Bare `herdr` attaches to
+  // the session and lands on whatever is focused, which is why the focus call
+  // comes first.
   const attach = useCallback(
     async (workspace: HerdrWorkspace) => {
       setBusyId(workspace.workspaceId);
       try {
         await focusHerdrWorkspace(hostId, workspace.workspaceId, session);
+        const runs =
+          session === null
+            ? 'herdr'
+            : joinShell(['herdr', '--session', session]);
+        openSshAttachTab(hostId, workspace.label, runs);
         navigation.navigate('SshTerminal', { hostId });
       } catch (e) {
         setNotice(message(e));
@@ -487,11 +497,20 @@ export function HerdrWorkspacesScreen(): React.ReactElement {
                   focusedTabId={focusedTabId}
                   busyId={busyId}
                   open={expanded === item.workspaceId}
-                  onToggle={() =>
+                  onToggle={() => {
+                    // The rows below move by the height of a tab list, which
+                    // read as a jump. Cheaper than animating each card: the
+                    // platform measures the change and tweens it.
+                    LayoutAnimation.configureNext({
+                      duration: 180,
+                      update: { type: 'easeInEaseOut' },
+                      create: { type: 'easeInEaseOut', property: 'opacity' },
+                      delete: { type: 'easeInEaseOut', property: 'opacity' },
+                    });
                     setExpanded(
                       expanded === item.workspaceId ? '' : item.workspaceId,
-                    )
-                  }
+                    );
+                  }}
                   onFocus={focusWorkspace}
                   onAttach={attach}
                   onRename={beginRename}
@@ -778,7 +797,7 @@ function WorkspaceCard({
           }`}
           accessibilityState={{ expanded: open }}
           onPress={onToggle}
-          style={{ borderRadius: 8, paddingVertical: 6 }}
+          style={{ borderRadius: 12, overflow: 'hidden', paddingVertical: 6 }}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Icon
@@ -849,9 +868,10 @@ function TabRow({
         onPress={() => onFocus(tab)}
         style={{
           flex: 1,
-          borderRadius: 8,
+          borderRadius: 12,
+          overflow: 'hidden',
           paddingHorizontal: 8,
-          paddingVertical: 8,
+          paddingVertical: 6,
         }}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>

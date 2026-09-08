@@ -190,12 +190,21 @@ export function SessionTabs({
     [scrollToTab],
   );
 
+  // "Shell 3" and the like: the names the app mints when it has nothing
+  // better, which is what makes a lone tab's chip redundant.
+  const generic = /^Shell \d+$/;
+  const showBar =
+    tabs.length > 1 || (tabs.length === 1 && !generic.test(tabs[0].label));
+
   return (
     <>
-      {/* One tab needs no bar: the chip repeats what the title already says,
-          and it costs two terminal rows. The dialogs below stay mounted either
-          way, since the menu drives rename through renameRequest. */}
-      {tabs.length > 1 ? (
+      {/* A lone tab called "Shell 1" needs no bar: it repeats what the title
+          already says and costs two terminal rows. A named one is the
+          opposite, since the name is the only thing saying which herdr
+          workspace the terminal is attached to. The dialogs below stay
+          mounted either way, since the menu drives rename through
+          renameRequest. */}
+      {showBar ? (
         <Surface
           elevation={0}
           style={{
@@ -393,11 +402,12 @@ function Tab({
         onLayout(tab.sessionId, x, width);
       }}
       style={{
-        height: 44,
-        maxWidth: 220,
+        height: 40,
+        maxWidth: 200,
         flexDirection: 'row',
         alignItems: 'center',
         borderRadius: 999,
+        overflow: 'hidden',
         paddingLeft: 12,
         backgroundColor: (active
           ? colors.primary
@@ -422,8 +432,11 @@ function Tab({
               },
             }
           : {})}
+        // Pressing a tab drew nothing at all before: the chip is its own
+        // background, so the ripple has to be asked for.
+        android_ripple={{ color: fg, borderless: false }}
         style={{
-          height: 44,
+          height: 40,
           flexShrink: 1,
           flexDirection: 'row',
           alignItems: 'center',
@@ -443,9 +456,10 @@ function Tab({
         onPress={close}
         accessibilityRole="button"
         accessibilityLabel={`Close ${tab.label}`}
+        android_ripple={{ color: fg, borderless: true, radius: 18 }}
         style={{
-          height: 44,
-          width: 36,
+          height: 40,
+          width: 34,
           alignItems: 'center',
           justifyContent: 'center',
           borderRadius: 999,

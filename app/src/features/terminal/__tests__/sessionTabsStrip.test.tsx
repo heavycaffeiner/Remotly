@@ -121,16 +121,27 @@ function texts(tree: ReactTestRenderer): string[] {
 }
 
 describe('SessionTabs with one session', () => {
-  const ONE = [TABS[0]];
+  const ONE: SessionTabView[] = [{ ...TABS[0], label: 'Shell 1' }];
 
   /**
    * The bar would repeat what the title already says, and it costs two
    * terminal rows.
    */
-  it('draws no bar', () => {
+  it('draws no bar for a tab the app named itself', () => {
     const tree = render({ tabs: ONE, activeSessionId: ONE[0].sessionId });
 
     expect(tree.root.findAllByType(ScrollView)).toHaveLength(0);
+  });
+
+  /**
+   * A name is the only thing on screen saying which herdr workspace the
+   * terminal attached to, so it is worth the two rows.
+   */
+  it('draws the bar for a tab that carries a name', () => {
+    const named: SessionTabView[] = [{ ...TABS[0], label: 'deploy' }];
+    const tree = render({ tabs: named, activeSessionId: named[0].sessionId });
+
+    expect(tree.root.findAllByType(ScrollView)).toHaveLength(1);
   });
 
   /**

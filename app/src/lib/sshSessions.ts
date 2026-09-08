@@ -24,7 +24,7 @@ import {
 } from './sshTabs';
 import { forgetFilesTab } from './filesTabs';
 import terminalStore from '../specs/NativeRemotlyTerminalStore';
-import { encodeBase64 } from './base64';
+import { encodeBase64, encodeUtf8 } from './base64';
 import { toRemotlyError, userFacingMessage } from './errors';
 import { log } from './log';
 
@@ -313,6 +313,7 @@ function applyState(hostId: string, sessionId: string, s: SshState): void {
     case 'active':
       clearPrompt();
       e.state = setSshTabPhase(e.state, sessionId, 'active');
+      flushPendingRun(hostId, sessionId);
       break;
     case 'closed':
       clearPrompt();
@@ -388,8 +389,18 @@ function stopSession(hostId: string, sessionId: string): void {
   void remotlySsh.close(hostId, sessionId).catch(() => undefined);
 }
 
-/** Opens a tab. Does nothing at the cap. */
-export function openSshTab(hostId: string): void {
+/**
+ * Opens a tab.
+ *
+ * `title` names it something other than the next `Shell N`, and `runs` is a
+ * command typed into the shell once it is live. The command goes through the
+ * login shell rather than being the channel's command, which is what makes it
+ * find whatever the user's PATH holds. Does nothing at the cap.
+ */
+export function openSshTab(
+  hostId: string,
+  opts: { title?: string; runs?: string } = {},
+): void {
   const e = entry(hostId);
   if (e.state.tabs.length >= MAX_SSH_TABS) return;
   e.seq += 1;
@@ -400,12 +411,48 @@ export function openSshTab(hostId: string): void {
   const { state: next, tab } = addSshTab(
     e.state,
     sessionId,
-    `Shell ${nextShellNumber(e.state.tabs)}`,
+    opts.title ?? `Shell ${nextShellNumber(e.state.tabs)}`,
   );
   if (tab === null) return;
-  e.state = next;
+  // A given title is pinned: it says which workspace the tab is attached to,
+  // and herdr repaints the terminal's title on every redraw, which otherwise
+  // replaces it with the hostname.
+  e.state =
+    opts.title === undefined
+      ? next
+      : setSshTabTitle(next, sessionId, opts.title, true);
+  if (opts.runs !== undefined && opts.runs !== '') {
+    pendingRuns.set(runKey(hostId, sessionId), opts.runs);
+  }
   notify(e);
   startSession(hostId, sessionId);
+}
+
+/**
+ * Commands waiting for their shell to come up, by host and session.
+ *
+ * Typed rather than sent as the channel's command: an exec channel gets a
+ * non-interactive shell, whose PATH is the system default, and the programs
+ * worth attaching to are exactly the ones a user installed for themselves.
+ */
+const pendingRuns = new Map<string, string>();
+
+function runKey(hostId: string, sessionId: string): string {
+  return `${hostId}\u0000${sessionId}`;
+}
+
+/** Types a queued command once, when its shell reports ready. */
+function flushPendingRun(hostId: string, sessionId: string): void {
+  const key = runKey(hostId, sessionId);
+  const command = pendingRuns.get(key);
+  if (command === undefined) return;
+  pendingRuns.delete(key);
+  const bytes = encodeUtf8(`${command}\n`);
+  void remotlySsh.write(hostId, sessionId, bytes).catch(err => {
+    log.warn('ssh initial command failed', {
+      message: userFacingMessage(toRemotlyError(err, 'terminal')),
+    });
+  });
 }
 
 /** The lowest shell number not already taken by an open tab. */
@@ -418,6 +465,32 @@ function nextShellNumber(tabs: readonly { title: string }[]): number {
   let n = 1;
   while (used.has(n)) n += 1;
   return n;
+}
+
+/**
+ * Opens, or reveals, the tab that a workspace is attached in.
+ *
+ * Pressing "Open terminal" twice on the same workspace should land in the
+ * session already attached to it rather than stack a second one, and a tab
+ * that has since closed is opened again rather than revealed dead.
+ */
+export function openSshAttachTab(
+  hostId: string,
+  title: string,
+  runs: string,
+): void {
+  const e = entry(hostId);
+  const live = e.state.tabs.find(
+    t =>
+      t.title === title &&
+      t.kind === 'shell' &&
+      (t.phase === 'active' || t.phase === 'connecting'),
+  );
+  if (live !== undefined) {
+    selectSshTab(hostId, live.sessionId);
+    return;
+  }
+  openSshTab(hostId, { title, runs });
 }
 
 /**
