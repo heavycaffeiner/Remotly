@@ -13,6 +13,8 @@ import * as React from 'react';
 import {
   Animated,
   Easing,
+  PanResponder,
+  ScrollView,
   useWindowDimensions,
   View,
   type StyleProp,
@@ -44,6 +46,12 @@ interface SheetProps {
 
 const DURATION_MS = 200;
 
+/** How far down a drag has to end for the sheet to close rather than settle. */
+const DISMISS_DISTANCE = 96;
+
+/** A flick past this speed closes it regardless of distance. */
+const DISMISS_VELOCITY = 0.7;
+
 function Sheet({
   open,
   onClose,
@@ -51,6 +59,7 @@ function Sheet({
   children,
 }: SheetProps): React.ReactElement {
   const slide = React.useRef(new Animated.Value(0)).current;
+  const drag = React.useRef(new Animated.Value(0)).current;
   const insets = useSafeInsets();
   const { colors } = useTheme();
 
@@ -62,13 +71,60 @@ function Sheet({
   const [sheetHeight, setSheetHeight] = React.useState(windowHeight);
 
   React.useEffect(() => {
+    // Opening starts from the closed position, not from wherever the last
+    // drag left it.
+    if (open) drag.setValue(0);
     Animated.timing(slide, {
       toValue: open ? 1 : 0,
       duration: DURATION_MS,
       easing: open ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
       useNativeDriver: true,
     }).start();
-  }, [open, slide]);
+  }, [open, slide, drag]);
+
+  // Dragging the grip pulls the sheet down and lets go of it. Only downward:
+  // pulling up would leave a gap under a sheet that is already at the bottom
+  // edge. The gesture lives on the grip rather than the whole surface so a
+  // list inside keeps its own scrolling.
+  const pan = React.useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_e, g) =>
+          g.dy > 2 && Math.abs(g.dy) > Math.abs(g.dx),
+        onPanResponderMove: (_e, g) => {
+          drag.setValue(Math.max(0, g.dy));
+        },
+        onPanResponderRelease: (_e, g) => {
+          if (g.dy > DISMISS_DISTANCE || g.vy > DISMISS_VELOCITY) {
+            // Left where it is: the close animation carries it the rest of
+            // the way down, so releasing does not snap back up first.
+            onClose();
+            return;
+          }
+          Animated.spring(drag, {
+            toValue: 0,
+            useNativeDriver: true,
+            bounciness: 0,
+          }).start();
+        },
+        onPanResponderTerminate: () => {
+          Animated.spring(drag, {
+            toValue: 0,
+            useNativeDriver: true,
+            bounciness: 0,
+          }).start();
+        },
+      }),
+    [drag, onClose],
+  );
+
+  const translateY = Animated.add(
+    slide.interpolate({
+      inputRange: [0, 1],
+      outputRange: [sheetHeight, 0],
+    }),
+    drag,
+  );
 
   return (
     <Portal>
@@ -79,15 +135,12 @@ function Sheet({
         // Paper centers its content and insets the wrapper. The sheet has to
         // reach the bottom edge instead and pads for the gesture bar itself.
         style={{ justifyContent: 'flex-end', marginBottom: 0 }}
+        // Paper's own container centers its child too, so bottom-aligning the
+        // wrapper is not enough: without this the sheet floats in the middle
+        // of the screen with a gap beneath it.
         contentContainerStyle={{
-          transform: [
-            {
-              translateY: slide.interpolate({
-                inputRange: [0, 1],
-                outputRange: [sheetHeight, 0],
-              }),
-            },
-          ],
+          justifyContent: 'flex-end',
+          transform: [{ translateY }],
         }}
       >
         <Surface
@@ -96,33 +149,48 @@ function Sheet({
             const h = e.nativeEvent.layout.height;
             if (h > 0) setSheetHeight(h);
           }}
-          // The gesture bar sits under the sheet's own bottom edge, so the
-          // inset is added to the padding rather than replacing it. Without
-          // this the last row is drawn behind the navigation bar.
           style={{
             maxHeight: '85%',
             borderTopLeftRadius: 28,
             borderTopRightRadius: 28,
-            padding: 20,
-            paddingBottom: insets.bottom + 24,
           }}
         >
+          {/* The grip: a wide target rather than the bar alone, since the bar
+              is 4dp tall and nobody can land on that. */}
           <View
+            {...pan.panHandlers}
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
-            style={{
-              marginBottom: 16,
-              height: 4,
-              width: 32,
-              alignSelf: 'center',
-              borderRadius: 999,
-              backgroundColor: colors.outlineVariant as string,
+            style={{ paddingTop: 12, paddingBottom: 8 }}
+          >
+            <View
+              style={{
+                height: 4,
+                width: 32,
+                alignSelf: 'center',
+                borderRadius: 999,
+                backgroundColor: colors.outlineVariant as string,
+              }}
+            />
+          </View>
+          {/* Scrolls rather than clipping: a sheet taller than its 85% cap
+              would otherwise lose its last rows with no way to reach them. */}
+          <ScrollView
+            keyboardShouldPersistTaps="always"
+            contentContainerStyle={{
+              paddingHorizontal: 16,
+              // The gesture bar sits under the sheet's own bottom edge, so the
+              // inset is added to the padding rather than replacing it. The
+              // last row is a target, and one flush against the bar is one the
+              // system swipe takes instead.
+              paddingBottom: insets.bottom + 28,
             }}
-          />
-          {children}
+          >
+            {children}
+          </ScrollView>
         </Surface>
-        {/* Outside the sliding surface, so it holds still while the sheet
-            moves and stays above it. */}
+        {/* Inside the sliding container, so it travels with the sheet and
+            stays above its surface. */}
         <SheetToast message={toast} />
       </Modal>
     </Portal>
