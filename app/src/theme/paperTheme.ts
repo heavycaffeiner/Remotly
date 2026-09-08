@@ -21,6 +21,7 @@ export function paperTheme(
 // Rounder than Material's own scale, which is what carries the look here: the
 // app is lists of cards and chips, and 12dp on a card reads as a rectangle
 // with the corners taken off. Only the two tokens the app actually renders
-// through are moved: cards take `medium`, chips take `small`. Buttons and
-// dialogs are already at pill and 28dp.
+// through are moved: cards take `medium`, chips take `small`. Buttons are left
+// alone because their token is 20dp against a 40dp button, which is already
+// the full round, and dialogs are at 28dp.
 const CORNER = { medium: 18, small: 12 } as const;

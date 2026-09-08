@@ -473,6 +473,11 @@ function nextShellNumber(tabs: readonly { title: string }[]): number {
  * Pressing "Open terminal" twice on the same workspace should land in the
  * session already attached to it rather than stack a second one, and a tab
  * that has since closed is opened again rather than revealed dead.
+ *
+ * Matched by title, which holds because the title a workspace opens with is
+ * pinned and herdr's own repaints cannot take it. A user who renames that tab
+ * by hand gets a second one on the next press, which is the honest reading of
+ * a tab they deliberately called something else.
  */
 export function openSshAttachTab(
   hostId: string,
