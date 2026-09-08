@@ -17,6 +17,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { encodeBase64String } from '../../../lib/base64';
 import { HerdrWorkspacesScreen } from '../HerdrWorkspacesScreen';
 import NativeHerdr from '../../../specs/NativeRemotlyHerdr';
+import { sshHostState } from '../../../lib/sshSessions';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 400, height: 800 },
@@ -379,5 +380,26 @@ describe('HerdrWorkspacesScreen', () => {
     await pressText(tree, 'Close');
 
     expect(sent.some(c => c.includes('tab close w2:t2'))).toBe(true);
+  });
+});
+
+// A session's focused workspace is session state, not per client, so a second
+// attached terminal could only mirror the first. Opening one from two
+// different cards has to move the one terminal instead of stacking them.
+describe('attaching a terminal', () => {
+  it('keeps one attached tab per session, whichever card asked', async () => {
+    const sent = bridge();
+    const tree = await mount();
+
+    await pressLabel(tree, 'Open a terminal on Remotly');
+    await pressLabel(tree, 'Open a terminal on Scratch');
+
+    const tabs = sshHostState('h1').tabs;
+    expect(tabs).toHaveLength(1);
+    expect(tabs[0].title).toBe('herdr');
+    expect(sent.filter(c => c.includes('workspace focus'))).toEqual([
+      'herdr workspace focus w2',
+      'herdr workspace focus w9',
+    ]);
   });
 });

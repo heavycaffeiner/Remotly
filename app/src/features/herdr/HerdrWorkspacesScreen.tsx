@@ -234,11 +234,12 @@ export function HerdrWorkspacesScreen(): React.ReactElement {
     [act, hostId, session],
   );
 
-  // Focus, then open a terminal that attaches. Focusing alone changed nothing
-  // a user could see: the tab that opened was a plain login shell, so the
-  // workspace it named was somewhere else entirely. Bare `herdr` attaches to
-  // the session and lands on whatever is focused, which is why the focus call
-  // comes first.
+  // Focus, then attach. A session shows one workspace at a time: the focused
+  // one is session state, not per client, so every terminal attached to it
+  // renders the same workspace. The tab is therefore named after the session
+  // and reused, and pressing this on another card moves that one terminal
+  // rather than opening a second that would only mirror the first. Two
+  // workspaces side by side means two sessions.
   const attach = useCallback(
     async (workspace: HerdrWorkspace) => {
       setBusyId(workspace.workspaceId);
@@ -248,7 +249,8 @@ export function HerdrWorkspacesScreen(): React.ReactElement {
           session === null
             ? 'herdr'
             : joinShell(['herdr', '--session', session]);
-        openSshAttachTab(hostId, workspace.label, runs);
+        const title = session === null ? 'herdr' : `herdr: ${session}`;
+        openSshAttachTab(hostId, title, runs);
         navigation.navigate('SshTerminal', { hostId });
       } catch (e) {
         setNotice(message(e));
@@ -453,22 +455,30 @@ export function HerdrWorkspacesScreen(): React.ReactElement {
 
       {phase === 'ready' ? (
         <View style={{ flex: 1 }}>
-          {sessions.length > 1 ? (
-            <View style={{ paddingHorizontal: 16, paddingTop: 8, gap: 8 }}>
-              <SectionHeader title="Session" />
-              <Segmented
-                value={sessionName}
-                onChange={pickSession}
-                options={sessions.map(s => ({
-                  value: s.name,
-                  label: s.name,
-                  accessibilityLabel: s.running
-                    ? `Session ${s.name}, running`
-                    : `Session ${s.name}, stopped`,
-                }))}
-              />
-            </View>
-          ) : null}
+          <View style={{ paddingHorizontal: 16, paddingTop: 8, gap: 6 }}>
+            {sessions.length > 1 ? (
+              <>
+                <SectionHeader title="Session" />
+                <Segmented
+                  value={sessionName}
+                  onChange={pickSession}
+                  options={sessions.map(s => ({
+                    value: s.name,
+                    label: s.name,
+                    accessibilityLabel: s.running
+                      ? `Session ${s.name}, running`
+                      : `Session ${s.name}, stopped`,
+                  }))}
+                />
+              </>
+            ) : null}
+            {/* Said once, here, because the alternative is the user finding
+                out by opening two terminals and seeing one workspace. */}
+            <Text variant="caption">
+              A session shows one workspace at a time, in every terminal
+              attached to it. Opening a terminal moves the one attached here.
+            </Text>
+          </View>
 
           {workspaces.length === 0 ? (
             <Empty

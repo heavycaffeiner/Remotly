@@ -132,6 +132,13 @@ What the host still has to supply is a running `herdr server`. Without it the
 CLI answers with a `server_not_running` document, which the screen reports as
 such.
 
+"Open terminal" focuses the workspace and attaches a tab that runs `herdr`.
+There is one such tab per session, not per workspace: the focused workspace is
+session state rather than per client, so a second attached terminal would only
+mirror the first. `herdr workspace focus` takes no client scope and the root
+command takes no `--workspace`, so this is herdr's model, not a shortcut here.
+Two workspaces on screen at once means two sessions, each with its own tab.
+
 To exercise the screen against a real server, run one in a container with
 herdr installed and `herdr server` started, publish its SSH port, and add a
 host pointing at it (`10.0.2.2:2222` from an emulator).

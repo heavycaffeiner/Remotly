@@ -30,8 +30,9 @@ A standalone SSH and SFTP client for Android.
   server` is running, its workspaces and tabs are listed, created, renamed,
   focused, and closed from the app over SSH. They keep running on the machine,
   so closing Remotly or losing the connection leaves every workspace where it
-  was. Verified against herdr 0.9.0; the wire format has been stable since
-  0.8.2.
+  was. Opening a terminal attaches to the session and follows the workspace in
+  focus, one attached tab per session, because that is what a session shows.
+  Verified against herdr 0.9.0; the wire format has been stable since 0.8.2.
 
 ## Layout
 
