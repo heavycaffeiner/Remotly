@@ -5,8 +5,7 @@
 // resizes the remote PTY every time the connection state changes.
 
 import * as React from 'react';
-import { ActivityIndicator, View } from 'react-native';
-import { cn } from '../../lib/utils';
+import { ActivityIndicator, Surface, useTheme } from 'react-native-paper';
 import { Button } from '../../components/ui/button';
 import { Icon } from '../../components/ui/icon';
 import { Text } from '../../components/ui/text';
@@ -24,47 +23,58 @@ export function TerminalStatusBanner({
   message,
   action,
 }: TerminalStatusBannerProps): React.ReactElement {
+  const { colors } = useTheme();
+  const error = tone === 'error';
+  const ink = error
+    ? (colors.onErrorContainer as string)
+    : (colors.onSurface as string);
   return (
-    <View
-      role={tone === 'error' ? 'alert' : undefined}
+    <Surface
+      elevation={2}
+      role={error ? 'alert' : undefined}
       accessibilityLiveRegion="polite"
-      className={cn(
-        'absolute inset-x-2 top-2 z-10 flex-row items-center gap-2 rounded-md border px-3 py-2',
-        tone === 'error'
-          ? 'border-destructive/40 bg-destructive'
-          : 'border-border bg-card',
-      )}
+      style={{
+        position: 'absolute',
+        left: 8,
+        right: 8,
+        top: 8,
+        zIndex: 10,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        borderRadius: 8,
+        borderWidth: 1,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderColor: error
+          ? (colors.error as string)
+          : (colors.outlineVariant as string),
+        backgroundColor: error
+          ? (colors.errorContainer as string)
+          : (colors.surfaceContainerHigh as string),
+      }}
     >
       {tone === 'busy' ? (
         <ActivityIndicator size="small" />
       ) : (
         <Icon
-          name={tone === 'error' ? 'circle-alert' : 'info'}
+          name={error ? 'alert-circle' : 'information'}
           size={16}
-          className={
-            tone === 'error' ? 'text-destructive-foreground' : 'text-foreground'
-          }
+          color={ink}
         />
       )}
-      <Text
-        variant="callout"
-        numberOfLines={2}
-        className={cn(
-          'flex-1',
-          tone === 'error' && 'text-destructive-foreground',
-        )}
-      >
+      <Text variant="callout" numberOfLines={2} style={{ flex: 1, color: ink }}>
         {message}
       </Text>
       {action === undefined ? null : (
         <Button
           size="sm"
-          variant={tone === 'error' ? 'secondary' : 'outline'}
+          variant={error ? 'secondary' : 'outline'}
           onPress={action.onPress}
         >
-          <Text>{action.label}</Text>
+          {action.label}
         </Button>
       )}
-    </View>
+    </Surface>
   );
 }

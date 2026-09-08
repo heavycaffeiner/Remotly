@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
-import { Keyboard, View } from 'react-native';
+import { Keyboard, StyleSheet, View } from 'react-native';
 
 import { KeyboardLifted } from '../KeyboardLifted';
 
@@ -32,8 +32,9 @@ afterEach(() => {
 /** The padding the wrapper applies, which is the whole point of it. */
 function padding(tree: ReactTestRenderer): number {
   const root = tree.root.findAllByType(View)[0];
-  const style = root?.props.style as { paddingBottom?: number } | undefined;
-  return style?.paddingBottom ?? 0;
+  const flat = StyleSheet.flatten(root?.props.style);
+  const bottom = flat?.paddingBottom;
+  return typeof bottom === 'number' ? bottom : 0;
 }
 
 /**

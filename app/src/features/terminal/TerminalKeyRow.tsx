@@ -10,7 +10,7 @@
 
 import React, { useCallback, useEffect, useRef } from 'react';
 import { Pressable, ScrollView, Vibration, View } from 'react-native';
-import { cn } from '../../lib/utils';
+import { Surface, useTheme } from 'react-native-paper';
 import { IconButton } from '../../components/Screen';
 import { Icon, type IconName } from '../../components/ui/icon';
 import { Text } from '../../components/ui/text';
@@ -83,6 +83,7 @@ export function TerminalKeyRow({
   haptics,
   onKeyboard,
 }: TerminalKeyRowProps): React.ReactElement {
+  const { colors } = useTheme();
   // One repeater for the whole row. A per-key repeater cannot enforce that
   // only one key is held: a finger sliding from one key to the next, or the
   // scroll view claiming the touch, leaves the first key's release unfired and
@@ -150,16 +151,25 @@ export function TerminalKeyRow({
   }, []);
 
   return (
-    <View className="flex-row items-center border-t border-border bg-card">
+    <Surface
+      elevation={0}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        borderTopWidth: 1,
+        borderTopColor: colors.outlineVariant as string,
+        backgroundColor: colors.surfaceContainerLow as string,
+      }}
+    >
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
         keyboardShouldPersistTaps="always"
         contentContainerStyle={{ paddingHorizontal: 8, gap: 6 }}
-        // flex-1 bounds the strip to the space left beside the pinned button.
+        // flex:1 bounds the strip to the space left beside the pinned button.
         // Without it the row sizes to its content and pushes the button off
         // the edge once there are enough keys to overflow.
-        className="flex-1 py-1.5"
+        style={{ flex: 1, paddingVertical: 6 }}
         onScrollBeginDrag={beginScroll}
         onScrollEndDrag={endScroll}
         onMomentumScrollEnd={endScroll}
@@ -178,14 +188,20 @@ export function TerminalKeyRow({
       {/* Outside the ScrollView so it holds one position: the keyboard is
           wanted most when the row has been scrolled away from its start, which
           is exactly when a key inside the strip would be off screen. */}
-      <View className="border-l border-border px-1">
+      <View
+        style={{
+          borderLeftWidth: 1,
+          borderLeftColor: colors.outlineVariant as string,
+          paddingHorizontal: 4,
+        }}
+      >
         <IconButton
           icon="keyboard"
           label="Show the keyboard"
           onPress={onKeyboard}
         />
       </View>
-    </View>
+    </Surface>
   );
 }
 
@@ -205,6 +221,7 @@ function KeyButton({
   onRelease,
   isScrolling,
 }: KeyButtonProps): React.ReactElement {
+  const { colors } = useTheme();
   // Whether this touch actually pressed the key, so a scroll that starts on it
   // does not release a key that never fired.
   const fired = useRef(false);
@@ -241,19 +258,31 @@ function KeyButton({
       }
       onPressIn={pressIn}
       onPressOut={pressOut}
-      className={cn(
-        'h-11 min-w-11 items-center justify-center rounded-md border px-3',
-        active
-          ? 'border-primary bg-primary'
-          : 'border-border bg-secondary active:bg-accent',
-      )}
+      style={{
+        height: 44,
+        minWidth: 44,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 8,
+        borderWidth: 1,
+        paddingHorizontal: 12,
+        borderColor: active
+          ? (colors.primary as string)
+          : (colors.outlineVariant as string),
+        backgroundColor: active
+          ? (colors.primary as string)
+          : (colors.secondaryContainer as string),
+      }}
     >
       {def.icon === undefined ? (
         <Text
-          className={cn(
-            'text-sm font-medium',
-            active ? 'text-primary-foreground' : 'text-secondary-foreground',
-          )}
+          variant="callout"
+          style={{
+            fontWeight: '500',
+            color: active
+              ? (colors.onPrimary as string)
+              : (colors.onSecondaryContainer as string),
+          }}
         >
           {def.text ?? def.label}
         </Text>
@@ -261,8 +290,10 @@ function KeyButton({
         <Icon
           name={def.icon}
           size={18}
-          className={
-            active ? 'text-primary-foreground' : 'text-secondary-foreground'
+          color={
+            active
+              ? (colors.onPrimary as string)
+              : (colors.onSecondaryContainer as string)
           }
         />
       )}

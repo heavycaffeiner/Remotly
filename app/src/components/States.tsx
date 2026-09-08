@@ -4,27 +4,25 @@
 // meets it.
 
 import * as React from 'react';
-import { ActivityIndicator, View } from 'react-native';
-import { cn } from '../lib/utils';
-import { Badge } from './ui/badge';
+import { View } from 'react-native';
+import { ActivityIndicator, Surface, useTheme } from 'react-native-paper';
+import { Badge, type BadgeVariant } from './ui/badge';
 import { Button } from './ui/button';
-import { Icon, type IconName } from './ui/icon';
+import { Icon } from './ui/icon';
+import type { IconName } from '../lib/icons';
 import { Text } from './ui/text';
 
 /** A status tone. Never carried by color alone: each pairs with an icon. */
 export type Tone = 'ok' | 'busy' | 'idle' | 'danger';
 
 const TONE_ICON: Record<Tone, IconName> = {
-  ok: 'circle-check',
+  ok: 'check-circle',
   busy: 'clock',
-  idle: 'circle',
-  danger: 'circle-alert',
+  idle: 'circle-outline',
+  danger: 'alert-circle',
 };
 
-const TONE_BADGE: Record<
-  Tone,
-  'default' | 'secondary' | 'destructive' | 'outline'
-> = {
+const TONE_BADGE: Record<Tone, BadgeVariant> = {
   ok: 'default',
   busy: 'secondary',
   idle: 'outline',
@@ -33,7 +31,14 @@ const TONE_BADGE: Record<
 
 export function Loading({ label }: { label: string }): React.ReactElement {
   return (
-    <View className="flex-1 items-center justify-center gap-3">
+    <View
+      style={{
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 12,
+      }}
+    >
       <ActivityIndicator accessibilityLabel={label} />
       <Text variant="muted">{label}</Text>
     </View>
@@ -56,25 +61,32 @@ export function Empty({
   action,
   secondaryAction,
 }: EmptyProps): React.ReactElement {
+  const { colors } = useTheme();
   return (
-    <View className="flex-1 items-center justify-center gap-4 p-8">
-      <Icon name={icon} size={48} className="text-muted-foreground" />
-      <Text variant="title" className="text-center">
+    <View
+      style={{
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 16,
+        padding: 32,
+      }}
+    >
+      <Icon name={icon} size={48} color={colors.onSurfaceVariant as string} />
+      <Text variant="title" style={{ textAlign: 'center' }}>
         {title}
       </Text>
       {message === undefined ? null : (
-        <Text variant="muted" className="text-center">
+        <Text variant="muted" style={{ textAlign: 'center' }}>
           {message}
         </Text>
       )}
       {action === undefined ? null : (
-        <Button onPress={action.onPress}>
-          <Text>{action.label}</Text>
-        </Button>
+        <Button onPress={action.onPress}>{action.label}</Button>
       )}
       {secondaryAction === undefined ? null : (
         <Button variant="outline" onPress={secondaryAction.onPress}>
-          <Text>{secondaryAction.label}</Text>
+          {secondaryAction.label}
         </Button>
       )}
     </View>
@@ -94,19 +106,26 @@ export function ErrorState({
   onRetry,
   retryLabel = 'Try again',
 }: ErrorStateProps): React.ReactElement {
+  const { colors } = useTheme();
   return (
-    <View className="flex-1 items-center justify-center gap-4 p-8">
-      <Icon name="circle-alert" size={48} className="text-destructive" />
-      <Text variant="title" className="text-center">
+    <View
+      style={{
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 16,
+        padding: 32,
+      }}
+    >
+      <Icon name="alert-circle" size={48} color={colors.error as string} />
+      <Text variant="title" style={{ textAlign: 'center' }}>
         {title}
       </Text>
-      <Text variant="muted" className="text-center">
+      <Text variant="muted" style={{ textAlign: 'center' }}>
         {message}
       </Text>
       {onRetry === undefined ? null : (
-        <Button onPress={onRetry}>
-          <Text>{retryLabel}</Text>
-        </Button>
+        <Button onPress={onRetry}>{retryLabel}</Button>
       )}
     </View>
   );
@@ -126,38 +145,50 @@ export function Notice({
   action,
   onDismiss,
 }: NoticeProps): React.ReactElement {
+  const { colors } = useTheme();
+  const danger = tone === 'danger';
   return (
-    <View
+    <Surface
+      elevation={0}
       accessibilityLiveRegion="polite"
-      className={cn(
-        'm-4 flex-row items-start gap-3 rounded-md border p-3',
-        tone === 'danger'
-          ? 'border-destructive/40 bg-destructive/10'
-          : 'border-border bg-muted',
-      )}
+      style={{
+        margin: 16,
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 12,
+        borderRadius: 8,
+        borderWidth: 1,
+        padding: 12,
+        borderColor: danger
+          ? (colors.error as string)
+          : (colors.outlineVariant as string),
+        backgroundColor: danger
+          ? (colors.errorContainer as string)
+          : (colors.surfaceVariant as string),
+      }}
     >
       <Icon
         name={TONE_ICON[tone]}
-        className={tone === 'danger' ? 'text-destructive' : 'text-foreground'}
+        color={danger ? (colors.error as string) : (colors.onSurface as string)}
       />
-      <View className="flex-1 gap-2">
+      <View style={{ flex: 1, gap: 8 }}>
         <Text variant="callout">{message}</Text>
         {action === undefined && onDismiss === undefined ? null : (
-          <View className="flex-row gap-2">
+          <View style={{ flexDirection: 'row', gap: 8 }}>
             {action === undefined ? null : (
               <Button size="sm" variant="outline" onPress={action.onPress}>
-                <Text>{action.label}</Text>
+                {action.label}
               </Button>
             )}
             {onDismiss === undefined ? null : (
               <Button size="sm" variant="ghost" onPress={onDismiss}>
-                <Text>Dismiss</Text>
+                Dismiss
               </Button>
             )}
           </View>
         )}
       </View>
-    </View>
+    </Surface>
   );
 }
 
@@ -170,16 +201,7 @@ export function StatusChip({
   label: string;
 }): React.ReactElement {
   return (
-    <Badge variant={TONE_BADGE[tone]} accessibilityLabel={label}>
-      <Icon
-        name={TONE_ICON[tone]}
-        size={12}
-        className={
-          tone === 'idle' ? 'text-foreground' : 'text-primary-foreground'
-        }
-      />
-      <Text>{label}</Text>
-    </Badge>
+    <Badge variant={TONE_BADGE[tone]} icon={TONE_ICON[tone]} label={label} />
   );
 }
 
@@ -188,11 +210,20 @@ export function SectionHeader({
 }: {
   title: string;
 }): React.ReactElement {
+  const { colors } = useTheme();
   return (
     <Text
       role="heading"
       variant="caption"
-      className="px-4 pb-1 pt-5 font-semibold uppercase tracking-wide text-primary"
+      style={{
+        paddingHorizontal: 16,
+        paddingBottom: 4,
+        paddingTop: 20,
+        fontWeight: '600',
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+        color: colors.primary as string,
+      }}
     >
       {title}
     </Text>

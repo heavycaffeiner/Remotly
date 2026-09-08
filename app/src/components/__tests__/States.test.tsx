@@ -4,6 +4,7 @@
 
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import { PaperProvider } from 'react-native-paper';
 
 import { Empty } from '../States';
 
@@ -28,21 +29,34 @@ function texts(tree: ReactTestRenderer): string[] {
 
 /** The pressable buttons, in render order. */
 function buttons(tree: ReactTestRenderer) {
-  return tree.root.findAll(
-    node =>
-      typeof node.props?.onPress === 'function' &&
-      String(
-        (node.type as { displayName?: string; name?: string })?.displayName ??
-          (node.type as { name?: string })?.name ??
-          '',
-      ) === 'Button',
-  );
+  // The app's Button renders Paper's, which carries the same display name and
+  // the same handler, so each control matches twice. Keep the outer one.
+  const seen = new Set<unknown>();
+  return tree.root
+    .findAll(
+      node =>
+        typeof node.props?.onPress === 'function' &&
+        String(
+          (node.type as { displayName?: string; name?: string })?.displayName ??
+            (node.type as { name?: string })?.name ??
+            '',
+        ) === 'Button',
+    )
+    .filter(node => {
+      if (seen.has(node.props.onPress)) return false;
+      seen.add(node.props.onPress);
+      return true;
+    });
 }
 
 function render(props: React.ComponentProps<typeof Empty>): ReactTestRenderer {
   let tree: ReactTestRenderer;
   act(() => {
-    tree = create(<Empty {...props} />);
+    tree = create(
+      <PaperProvider>
+        <Empty {...props} />
+      </PaperProvider>,
+    );
   });
   return tree!;
 }

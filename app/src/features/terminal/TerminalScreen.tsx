@@ -40,6 +40,11 @@ import { Text } from '../../components/ui/text';
 import { Toast } from '../../components/Toast';
 import type { IconName } from '../../components/ui/icon';
 import NativeCamera from '../../specs/NativeRemotlyCamera';
+import { Surface } from 'react-native-paper';
+import {
+  TERMINAL_BACKGROUND,
+  TERMINAL_FOREGROUND,
+} from '../../theme/terminalChrome';
 
 export interface TerminalBanner {
   tone: TerminalBannerTone;
@@ -347,20 +352,24 @@ export const TerminalScreen = forwardRef<
   }, []);
 
   const rendererFailure = rendererError ? (
-    <View
+    <Surface
+      elevation={1}
       accessibilityLiveRegion="assertive"
-      className="items-center gap-4 rounded-lg bg-card p-6"
+      style={{
+        alignItems: 'center',
+        gap: 16,
+        borderRadius: 12,
+        padding: 24,
+      }}
     >
-      <Text variant="title" className="text-center">
+      <Text variant="title" style={{ textAlign: 'center' }}>
         Terminal is unavailable
       </Text>
-      <Text variant="muted" className="text-center">
+      <Text variant="muted" style={{ textAlign: 'center' }}>
         The terminal renderer did not start. Your remote session is still safe.
       </Text>
-      <Button onPress={retryRenderer}>
-        <Text>Retry terminal</Text>
-      </Button>
-    </View>
+      <Button onPress={retryRenderer}>Retry terminal</Button>
+    </Surface>
   ) : null;
 
   const handleResize = useCallback(
@@ -449,8 +458,11 @@ export const TerminalScreen = forwardRef<
     <View
       ref={rootRef}
       onLayout={handleRootLayout}
-      style={{ paddingBottom: imeInset }}
-      className="flex-1 bg-terminal"
+      style={{
+        flex: 1,
+        paddingBottom: imeInset,
+        backgroundColor: TERMINAL_BACKGROUND,
+      }}
     >
       <TerminalToolbar
         title={title}
@@ -466,8 +478,11 @@ export const TerminalScreen = forwardRef<
 
       {/* The native view is explicitly clipped here. Without a clipping owner
           it can compose over sibling app chrome on some Android render paths. */}
-      <View className="flex-1 overflow-hidden" collapsable={false}>
-        <View className="flex-1 bg-terminal" collapsable={false}>
+      <View style={{ flex: 1, overflow: 'hidden' }} collapsable={false}>
+        <View
+          style={{ flex: 1, backgroundColor: TERMINAL_BACKGROUND }}
+          collapsable={false}
+        >
           {banner ? (
             <TerminalStatusBanner
               tone={banner.tone}
@@ -477,7 +492,14 @@ export const TerminalScreen = forwardRef<
           ) : null}
 
           {rendererFailure ?? overlay ? (
-            <View className="flex-1 items-center justify-center p-4">
+            <View
+              style={{
+                flex: 1,
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 16,
+              }}
+            >
               {rendererFailure ?? overlay}
             </View>
           ) : pane !== undefined && pane !== null ? (
@@ -536,7 +558,14 @@ export const TerminalScreen = forwardRef<
             <Text
               accessibilityElementsHidden
               importantForAccessibility="no-hide-descendants"
-              className="absolute bottom-2 right-2 text-xs text-terminal-foreground opacity-60"
+              variant="caption"
+              style={{
+                position: 'absolute',
+                bottom: 8,
+                right: 8,
+                opacity: 0.6,
+                color: TERMINAL_FOREGROUND,
+              }}
             >
               {`${gridSize.cols}x${gridSize.rows}`}
             </Text>

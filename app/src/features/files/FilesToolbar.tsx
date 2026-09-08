@@ -4,11 +4,10 @@
 // filter is needed.
 
 import React, { useCallback } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
-import { Icon } from '../../components/ui/icon';
+import { ScrollView, View } from 'react-native';
+import { Chip, IconButton, Surface, useTheme } from 'react-native-paper';
 import { Input } from '../../components/ui/input';
 import { Text } from '../../components/ui/text';
-import { cn } from '../../lib/utils';
 import { SORT_KEYS, type FileView, type SortKey } from '../../lib/files';
 
 const SORT_LABELS: Record<SortKey, string> = {
@@ -32,6 +31,8 @@ export function FilesToolbar({
   loaded,
   onChange,
 }: FilesToolbarProps): React.ReactElement {
+  const { colors } = useTheme();
+
   const setQuery = useCallback(
     (query: string) => onChange({ ...view, query }),
     [onChange, view],
@@ -66,9 +67,19 @@ export function FilesToolbar({
   const filtering = view.query !== '';
 
   return (
-    <View className="gap-2 border-b border-border bg-card px-2 py-2">
-      <View className="flex-row items-center gap-2">
-        <View className="flex-1">
+    <Surface
+      elevation={0}
+      style={{
+        gap: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.outlineVariant as string,
+        backgroundColor: colors.surfaceContainerLow as string,
+        paddingHorizontal: 8,
+        paddingVertical: 8,
+      }}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={{ flex: 1 }}>
           <Input
             accessibilityLabel="Search this folder"
             placeholder="Search this folder"
@@ -81,35 +92,23 @@ export function FilesToolbar({
           />
         </View>
         {filtering ? (
-          <Pressable
-            role="button"
+          <IconButton
+            icon="close"
+            size={18}
             accessibilityLabel="Clear the search"
             onPress={clearQuery}
-            className="h-12 w-12 items-center justify-center rounded-md active:bg-accent"
-          >
-            <Icon name="x" size={18} className="text-muted-foreground" />
-          </Pressable>
+          />
         ) : null}
-        <Pressable
-          role="button"
+        <IconButton
+          icon={view.showHidden ? 'eye' : 'eye-off'}
+          size={18}
+          selected={view.showHidden}
           accessibilityLabel={
             view.showHidden ? 'Hide hidden files' : 'Show hidden files'
           }
           accessibilityState={{ selected: view.showHidden }}
           onPress={toggleHidden}
-          className={cn(
-            'h-12 w-12 items-center justify-center rounded-md active:bg-accent',
-            view.showHidden && 'bg-accent',
-          )}
-        >
-          <Icon
-            name={view.showHidden ? 'eye' : 'eye-off'}
-            size={18}
-            className={
-              view.showHidden ? 'text-foreground' : 'text-muted-foreground'
-            }
-          />
-        </Pressable>
+        />
       </View>
 
       <ScrollView
@@ -129,11 +128,11 @@ export function FilesToolbar({
       </ScrollView>
 
       {filtering ? (
-        <Text variant="caption" className="text-muted-foreground">
+        <Text variant="caption">
           {shown} of {loaded} shown
         </Text>
       ) : null}
-    </View>
+    </Surface>
   );
 }
 
@@ -151,8 +150,9 @@ function SortChip({
   const press = useCallback(() => onPress(sortKey), [onPress, sortKey]);
   const label = SORT_LABELS[sortKey];
   return (
-    <Pressable
-      role="button"
+    <Chip
+      selected={active}
+      showSelectedCheck={false}
       // The direction belongs in the name so it is announced, not only drawn
       // as an arrow.
       accessibilityLabel={
@@ -161,27 +161,10 @@ function SortChip({
           : `Sort by ${label}`
       }
       accessibilityState={{ selected: active }}
+      icon={active ? (descending ? 'arrow-down' : 'arrow-up') : undefined}
       onPress={press}
-      className={cn(
-        'h-11 flex-row items-center gap-1 rounded-full border px-3',
-        active ? 'border-primary bg-accent' : 'border-border',
-      )}
     >
-      <Text
-        className={cn(
-          'text-sm',
-          active ? 'font-semibold text-foreground' : 'text-muted-foreground',
-        )}
-      >
-        {label}
-      </Text>
-      {active ? (
-        <Icon
-          name={descending ? 'arrow-down' : 'arrow-up'}
-          size={14}
-          className="text-foreground"
-        />
-      ) : null}
-    </Pressable>
+      {label}
+    </Chip>
   );
 }

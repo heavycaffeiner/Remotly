@@ -1,31 +1,35 @@
 import * as React from 'react';
-import { View, type ViewProps } from 'react-native';
-import { cn } from '../../lib/utils';
+import type { StyleProp, ViewStyle } from 'react-native';
+import { Divider, useTheme } from 'react-native-paper';
 
-type SeparatorProps = ViewProps & {
+interface SeparatorProps {
   orientation?: 'horizontal' | 'vertical';
-};
+  style?: StyleProp<ViewStyle>;
+}
 
-/**
- * Material Design 3 Divider.
- *
- * Decorative by default: hidden from assistive technology.
- */
+/** Decorative by default: hidden from assistive technology. */
 function Separator({
-  className,
   orientation = 'horizontal',
-  ...props
+  style,
 }: SeparatorProps): React.ReactElement {
+  const { colors } = useTheme();
+  if (orientation === 'vertical') {
+    return (
+      <Divider
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[
+          { width: 1, height: '100%', backgroundColor: colors.outlineVariant },
+          style,
+        ]}
+      />
+    );
+  }
   return (
-    <View
+    <Divider
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      className={cn(
-        'bg-outline-variant/30',
-        orientation === 'horizontal' ? 'h-px w-full' : 'h-full w-px',
-        className,
-      )}
-      {...props}
+      style={style}
     />
   );
 }

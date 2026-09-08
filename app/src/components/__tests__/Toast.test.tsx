@@ -3,8 +3,9 @@
  */
 
 import React from 'react';
-import { Keyboard, type KeyboardEvent, View } from 'react-native';
+import { Keyboard, StyleSheet, type KeyboardEvent } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
+import { PaperProvider } from 'react-native-paper';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 import { Toast } from '../Toast';
@@ -26,12 +27,17 @@ const METRICS: Metrics = {
 
 /** The toast's own absolute offset from the bottom edge. */
 function bottomOffset(tree: ReactTestRenderer): number {
-  const node = tree.root.findByType(View);
-  const style = node.props.style as { bottom?: number };
-  if (typeof style?.bottom !== 'number') {
+  // Located by its live region rather than by node type: Paper's provider
+  // wraps the tree in views of its own, and the toast is a Surface.
+  const node = tree.root.find(
+    n => n.props?.accessibilityLiveRegion === 'polite',
+  );
+  const flat = StyleSheet.flatten(node.props.style);
+  const bottom = flat?.bottom;
+  if (typeof bottom !== 'number') {
     throw new Error('toast has no bottom offset');
   }
-  return style.bottom;
+  return bottom;
 }
 
 /** Trees created by a test, unmounted after it so nothing outlives Jest. */
@@ -42,7 +48,9 @@ function render(message: string): ReactTestRenderer {
   act(() => {
     tree = create(
       <SafeAreaProvider initialMetrics={METRICS}>
-        <Toast message={message} onDismiss={() => {}} />
+        <PaperProvider>
+          <Toast message={message} onDismiss={() => {}} />
+        </PaperProvider>
       </SafeAreaProvider>,
     );
   });

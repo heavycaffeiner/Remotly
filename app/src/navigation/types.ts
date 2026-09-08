@@ -13,4 +13,6 @@ export type RootStackParamList = {
   /** Omit `hostId` to create a host; pass it to edit an existing one. */
   SshHostEditor: { hostId?: string } | undefined;
   Files: { hostId: string };
+  /** Herdr workspaces on a host. `hostName` is for the header only. */
+  HerdrWorkspaces: { hostId: string; hostName: string };
 };

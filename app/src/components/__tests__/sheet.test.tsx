@@ -3,7 +3,8 @@
  */
 
 import React from 'react';
-import { Modal, Text as RNText } from 'react-native';
+import { Text as RNText } from 'react-native';
+import { PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
@@ -35,7 +36,11 @@ function texts(tree: ReactTestRenderer): string[] {
 }
 
 function wrap(el: React.ReactElement): React.ReactElement {
-  return <SafeAreaProvider initialMetrics={METRICS}>{el}</SafeAreaProvider>;
+  return (
+    <SafeAreaProvider initialMetrics={METRICS}>
+      <PaperProvider>{el}</PaperProvider>
+    </SafeAreaProvider>
+  );
 }
 
 function render(el: React.ReactElement): ReactTestRenderer {
@@ -92,11 +97,10 @@ describe('Sheet', () => {
   });
 
   /**
-   * The Modal is unmounted by `visible`. Driving it from `open` alone cut the
-   * exit animation off before its first frame, so the sheet vanished instead
-   * of sliding down. It stays mounted until the animation reports it ran.
+   * Closing must not make the sheet vanish: it slides down first. Asserted
+   * through the content, which stays rendered while the exit animation runs.
    */
-  it('keeps the modal mounted while it animates closed', () => {
+  it('keeps the sheet rendered while it animates closed', () => {
     let tree!: ReactTestRenderer;
     act(() => {
       tree = create(
@@ -110,7 +114,7 @@ describe('Sheet', () => {
       );
     });
 
-    expect(tree.root.findByType(Modal).props.visible).toBe(true);
+    expect(texts(tree)).toContain('body');
 
     act(() => {
       tree.update(
@@ -124,7 +128,7 @@ describe('Sheet', () => {
       );
     });
 
-    // Still mounted: the slide-down has not finished yet.
-    expect(tree.root.findByType(Modal).props.visible).toBe(true);
+    // Still rendered: the slide-down has not finished yet.
+    expect(texts(tree)).toContain('body');
   });
 });

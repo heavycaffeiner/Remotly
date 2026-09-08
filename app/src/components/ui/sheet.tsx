@@ -1,21 +1,25 @@
 // A bottom sheet.
 //
-// Built on RN's Modal, like Dialog, so the Android back button and the
-// platform's focus handling apply without reimplementing either. It slides up
-// rather than fading, which is what separates it from a dialog: the content
-// stays anchored to the bottom edge and the page behind it remains visible.
+// Paper 6 has no BottomSheet, so this is Paper's Portal + Modal (which own the
+// scrim, the outside tap, and the Android back button) with a Surface anchored
+// to the bottom edge and slid up. Sliding rather than fading is what separates
+// it from a dialog: the page behind it stays visible.
+//
+// The Surface belongs to `Sheet`, not to `SheetContent`: callers put the
+// header either side of the content, and a surface owned by the content block
+// left the header drawn on the scrim above it.
 
 import * as React from 'react';
 import {
   Animated,
   Easing,
-  Modal,
-  Pressable,
   useWindowDimensions,
   View,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
+import { Modal, Portal, Surface, useTheme } from 'react-native-paper';
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
-import { cn } from '../../lib/utils';
 import { Text } from './text';
 
 const ZERO_INSETS = { top: 0, bottom: 0, left: 0, right: 0 };
@@ -31,7 +35,7 @@ interface SheetProps {
   /**
    * A transient message shown over the sheet.
    *
-   * The screen's own Toast cannot appear above a Modal, so a sheet that
+   * The screen's own Toast is covered by the sheet's surface, so a sheet that
    * reports anything passes the text here instead of rendering one behind it.
    */
   toast?: string;
@@ -47,11 +51,8 @@ function Sheet({
   children,
 }: SheetProps): React.ReactElement {
   const slide = React.useRef(new Animated.Value(0)).current;
-  // Read outside the Modal. RN's Modal mounts its children into a separate
-  // window, which is not a descendant of the SafeAreaProvider, so a hook read
-  // inside it reports zero insets and the sheet's last row ends up behind the
-  // gesture bar. The value is captured here and republished below.
   const insets = useSafeInsets();
+  const { colors } = useTheme();
 
   // The sheet is measured rather than assumed. A fixed travel distance starts
   // a short sheet off-screen and only catches up at the end, which reads as a
@@ -60,114 +61,90 @@ function Sheet({
   const { height: windowHeight } = useWindowDimensions();
   const [sheetHeight, setSheetHeight] = React.useState(windowHeight);
 
-  // The Modal is unmounted by `visible`, so closing it on `open` alone cut the
-  // exit animation off before its first frame: the sheet vanished instead of
-  // sliding down. It stays mounted until the animation reports it has run.
-  const [mounted, setMounted] = React.useState(open);
-
   React.useEffect(() => {
-    if (open) setMounted(true);
     Animated.timing(slide, {
       toValue: open ? 1 : 0,
       duration: DURATION_MS,
       easing: open ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
       useNativeDriver: true,
-    }).start(({ finished }) => {
-      if (finished && !open) setMounted(false);
-    });
+    }).start();
   }, [open, slide]);
 
   return (
-    <Modal
-      visible={mounted}
-      transparent
-      animationType="none"
-      statusBarTranslucent
-      // Without this the modal window stops above the gesture bar, so the
-      // sheet cannot reach the bottom edge and its own inset padding lands in
-      // the wrong place. Together with the inset provider below, the sheet
-      // draws to the edge and keeps its last row clear of the bar.
-      navigationBarTranslucent
-      onRequestClose={onClose}
-    >
-      <SafeAreaInsetsContext.Provider value={insets}>
-        <View className="flex-1 justify-end">
-          {/* The scrim is a sibling that fills the space above the sheet rather
-            than an overlay across the whole modal: an absolutely positioned
-            one covers the sheet too and swallows every tap meant for it. */}
-          <Animated.View className="flex-1" style={{ opacity: slide }}>
-            <Pressable
-              className="flex-1 bg-black/50"
-              accessibilityLabel="Dismiss"
-              onPress={onClose}
-            />
-          </Animated.View>
-          <Animated.View
-            onLayout={e => {
-              const h = e.nativeEvent.layout.height;
-              if (h > 0) setSheetHeight(h);
-            }}
+    <Portal>
+      <Modal
+        visible={open}
+        onDismiss={onClose}
+        overlayAccessibilityLabel="Dismiss"
+        // Paper centers its content and insets the wrapper. The sheet has to
+        // reach the bottom edge instead and pads for the gesture bar itself.
+        style={{ justifyContent: 'flex-end', marginBottom: 0 }}
+        contentContainerStyle={{
+          transform: [
+            {
+              translateY: slide.interpolate({
+                inputRange: [0, 1],
+                outputRange: [sheetHeight, 0],
+              }),
+            },
+          ],
+        }}
+      >
+        <Surface
+          elevation={3}
+          onLayout={e => {
+            const h = e.nativeEvent.layout.height;
+            if (h > 0) setSheetHeight(h);
+          }}
+          // The gesture bar sits under the sheet's own bottom edge, so the
+          // inset is added to the padding rather than replacing it. Without
+          // this the last row is drawn behind the navigation bar.
+          style={{
+            maxHeight: '85%',
+            borderTopLeftRadius: 28,
+            borderTopRightRadius: 28,
+            padding: 20,
+            paddingBottom: insets.bottom + 24,
+          }}
+        >
+          <View
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
             style={{
-              transform: [
-                {
-                  translateY: slide.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [sheetHeight, 0],
-                  }),
-                },
-              ],
+              marginBottom: 16,
+              height: 4,
+              width: 32,
+              alignSelf: 'center',
+              borderRadius: 999,
+              backgroundColor: colors.outlineVariant as string,
             }}
-          >
-            {children}
-          </Animated.View>
-          {/* Outside the sliding surface, so it holds still while the sheet
-              moves and stays above it. */}
-          <SheetToast message={toast} />
-        </View>
-      </SafeAreaInsetsContext.Provider>
-    </Modal>
+          />
+          {children}
+        </Surface>
+        {/* Outside the sliding surface, so it holds still while the sheet
+            moves and stays above it. */}
+        <SheetToast message={toast} />
+      </Modal>
+    </Portal>
   );
 }
 
+/** A block inside the sheet. Callers pass their own spacing through `style`. */
 function SheetContent({
-  className,
+  style,
   children,
 }: {
-  className?: string;
+  style?: StyleProp<ViewStyle>;
   children: React.ReactNode;
 }): React.ReactElement {
-  const insets = useSafeInsets();
-  return (
-    <View
-      // The gesture bar sits under the sheet's own bottom edge, so the inset is
-      // added to the padding rather than replacing it. Without this the last
-      // row is drawn behind the navigation bar and cannot be reached.
-      style={{ paddingBottom: insets.bottom + 24 }}
-      className={cn(
-        'max-h-[85%] rounded-t-[28px] bg-card p-5 shadow-2xl',
-        className,
-      )}
-    >
-      {/* M3 bottom sheet drag handle pill */}
-      <View
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-        className="mb-4 h-1 w-8 self-center rounded-full bg-outline/40"
-      />
-      {children}
-    </View>
-  );
+  return <View style={style}>{children}</View>;
 }
 
 /**
- * A toast rendered inside the sheet's own window.
+ * A toast rendered over the sheet's surface.
  *
- * The app's Toast is an absolutely positioned view in the screen tree. A Sheet
- * is an RN Modal, which is a separate window drawn over that tree, so no
- * z-index reaches past it: a notice raised while the sheet was open was
- * invisible and its timer expired unseen. Placing it here puts it in the same
- * window as the sheet, above the sheet's own surface.
- *
+ * The app's Toast sits in the screen tree underneath the sheet, so a notice
+ * raised while the sheet was open was invisible and its timer expired unseen.
  * Rendered as a sibling of the sheet surface, pinned to the bottom, so it sits
  * over the sheet rather than scrolling with its content.
  */
@@ -177,18 +154,31 @@ function SheetToast({
   message: string;
 }): React.ReactElement | null {
   const insets = useSafeInsets();
+  const { colors } = useTheme();
   if (message === '') return null;
   return (
-    <View
+    <Surface
+      elevation={3}
       pointerEvents="none"
-      style={{ bottom: insets.bottom + 16 }}
-      className="absolute inset-x-4 rounded-xl bg-foreground px-4 py-3 shadow-lg"
+      style={{
+        position: 'absolute',
+        left: 16,
+        right: 16,
+        bottom: insets.bottom + 16,
+        borderRadius: 12,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        backgroundColor: colors.inverseSurface as string,
+      }}
       accessibilityLiveRegion="polite"
     >
-      <Text className="text-background" numberOfLines={2}>
+      <Text
+        style={{ color: colors.inverseOnSurface as string }}
+        numberOfLines={2}
+      >
         {message}
       </Text>
-    </View>
+    </Surface>
   );
 }
 
@@ -197,7 +187,7 @@ function SheetHeader({
 }: {
   children: React.ReactNode;
 }): React.ReactElement {
-  return <View className="mb-3 gap-1">{children}</View>;
+  return <View style={{ marginBottom: 12, gap: 4 }}>{children}</View>;
 }
 
 function SheetTitle({
@@ -206,10 +196,7 @@ function SheetTitle({
   children: React.ReactNode;
 }): React.ReactElement {
   return (
-    <Text
-      role="heading"
-      className="text-xl font-medium text-foreground tracking-tight"
-    >
+    <Text role="heading" variant="h3">
       {children}
     </Text>
   );

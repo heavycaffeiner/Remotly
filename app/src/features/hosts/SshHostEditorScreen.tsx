@@ -20,7 +20,6 @@ import { Loading, Notice } from '../../components/States';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { Toast } from '../../components/Toast';
 import { Button } from '../../components/ui/button';
-import { Icon } from '../../components/ui/icon';
 import { Segmented } from '../../components/ui/segmented';
 import { Text } from '../../components/ui/text';
 import {
@@ -280,7 +279,7 @@ export function SshHostEditorScreen(): React.ReactElement {
         : {})}
       onBack={close}
     >
-      <KeyboardLifted className="flex-1">
+      <KeyboardLifted style={{ flex: 1 }}>
         <ScrollView
           contentContainerStyle={{ paddingBottom: 48 }}
           keyboardShouldPersistTaps="handled"
@@ -347,7 +346,7 @@ export function SshHostEditorScreen(): React.ReactElement {
 
           <FormSection title="Authentication">
             {editing && !replaceCredential ? (
-              <View className="gap-2">
+              <View style={{ gap: 8 }}>
                 <Text variant="callout">
                   {existing?.authKind === 1
                     ? 'A private key is saved for this host.'
@@ -358,7 +357,7 @@ export function SshHostEditorScreen(): React.ReactElement {
                   onPress={() => setReplaceCredential(true)}
                   accessibilityLabel="Replace the saved credential"
                 >
-                  <Text>Replace credential</Text>
+                  Replace credential
                 </Button>
               </View>
             ) : (
@@ -373,13 +372,10 @@ export function SshHostEditorScreen(): React.ReactElement {
                 />
                 {auth === 'key' ? (
                   <>
-                    <Button variant="outline" onPress={importKey}>
-                      <Icon name="file" />
-                      <Text>
-                        {keyFileName !== ''
-                          ? `Imported ${keyFileName}`
-                          : 'Import a key file'}
-                      </Text>
+                    <Button variant="outline" icon="file" onPress={importKey}>
+                      {keyFileName !== ''
+                        ? `Imported ${keyFileName}`
+                        : 'Import a key file'}
                     </Button>
                     <Field
                       label="Private key"
@@ -388,7 +384,7 @@ export function SshHostEditorScreen(): React.ReactElement {
                       multiline
                       autoCapitalize="none"
                       autoCorrect={false}
-                      className="h-28 py-3"
+                      style={{ height: 112, paddingVertical: 12 }}
                     />
                     <Field
                       label="Passphrase"
@@ -419,6 +415,7 @@ export function SshHostEditorScreen(): React.ReactElement {
           >
             <Button
               variant="outline"
+              icon="web"
               disabled={
                 test.running ||
                 !hostValid ||
@@ -428,11 +425,12 @@ export function SshHostEditorScreen(): React.ReactElement {
               }
               onPress={() => void runTest()}
             >
-              <Icon name="network" />
-              <Text>Test connection</Text>
+              Test connection
             </Button>
             {test.running ? (
-              <View className="flex-row items-center gap-2">
+              <View
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+              >
                 <ActivityIndicator accessibilityLabel="Testing the connection" />
                 <Text variant="callout">Connecting</Text>
               </View>
@@ -444,7 +442,7 @@ export function SshHostEditorScreen(): React.ReactElement {
               />
             ) : null}
             {!test.running && test.fingerprint ? (
-              <View className="gap-1">
+              <View style={{ gap: 4 }}>
                 <Text variant="caption">
                   {test.changed
                     ? 'The server presented a different key than the one accepted before.'
@@ -471,13 +469,19 @@ export function SshHostEditorScreen(): React.ReactElement {
             </FormSection>
           ) : null}
 
-          <View className="flex-row justify-end gap-2 p-4">
+          <View
+            style={{
+              flexDirection: 'row',
+              justifyContent: 'flex-end',
+              gap: 8,
+              padding: 16,
+            }}
+          >
             <Button variant="outline" onPress={close} disabled={busy}>
-              <Text>Cancel</Text>
+              Cancel
             </Button>
-            <Button onPress={save} disabled={!valid || busy}>
-              {busy ? <ActivityIndicator size="small" /> : null}
-              <Text>Save</Text>
+            <Button onPress={save} disabled={!valid || busy} loading={busy}>
+              Save
             </Button>
           </View>
         </ScrollView>

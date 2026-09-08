@@ -1,14 +1,6 @@
 import * as React from 'react';
-import { Text as RNText } from 'react-native';
-import { cn } from '../../lib/utils';
-
-/**
- * Inherited text class names.
- *
- * A Text nested inside another Text picks up the parent's classes, which is
- * how a card can set a foreground color once for everything inside it.
- */
-const TextClassContext = React.createContext<string | undefined>(undefined);
+import { Text as PaperText, useTheme } from 'react-native-paper';
+import type { TypescaleKey } from 'react-native-paper';
 
 export type TextVariant =
   | 'default'
@@ -22,39 +14,52 @@ export type TextVariant =
   | 'code'
   | 'muted';
 
-const TEXT_STYLES: Record<TextVariant, string> = {
-  default: 'text-base text-foreground',
-  h1: 'text-3xl font-bold tracking-tight text-foreground',
-  h2: 'text-2xl font-semibold tracking-tight text-foreground',
-  h3: 'text-xl font-semibold tracking-tight text-foreground',
-  title: 'text-lg font-semibold text-foreground',
-  body: 'text-base text-foreground',
-  callout: 'text-sm text-foreground',
-  caption: 'text-xs text-muted-foreground',
-  code: 'font-mono text-sm text-foreground',
-  muted: 'text-sm text-muted-foreground',
+/** The Material type scale slot each app variant renders in. */
+const SCALE: Record<TextVariant, TypescaleKey> = {
+  default: 'bodyLarge',
+  h1: 'headlineLarge',
+  h2: 'headlineMedium',
+  h3: 'headlineSmall',
+  title: 'titleMedium',
+  body: 'bodyLarge',
+  callout: 'bodyMedium',
+  caption: 'bodySmall',
+  code: 'bodyMedium',
+  muted: 'bodyMedium',
 };
 
-function textVariants(props?: { variant?: TextVariant }): string {
-  return TEXT_STYLES[props?.variant ?? 'default'];
-}
+/** Variants that read as secondary text rather than primary content. */
+const SUBDUED: Partial<Record<TextVariant, true>> = {
+  caption: true,
+  muted: true,
+};
 
-type TextProps = React.ComponentProps<typeof RNText> & {
+type TextProps = Omit<React.ComponentProps<typeof PaperText>, 'variant'> & {
   variant?: TextVariant;
 };
 
 function Text({
-  className,
   variant = 'default',
+  style,
   ...props
 }: TextProps): React.ReactElement {
-  const context = React.useContext(TextClassContext);
+  const { colors } = useTheme();
   return (
-    <RNText
-      className={cn(TEXT_STYLES[variant], context, className)}
+    <PaperText
+      variant={SCALE[variant]}
+      style={[
+        {
+          color:
+            SUBDUED[variant] === true
+              ? colors.onSurfaceVariant
+              : colors.onSurface,
+        },
+        variant === 'code' ? { fontFamily: 'monospace' } : null,
+        style,
+      ]}
       {...props}
     />
   );
 }
 
-export { Text, TextClassContext, textVariants };
+export { Text };

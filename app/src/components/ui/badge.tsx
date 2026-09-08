@@ -1,49 +1,74 @@
 import * as React from 'react';
-import { View, type ViewProps } from 'react-native';
-import { cn } from '../../lib/utils';
-import { TextClassContext } from './text';
+import { View, type StyleProp, type ViewStyle } from 'react-native';
+import { Surface, useTheme } from 'react-native-paper';
+import type { IconName } from '../../lib/icons';
+import { Icon } from './icon';
+import { Text } from './text';
 
 export type BadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline';
 
-const BADGE_CONTAINER_STYLES: Record<BadgeVariant, string> = {
-  default: 'border-transparent bg-primary',
-  secondary: 'border-transparent bg-secondary',
-  destructive: 'border-transparent bg-destructive',
-  outline: 'border-outline/40',
-};
-
-const BADGE_TEXT_STYLES: Record<BadgeVariant, string> = {
-  default: 'text-primary-foreground text-xs font-medium',
-  secondary: 'text-secondary-foreground text-xs font-medium',
-  destructive: 'text-destructive-foreground text-xs font-medium',
-  outline: 'text-foreground text-xs font-medium',
-};
-
-function badgeVariants(props?: { variant?: BadgeVariant }): string {
-  return cn(
-    'flex-row items-center gap-1 rounded-full border px-2.5 py-1',
-    BADGE_CONTAINER_STYLES[props?.variant ?? 'default'],
-  );
-}
-
-function badgeTextVariants(props?: { variant?: BadgeVariant }): string {
-  return BADGE_TEXT_STYLES[props?.variant ?? 'default'];
-}
-
-interface BadgeProps extends ViewProps {
+interface BadgeProps {
   variant?: BadgeVariant;
+  /** Leading glyph. Always paired with the label, never carrying meaning alone. */
+  icon?: IconName;
+  label: string;
+  style?: StyleProp<ViewStyle>;
 }
 
+/**
+ * A compact status pill.
+ *
+ * Built from Surface rather than Paper's Chip: a chip reads as something to
+ * press, and its `selectedColor` does not reach the icon, which left the glyph
+ * drawn in the default color on a filled background and effectively invisible.
+ */
 function Badge({
-  className,
   variant = 'default',
-  ...props
+  icon,
+  label,
+  style,
 }: BadgeProps): React.ReactElement {
+  const { colors } = useTheme();
+  const fill: Record<BadgeVariant, string | undefined> = {
+    default: colors.primary as string,
+    secondary: colors.secondaryContainer as string,
+    destructive: colors.error as string,
+    outline: undefined,
+  };
+  const ink: Record<BadgeVariant, string> = {
+    default: colors.onPrimary as string,
+    secondary: colors.onSecondaryContainer as string,
+    destructive: colors.onError as string,
+    outline: colors.onSurface as string,
+  };
   return (
-    <TextClassContext.Provider value={badgeTextVariants({ variant })}>
-      <View className={cn(badgeVariants({ variant }), className)} {...props} />
-    </TextClassContext.Provider>
+    <Surface
+      elevation={0}
+      style={[
+        {
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 4,
+          borderRadius: 999,
+          paddingHorizontal: 10,
+          paddingVertical: 4,
+          backgroundColor: fill[variant] ?? 'transparent',
+          borderWidth: variant === 'outline' ? 1 : 0,
+          borderColor: colors.outlineVariant as string,
+        },
+        style,
+      ]}
+    >
+      {icon === undefined ? null : (
+        <Icon name={icon} size={12} color={ink[variant]} />
+      )}
+      <View>
+        <Text variant="caption" style={{ color: ink[variant] }}>
+          {label}
+        </Text>
+      </View>
+    </Surface>
   );
 }
 
-export { Badge, badgeTextVariants, badgeVariants };
+export { Badge };

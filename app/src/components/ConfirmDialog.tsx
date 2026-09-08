@@ -5,7 +5,6 @@
 // the button alone.
 
 import * as React from 'react';
-import { ActivityIndicator } from 'react-native';
 import { Button } from './ui/button';
 import {
   Dialog,
@@ -15,7 +14,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
-import { Text } from './ui/text';
 
 interface ConfirmDialogProps {
   visible: boolean;
@@ -54,15 +52,15 @@ export function ConfirmDialog({
       </DialogContent>
       <DialogFooter>
         <Button variant="ghost" disabled={busy} onPress={onDismiss}>
-          <Text>{cancelLabel}</Text>
+          {cancelLabel}
         </Button>
         <Button
           variant={destructive ? 'destructive' : 'default'}
           disabled={busy}
+          loading={busy}
           onPress={onConfirm}
         >
-          {busy ? <ActivityIndicator size="small" /> : null}
-          <Text>{confirmLabel}</Text>
+          {confirmLabel}
         </Button>
       </DialogFooter>
     </Dialog>

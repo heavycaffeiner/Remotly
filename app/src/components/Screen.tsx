@@ -4,10 +4,16 @@
 // do not assemble a header of their own.
 
 import * as React from 'react';
-import { Pressable, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { cn } from '../lib/utils';
-import { Icon, type IconName } from './ui/icon';
+import { View, type StyleProp, type ViewStyle } from 'react-native';
+import {
+  Appbar,
+  IconButton as PaperIconButton,
+  Surface,
+  TouchableRipple,
+  useTheme,
+} from 'react-native-paper';
+import { Icon } from './ui/icon';
+import type { IconName } from '../lib/icons';
 import { Text } from './ui/text';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 
@@ -48,14 +54,24 @@ export function Screen({
   bare = false,
   children,
 }: ScreenProps): React.ReactElement {
-  const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
   const [menuOpen, setMenuOpen] = React.useState(false);
 
   return (
-    <View className="flex-1 bg-background">
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       {bare ? (
         actions.length === 0 ? null : (
-          <View className="flex-row items-center justify-end bg-surface-container-low px-2 py-1">
+          <Surface
+            elevation={0}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              backgroundColor: colors.surfaceContainerLow,
+              paddingHorizontal: 8,
+              paddingVertical: 4,
+            }}
+          >
             {actions.map(a => (
               <IconButton
                 key={a.key}
@@ -65,47 +81,44 @@ export function Screen({
                 onPress={a.onPress}
               />
             ))}
-          </View>
+          </Surface>
         )
       ) : (
-        <View style={{ paddingTop: insets.top }} className="bg-surface">
-          <View className="h-16 flex-row items-center px-2">
-            {onBack === undefined ? null : (
-              <IconButton icon="arrow-left" label="Go back" onPress={onBack} />
-            )}
-            <View
-              className={cn('flex-1', onBack === undefined ? 'ml-3' : 'ml-1')}
-            >
-              <Text
-                className="text-xl font-normal text-foreground tracking-tight"
-                numberOfLines={1}
-              >
-                {title}
-              </Text>
-              {subtitle === undefined ? null : (
-                <Text variant="caption" numberOfLines={1}>
-                  {subtitle}
+        <Appbar.Header>
+          {onBack === undefined ? null : (
+            <Appbar.BackAction accessibilityLabel="Go back" onPress={onBack} />
+          )}
+          <Appbar.Content
+            title={
+              <View>
+                <Text variant="h3" numberOfLines={1}>
+                  {title}
                 </Text>
-              )}
-            </View>
-            {actions.map(a => (
-              <IconButton
-                key={a.key}
-                icon={a.icon}
-                label={a.title}
-                disabled={a.disabled ?? false}
-                onPress={a.onPress}
-              />
-            ))}
-            {menuActions.length === 0 ? null : (
-              <IconButton
-                icon="more"
-                label="More actions"
-                onPress={() => setMenuOpen(true)}
-              />
-            )}
-          </View>
-        </View>
+                {subtitle === undefined ? null : (
+                  <Text variant="caption" numberOfLines={1}>
+                    {subtitle}
+                  </Text>
+                )}
+              </View>
+            }
+          />
+          {actions.map(a => (
+            <Appbar.Action
+              key={a.key}
+              icon={a.icon}
+              accessibilityLabel={a.title}
+              disabled={a.disabled ?? false}
+              onPress={a.onPress}
+            />
+          ))}
+          {menuActions.length === 0 ? null : (
+            <Appbar.Action
+              icon="dots-vertical"
+              accessibilityLabel="More actions"
+              onPress={() => setMenuOpen(true)}
+            />
+          )}
+        </Appbar.Header>
       )}
 
       {children}
@@ -114,9 +127,9 @@ export function Screen({
         <SheetHeader>
           <SheetTitle>Actions</SheetTitle>
         </SheetHeader>
-        <SheetContent className="gap-1 pb-6">
+        <SheetContent style={{ gap: 4, paddingBottom: 24 }}>
           {menuActions.map(a => (
-            <Pressable
+            <TouchableRipple
               key={a.key}
               role="button"
               disabled={a.disabled ?? false}
@@ -125,34 +138,56 @@ export function Screen({
                 setMenuOpen(false);
                 a.onPress();
               }}
-              android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
-              className={cn(
-                'h-14 flex-row items-center gap-4 rounded-2xl px-4 overflow-hidden active:bg-surface-variant/40',
-                a.disabled === true && 'opacity-40',
-              )}
+              style={{
+                height: 56,
+                borderRadius: 16,
+                paddingHorizontal: 16,
+                justifyContent: 'center',
+                opacity: a.disabled === true ? 0.4 : 1,
+              }}
             >
-              <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
-                <Icon
-                  name={a.icon}
-                  size={22}
-                  className={
-                    a.destructive === true
-                      ? 'text-destructive'
-                      : 'text-on-secondary-container'
-                  }
-                />
-              </View>
-              <Text
-                className={cn(
-                  'text-base font-medium flex-1',
-                  a.destructive === true
-                    ? 'text-destructive'
-                    : 'text-on-surface',
-                )}
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 16,
+                }}
               >
-                {a.title}
-              </Text>
-            </Pressable>
+                <View
+                  style={{
+                    height: 40,
+                    width: 40,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: 999,
+                    backgroundColor: colors.secondaryContainer,
+                  }}
+                >
+                  <Icon
+                    name={a.icon}
+                    size={22}
+                    color={
+                      a.destructive === true
+                        ? (colors.error as string)
+                        : (colors.onSecondaryContainer as string)
+                    }
+                  />
+                </View>
+                <Text
+                  variant="body"
+                  style={{
+                    flex: 1,
+                    fontWeight: '500',
+                    color:
+                      a.destructive === true
+                        ? (colors.error as string)
+                        : (colors.onSurface as string),
+                  }}
+                >
+                  {a.title}
+                </Text>
+              </View>
+            </TouchableRipple>
           ))}
         </SheetContent>
       </Sheet>
@@ -166,7 +201,7 @@ interface IconButtonProps {
   label: string;
   onPress: () => void;
   disabled?: boolean;
-  className?: string;
+  style?: StyleProp<ViewStyle>;
 }
 
 export function IconButton({
@@ -174,27 +209,17 @@ export function IconButton({
   label,
   onPress,
   disabled = false,
-  className,
+  style,
 }: IconButtonProps): React.ReactElement {
   return (
-    <Pressable
-      role="button"
+    <PaperIconButton
+      icon={icon}
+      size={22}
       accessibilityLabel={label}
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      android_ripple={{
-        color: 'rgba(0, 0, 0, 0.12)',
-        borderless: true,
-        radius: 24,
-      }}
-      className={cn(
-        'h-12 w-12 items-center justify-center rounded-full active:bg-surface-variant/40',
-        disabled && 'opacity-38',
-        className,
-      )}
-    >
-      <Icon name={icon} size={22} />
-    </Pressable>
+      style={style}
+    />
   );
 }

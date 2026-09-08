@@ -6,6 +6,7 @@
 // anything that takes a filename, not only for one agent.
 
 import type { TransferBackend } from './files';
+import { shellQuote } from './shell';
 
 /** Upload chunk size. Matches the browser's own uploads. */
 const CHUNK = 64 * 1024;
@@ -39,17 +40,6 @@ export function imageExtension(sourceName: string): string {
   if (dot < 0 || dot === sourceName.length - 1) return 'png';
   const ext = sourceName.slice(dot + 1).toLowerCase();
   return /^[a-z0-9]{1,5}$/.test(ext) ? ext : 'png';
-}
-
-/**
- * Quotes a path for a POSIX shell.
- *
- * Single quotes protect everything except a single quote itself, which is
- * closed, escaped, and reopened. Without this a filename could run a command,
- * and the name is built here but the directory comes from the remote.
- */
-export function shellQuote(path: string): string {
-  return `'${path.replace(/'/g, `'\\''`)}'`;
 }
 
 /**

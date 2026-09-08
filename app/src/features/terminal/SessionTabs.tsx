@@ -6,7 +6,7 @@
 
 import React, { useCallback } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
-import { cn } from '../../lib/utils';
+import { Surface, TouchableRipple, useTheme } from 'react-native-paper';
 import { IconButton } from '../../components/Screen';
 import { Button } from '../../components/ui/button';
 import {
@@ -32,7 +32,7 @@ export type SessionTabStatus = 'live' | 'busy' | 'ended' | 'gone';
 const STATUS_ICON: Record<SessionTabStatus, IconName | null> = {
   live: null,
   busy: 'clock',
-  ended: 'circle-stop',
+  ended: 'stop-circle',
   gone: 'link-off',
 };
 
@@ -91,6 +91,7 @@ export function SessionTabs({
   renameRequest = 0,
   canAdd = true,
 }: SessionTabsProps): React.ReactElement {
+  const { colors } = useTheme();
   const [renaming, setRenaming] = React.useState<SessionTabView | null>(null);
   const [picking, setPicking] = React.useState(false);
   const [draft, setDraft] = React.useState('');
@@ -190,19 +191,28 @@ export function SessionTabs({
   );
 
   return (
-    <View className="flex-row items-center border-b border-border bg-card">
+    <Surface
+      elevation={0}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        borderBottomWidth: 1,
+        borderBottomColor: colors.outlineVariant as string,
+        backgroundColor: colors.surfaceContainerLow as string,
+      }}
+    >
       <ScrollView
         ref={stripRef}
         horizontal
         showsHorizontalScrollIndicator={false}
         keyboardShouldPersistTaps="always"
         contentContainerStyle={{ paddingHorizontal: 8, gap: 6 }}
-        // flex-1 is what bounds the strip to the space left beside the add
+        // flex:1 is what bounds the strip to the space left beside the add
         // button. Without it a horizontal ScrollView in a flex-row sizes to its
         // content, so the measured width is the content width, the scrollable
         // range computes as zero, and the offset can never be pulled back after
         // a tab closes.
-        className="flex-1 py-1.5"
+        style={{ flex: 1, paddingVertical: 6 }}
         accessibilityRole="tablist"
         onLayout={e => {
           viewportWidth.current = e.nativeEvent.layout.width;
@@ -260,28 +270,48 @@ export function SessionTabs({
               <SheetTitle>New tab</SheetTitle>
             </SheetHeader>
             {newKinds.map(k => (
-              <Pressable
+              <TouchableRipple
                 key={k.key}
                 role="button"
                 accessibilityLabel={k.label}
-                android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
-                className="flex-row items-center gap-4 rounded-2xl px-4 py-3 active:bg-surface-variant/40"
+                style={{
+                  borderRadius: 16,
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                }}
                 onPress={() => {
                   setPicking(false);
                   k.onPress();
                 }}
               >
-                <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
-                  <Icon
-                    name={k.icon}
-                    size={20}
-                    className="text-on-secondary-container"
-                  />
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 16,
+                  }}
+                >
+                  <View
+                    style={{
+                      height: 40,
+                      width: 40,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: 999,
+                      backgroundColor: colors.secondaryContainer as string,
+                    }}
+                  >
+                    <Icon
+                      name={k.icon}
+                      size={20}
+                      color={colors.onSecondaryContainer as string}
+                    />
+                  </View>
+                  <Text variant="body" style={{ fontWeight: '500' }}>
+                    {k.label}
+                  </Text>
                 </View>
-                <Text className="text-base font-medium text-foreground">
-                  {k.label}
-                </Text>
-              </Pressable>
+              </TouchableRipple>
             ))}
           </SheetContent>
         </Sheet>
@@ -305,14 +335,14 @@ export function SessionTabs({
         </DialogContent>
         <DialogFooter>
           <Button variant="ghost" onPress={() => setRenaming(null)}>
-            <Text>Cancel</Text>
+            Cancel
           </Button>
           <Button disabled={draft.trim() === ''} onPress={commitRename}>
-            <Text>Rename</Text>
+            Rename
           </Button>
         </DialogFooter>
       </Dialog>
-    </View>
+    </Surface>
   );
 }
 
@@ -344,7 +374,10 @@ function Tab({
   );
   const rename = useCallback(() => onRename?.(tab), [onRename, tab]);
   const icon = tab.icon ?? STATUS_ICON[tab.status];
-  const fg = active ? 'text-on-primary' : 'text-on-secondary-container';
+  const { colors } = useTheme();
+  const fg = (
+    active ? colors.onPrimary : colors.onSecondaryContainer
+  ) as string;
 
   return (
     <View
@@ -352,10 +385,17 @@ function Tab({
         const { x, width } = e.nativeEvent.layout;
         onLayout(tab.sessionId, x, width);
       }}
-      className={cn(
-        'h-11 max-w-[220px] flex-row items-center rounded-full pl-3',
-        active ? 'bg-primary' : 'bg-secondary-container',
-      )}
+      style={{
+        height: 44,
+        maxWidth: 220,
+        flexDirection: 'row',
+        alignItems: 'center',
+        borderRadius: 999,
+        paddingLeft: 12,
+        backgroundColor: (active
+          ? colors.primary
+          : colors.secondaryContainer) as string,
+      }}
     >
       <Pressable
         onPress={select}
@@ -375,12 +415,19 @@ function Tab({
               },
             }
           : {})}
-        className="h-11 flex-shrink flex-row items-center gap-1.5"
+        style={{
+          height: 44,
+          flexShrink: 1,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 6,
+        }}
       >
-        {icon === null ? null : <Icon name={icon} size={13} className={fg} />}
+        {icon === null ? null : <Icon name={icon} size={13} color={fg} />}
         <Text
           numberOfLines={1}
-          className={cn('flex-shrink text-sm font-medium', fg)}
+          variant="callout"
+          style={{ flexShrink: 1, fontWeight: '500', color: fg }}
         >
           {tab.label}
         </Text>
@@ -389,9 +436,15 @@ function Tab({
         onPress={close}
         accessibilityRole="button"
         accessibilityLabel={`Close ${tab.label}`}
-        className="h-11 w-9 items-center justify-center rounded-full"
+        style={{
+          height: 44,
+          width: 36,
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: 999,
+        }}
       >
-        <Icon name="x" size={15} className={fg} />
+        <Icon name="close" size={15} color={fg} />
       </Pressable>
     </View>
   );

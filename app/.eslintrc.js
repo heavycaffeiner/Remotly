@@ -8,9 +8,9 @@ module.exports = {
     // rule assumes.
     'no-void': 'off',
 
-    // Styling is Tailwind class names, so a style prop is now the exception
-    // rather than the rule: safe-area insets, measured keyboard offsets, and
-    // computed widths, none of which a class name can express.
+    // Styling is Paper's theme read through `useTheme`, so colors and metrics
+    // are computed per render and passed as style objects. A stylesheet cannot
+    // hold a theme color, a safe-area inset, or a measured keyboard offset.
     'react-native/no-inline-styles': 'off',
   },
   overrides: [

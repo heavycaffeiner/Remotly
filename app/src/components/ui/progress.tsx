@@ -1,45 +1,31 @@
 import * as React from 'react';
-import { View } from 'react-native';
-import { cn } from '../../lib/utils';
+import type { StyleProp, ViewStyle } from 'react-native';
+import { ProgressBar } from 'react-native-paper';
 
 interface ProgressProps {
   /** 0 to 1. Omit for an indeterminate bar. */
   value?: number;
   /** Names the operation for assistive technology. */
   label: string;
-  className?: string;
+  style?: StyleProp<ViewStyle>;
 }
 
-/**
- * Material Design 3 Linear Progress Bar.
- */
-function Progress({
-  value,
-  label,
-  className,
-}: ProgressProps): React.ReactElement {
+function Progress({ value, label, style }: ProgressProps): React.ReactElement {
   const determinate = value !== undefined && Number.isFinite(value);
-  const pct = determinate ? Math.max(0, Math.min(1, value)) * 100 : 40;
+  const clamped = determinate ? Math.max(0, Math.min(1, value)) : 0;
   return (
-    <View
+    <ProgressBar
+      progress={determinate ? clamped : undefined}
+      indeterminate={!determinate}
       accessibilityRole="progressbar"
       accessibilityLabel={label}
       accessibilityValue={
-        determinate ? { min: 0, max: 100, now: Math.round(pct) } : undefined
+        determinate
+          ? { min: 0, max: 100, now: Math.round(clamped * 100) }
+          : undefined
       }
-      className={cn(
-        'h-1 overflow-hidden rounded-full bg-surface-container-highest',
-        className,
-      )}
-    >
-      <View
-        style={{ width: `${pct}%` }}
-        className={cn(
-          'h-full rounded-full bg-primary',
-          !determinate && 'opacity-60',
-        )}
-      />
-    </View>
+      style={style}
+    />
   );
 }
 

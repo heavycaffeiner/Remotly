@@ -5,7 +5,8 @@
 // appears only while something is moving and opens the full sheet.
 
 import React, { useCallback } from 'react';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
+import { TouchableRipple, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '../../components/ui/icon';
 import { Progress } from '../../components/ui/progress';
@@ -36,6 +37,7 @@ export const INDICATOR_HEIGHT = 50;
 export function TransferIndicator(): React.ReactElement | null {
   const list = useTransfers();
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
   const show = useCallback(() => openTransferSheet(), []);
 
   const active = list.filter(t => t.phase === 'active');
@@ -66,28 +68,42 @@ export function TransferIndicator(): React.ReactElement | null {
       : `${failed} transfer${failed === 1 ? '' : 's'} failed`;
 
   return (
-    <>
-      <Pressable
-        role="button"
-        accessibilityLabel={`${label}. Open transfers.`}
-        onPress={show}
-        // Floated over the stack rather than laid out inside a screen, so it
-        // survives navigation. Kept clear of the gesture bar, and of the tab
-        // bar the main shell draws there.
-        style={{ bottom: insets.bottom + TAB_BAR_HEIGHT }}
-        className="absolute inset-x-0 z-10 border-t border-outline-variant/30 bg-surface-container-high px-4 py-2.5 active:bg-surface-variant/40"
-      >
-        <View className="flex-row items-center gap-2.5">
+    <TouchableRipple
+      role="button"
+      accessibilityLabel={`${label}. Open transfers.`}
+      onPress={show}
+      // Floated over the stack rather than laid out inside a screen, so it
+      // survives navigation. Kept clear of the gesture bar, and of the tab
+      // bar the main shell draws there.
+      style={{
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        zIndex: 10,
+        borderTopWidth: 1,
+        borderTopColor: colors.outlineVariant as string,
+        backgroundColor: colors.surfaceContainerHigh as string,
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        bottom: insets.bottom + TAB_BAR_HEIGHT,
+      }}
+    >
+      <View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <Icon
-            name={running > 0 ? 'arrow-down-up' : 'circle-alert'}
+            name={running > 0 ? 'arrow-up-down' : 'alert-circle'}
             size={18}
-            className={running > 0 ? 'text-primary' : 'text-destructive'}
+            color={
+              running > 0
+                ? (colors.primary as string)
+                : (colors.error as string)
+            }
           />
-          <Text className="flex-1 text-sm text-foreground" numberOfLines={1}>
+          <Text variant="callout" style={{ flex: 1 }} numberOfLines={1}>
             {label}
           </Text>
           {running > 0 && total > 0 ? (
-            <Text className="text-xs text-muted-foreground">
+            <Text variant="caption">
               {`${formatSize(moved)} / ${formatSize(total)}`}
             </Text>
           ) : null}
@@ -95,11 +111,11 @@ export function TransferIndicator(): React.ReactElement | null {
         {running > 0 ? (
           <Progress
             label="Overall transfer progress"
-            className="mt-1.5"
+            style={{ marginTop: 6 }}
             {...(fraction === null ? {} : { value: fraction })}
           />
         ) : null}
-      </Pressable>
-    </>
+      </View>
+    </TouchableRipple>
   );
 }

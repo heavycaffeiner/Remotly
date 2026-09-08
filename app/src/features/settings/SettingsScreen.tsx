@@ -4,7 +4,9 @@
 // Every control writes immediately. A failed write rolls the control back and
 // says so, rather than leaving the UI showing a value that was not stored.
 import React, { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
+import { TouchableRipple, useTheme } from 'react-native-paper';
+import type { IconName } from '../../lib/icons';
 import NativeCamera from '../../specs/NativeRemotlyCamera';
 import { Screen, IconButton } from '../../components/Screen';
 import { Notice, SectionHeader } from '../../components/States';
@@ -127,7 +129,7 @@ export function SettingsScreen(): React.ReactElement {
         ) : null}
 
         <SectionHeader title="Appearance" />
-        <View className="gap-2 px-4 py-1">
+        <View style={{ gap: 8, paddingHorizontal: 16, paddingVertical: 4 }}>
           <Text variant="callout">Theme</Text>
           <Segmented
             value={settings.themeMode}
@@ -155,19 +157,18 @@ export function SettingsScreen(): React.ReactElement {
 
         <SectionHeader title="Terminal" />
 
-        <View className="gap-2 px-4 py-1">
+        <View style={{ gap: 8, paddingHorizontal: 16, paddingVertical: 4 }}>
           <Text variant="callout">Font size</Text>
-          <View className="flex-row items-center gap-3">
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <IconButton
               icon="minus"
               label="Decrease terminal font size"
               disabled={fontSize <= MIN_FONT_SIZE}
               onPress={() => stepFont(-1)}
-              className="bg-surface-variant/40"
             />
             <Text
               accessibilityLabel={`Terminal font size, ${fontSize} sp`}
-              className="min-w-12 text-center text-base font-medium"
+              style={{ minWidth: 48, textAlign: 'center', fontWeight: '500' }}
             >
               {`${fontSize} sp`}
             </Text>
@@ -176,12 +177,11 @@ export function SettingsScreen(): React.ReactElement {
               label="Increase terminal font size"
               disabled={fontSize >= MAX_FONT_SIZE}
               onPress={() => stepFont(1)}
-              className="bg-surface-variant/40"
             />
           </View>
         </View>
 
-        <View className="gap-2 px-4 py-1">
+        <View style={{ gap: 8, paddingHorizontal: 16, paddingVertical: 4 }}>
           <Text variant="callout">Cursor</Text>
           <Segmented
             value={settings.cursorStyle}
@@ -220,7 +220,7 @@ export function SettingsScreen(): React.ReactElement {
           />
         </SettingRow>
 
-        <View className="gap-2 px-4 py-1">
+        <View style={{ gap: 8, paddingHorizontal: 16, paddingVertical: 4 }}>
           <Text variant="callout">Hold an extra key to repeat after</Text>
           <Segmented
             value={String(settings.keyRepeatDelayMs)}
@@ -262,7 +262,7 @@ export function SettingsScreen(): React.ReactElement {
             accessibilityLabel="Choose the download folder"
             onPress={chooseDownloadFolder}
           >
-            <Text>Change</Text>
+            Change
           </Button>
         </SettingRow>
 
@@ -285,12 +285,19 @@ export function SettingsScreen(): React.ReactElement {
         <SettingRow
           title="Reset settings"
           description="Restores the defaults on this screen. Hosts, SSH credentials, and accepted host keys are kept."
-          icon="rotate-ccw"
+          icon="rotate-left"
           destructive
           onPress={() => setConfirmReset(true)}
         />
 
-        <Text variant="caption" className="px-4 py-3 text-center">
+        <Text
+          variant="caption"
+          style={{
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+            textAlign: 'center',
+          }}
+        >
           Settings are stored on this device only.
         </Text>
       </ScrollView>
@@ -314,7 +321,7 @@ export function SettingsScreen(): React.ReactElement {
 interface SettingRowProps {
   title: string;
   description?: string;
-  icon?: 'cog' | 'rotate-ccw';
+  icon?: IconName;
   destructive?: boolean;
   onPress?: () => void;
   children?: React.ReactNode;
@@ -328,41 +335,43 @@ function SettingRow({
   onPress,
   children,
 }: SettingRowProps): React.ReactElement {
+  const { colors } = useTheme();
   const body = (
-    <>
+    <View
+      style={{
+        minHeight: 56,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+      }}
+    >
       {icon === undefined ? null : (
         <Icon
           name={icon}
-          className={destructive ? 'text-destructive' : 'text-foreground'}
+          color={(destructive ? colors.error : colors.onSurface) as string}
         />
       )}
-      <View className="flex-1 gap-0.5">
-        <Text className={destructive ? 'text-destructive' : ''}>{title}</Text>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text
+          style={destructive ? { color: colors.error as string } : undefined}
+        >
+          {title}
+        </Text>
         {description === undefined ? null : (
           <Text variant="caption">{description}</Text>
         )}
       </View>
       {children}
-    </>
+    </View>
   );
 
-  if (onPress === undefined) {
-    return (
-      <View className="min-h-14 flex-row items-center gap-3 px-4 py-3">
-        {body}
-      </View>
-    );
-  }
+  if (onPress === undefined) return body;
   return (
-    <Pressable
-      role="button"
-      accessibilityLabel={title}
-      onPress={onPress}
-      android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
-      className="min-h-14 flex-row items-center gap-3 px-4 py-3 active:bg-surface-variant/40"
-    >
+    <TouchableRipple role="button" accessibilityLabel={title} onPress={onPress}>
       {body}
-    </Pressable>
+    </TouchableRipple>
   );
 }
 

@@ -1,68 +1,61 @@
 import * as React from 'react';
 import { View, type ViewProps } from 'react-native';
-import { cn } from '../../lib/utils';
-import { Text, TextClassContext } from './text';
+import { Card as PaperCard } from 'react-native-paper';
+import { Text } from './text';
 
-interface CardProps extends ViewProps {
-  /** Outlined variant with subtle border; defaults to filled card without border. */
+type PaperCardProps = React.ComponentProps<typeof PaperCard>;
+
+interface CardProps extends Omit<PaperCardProps, 'mode' | 'elevation'> {
+  /** Outlined variant; defaults to a filled container without a border. */
   outlined?: boolean;
 }
 
-function Card({
-  className,
-  outlined = false,
-  ...props
-}: CardProps): React.ReactElement {
-  return (
-    <TextClassContext.Provider value="text-card-foreground">
-      <View
-        className={cn(
-          'rounded-2xl bg-card overflow-hidden',
-          outlined ? 'border border-outline/25' : '',
-          className,
-        )}
-        {...props}
-      />
-    </TextClassContext.Provider>
+function Card({ outlined = false, ...props }: CardProps): React.ReactElement {
+  return outlined ? (
+    <PaperCard mode="outlined" {...props} />
+  ) : (
+    <PaperCard mode="contained" {...props} />
   );
 }
 
-function CardHeader({ className, ...props }: ViewProps): React.ReactElement {
-  return <View className={cn('gap-1.5 p-5', className)} {...props} />;
+function CardHeader({ style, ...props }: ViewProps): React.ReactElement {
+  return <View style={[{ gap: 6, padding: 20 }, style]} {...props} />;
 }
 
-function CardTitle({
-  className,
-  ...props
-}: React.ComponentProps<typeof Text>): React.ReactElement {
+function CardTitle(
+  props: React.ComponentProps<typeof Text>,
+): React.ReactElement {
+  return <Text role="heading" variant="title" {...props} />;
+}
+
+function CardDescription(
+  props: React.ComponentProps<typeof Text>,
+): React.ReactElement {
+  return <Text variant="muted" {...props} />;
+}
+
+function CardContent({ style, ...props }: ViewProps): React.ReactElement {
   return (
-    <Text
-      role="heading"
-      variant="title"
-      className={cn(
-        'text-lg font-semibold tracking-tight text-foreground',
-        className,
-      )}
+    <View
+      style={[{ gap: 12, paddingHorizontal: 20, paddingBottom: 20 }, style]}
       {...props}
     />
   );
 }
 
-function CardDescription({
-  className,
-  ...props
-}: React.ComponentProps<typeof Text>): React.ReactElement {
-  return <Text variant="muted" className={className} {...props} />;
-}
-
-function CardContent({ className, ...props }: ViewProps): React.ReactElement {
-  return <View className={cn('gap-3 p-5 pt-0', className)} {...props} />;
-}
-
-function CardFooter({ className, ...props }: ViewProps): React.ReactElement {
+function CardFooter({ style, ...props }: ViewProps): React.ReactElement {
   return (
     <View
-      className={cn('flex-row items-center gap-2 p-5 pt-0', className)}
+      style={[
+        {
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 8,
+          paddingHorizontal: 20,
+          paddingBottom: 20,
+        },
+        style,
+      ]}
       {...props}
     />
   );

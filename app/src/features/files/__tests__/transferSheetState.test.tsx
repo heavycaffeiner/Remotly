@@ -10,6 +10,7 @@
 
 import React from 'react';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
+import { PaperProvider } from 'react-native-paper';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 import { TransferSheet, openTransferSheet } from '../TransferSheet';
@@ -49,7 +50,9 @@ function mount(): ReactTestRenderer {
   act(() => {
     tree = create(
       <SafeAreaProvider initialMetrics={METRICS}>
-        <TransferSheet />
+        <PaperProvider>
+          <TransferSheet />
+        </PaperProvider>
       </SafeAreaProvider>,
     );
   });

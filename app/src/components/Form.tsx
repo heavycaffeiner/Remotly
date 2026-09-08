@@ -6,6 +6,7 @@
 
 import * as React from 'react';
 import { View } from 'react-native';
+import { useTheme } from 'react-native-paper';
 import { Input } from './ui/input';
 import { Text } from './ui/text';
 
@@ -21,12 +22,18 @@ export function FormSection({
   description,
   children,
 }: FormSectionProps): React.ReactElement {
+  const { colors } = useTheme();
   return (
-    <View className="gap-2 px-4 pt-4">
+    <View style={{ gap: 8, paddingHorizontal: 16, paddingTop: 16 }}>
       <Text
         role="heading"
         variant="caption"
-        className="font-semibold uppercase tracking-wide text-primary"
+        style={{
+          fontWeight: '600',
+          textTransform: 'uppercase',
+          letterSpacing: 1,
+          color: colors.primary as string,
+        }}
       >
         {title}
       </Text>
@@ -46,12 +53,13 @@ interface FieldErrorProps {
 export function FieldError({
   message,
 }: FieldErrorProps): React.ReactElement | null {
+  const { colors } = useTheme();
   if (message === '') return null;
   return (
     <Text
       variant="caption"
       accessibilityLiveRegion="polite"
-      className="text-destructive"
+      style={{ color: colors.error as string }}
     >
       {message}
     </Text>
@@ -79,8 +87,8 @@ export function Field({
   ...props
 }: FieldProps): React.ReactElement {
   return (
-    <View className="gap-1.5">
-      <Text variant="callout" className="font-medium">
+    <View style={{ gap: 6 }}>
+      <Text variant="callout" style={{ fontWeight: '500' }}>
         {label}
       </Text>
       <Input accessibilityLabel={label} invalid={error !== ''} {...props} />

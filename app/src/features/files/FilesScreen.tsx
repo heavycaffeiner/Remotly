@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FlatList, Pressable, View } from 'react-native';
+import { FlatList, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
@@ -43,6 +43,8 @@ import {
 } from '../../lib/fileIO';
 import { toRemotlyError, userFacingMessage } from '../../lib/errors';
 import { log } from '../../lib/log';
+import { Surface, TouchableRipple, useTheme } from 'react-native-paper';
+import type { IconName } from '../../lib/icons';
 import { Screen, type ScreenAction } from '../../components/Screen';
 import { Empty, ErrorState, Loading, Notice } from '../../components/States';
 import { Button } from '../../components/ui/button';
@@ -1085,6 +1087,7 @@ export function FilesScreen({
   const canTransfer = xferRef.current !== null;
   const runningCount = useTransfers().filter(t => t.phase === 'active').length;
   const openTransfers = React.useCallback(() => openTransferSheet(), []);
+  const { colors } = useTheme();
 
   const actions: ScreenAction[] = [
     {
@@ -1107,7 +1110,7 @@ export function FilesScreen({
       : []),
     {
       key: 'transfers',
-      icon: 'arrow-down-up' as const,
+      icon: 'arrow-up-down' as const,
       // The count is in the name so it is announced, not only drawn.
       title:
         runningCount > 0 ? `Transfers, ${runningCount} running` : 'Transfers',
@@ -1141,28 +1144,34 @@ export function FilesScreen({
       ) : null}
 
       {phase === 'hostKey' && hostKey !== null ? (
-        <View className="flex-1 items-center justify-center gap-2 p-6">
-          <Text variant="title" className="text-center">
+        <View
+          style={{
+            flex: 1,
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+            padding: 24,
+          }}
+        >
+          <Text variant="title" style={{ textAlign: 'center' }}>
             {hostKey.changed ? 'Host key changed' : 'New host key'}
           </Text>
-          <Text variant="muted" className="text-center">
+          <Text variant="muted" style={{ textAlign: 'center' }}>
             {hostKey.changed
               ? 'A different key than the one you approved was presented. This may be a sign of tampering. Only continue if you expect the key to change.'
               : 'This server presented a host key you have not seen before. Approving it stores the key for this host.'}
           </Text>
-          <Text variant="code" className="text-center">
+          <Text variant="code" style={{ textAlign: 'center' }}>
             {hostKey.algorithm}
           </Text>
-          <Text variant="code" className="text-center">
+          <Text variant="code" style={{ textAlign: 'center' }}>
             {hostKey.fingerprint}
           </Text>
-          <View className="flex-row gap-2 py-2">
+          <View style={{ flexDirection: 'row', gap: 8, paddingVertical: 8 }}>
             <Button variant="outline" onPress={closePage}>
-              <Text>Reject</Text>
+              Reject
             </Button>
-            <Button onPress={acceptSftpKey}>
-              <Text>Trust and continue</Text>
-            </Button>
+            <Button onPress={acceptSftpKey}>Trust and continue</Button>
           </View>
         </View>
       ) : null}
@@ -1184,7 +1193,7 @@ export function FilesScreen({
         <FlatList
           data={shownEntries}
           keyExtractor={e => entryKey(cwd, e)}
-          className="flex-1"
+          style={{ flex: 1 }}
           contentContainerStyle={{ paddingBottom: 48 }}
           ListHeaderComponent={
             parentPath(cwd) !== null ? <UpRow onPress={goUp} /> : undefined
@@ -1193,7 +1202,7 @@ export function FilesScreen({
             entries !== null && shownEntries.length === 0 ? (
               entries.length > 0 ? (
                 <Empty
-                  icon="search"
+                  icon="magnify"
                   title="Nothing matches"
                   message={
                     more
@@ -1216,8 +1225,17 @@ export function FilesScreen({
           }
           ListFooterComponent={
             loading && (entries === null || more) ? (
-              <View className="items-center px-8 py-4">
-                <Progress label="Loading more entries" className="w-1/2" />
+              <View
+                style={{
+                  alignItems: 'center',
+                  paddingHorizontal: 32,
+                  paddingVertical: 16,
+                }}
+              >
+                <Progress
+                  label="Loading more entries"
+                  style={{ width: '50%' }}
+                />
               </View>
             ) : undefined
           }
@@ -1229,7 +1247,16 @@ export function FilesScreen({
 
       {/* Transfer progress / result. */}
       {transfer !== null ? (
-        <View className="gap-2 border-t border-border bg-card p-4">
+        <Surface
+          elevation={0}
+          style={{
+            gap: 8,
+            borderTopWidth: 1,
+            borderTopColor: colors.outlineVariant as string,
+            backgroundColor: colors.surfaceContainerLow as string,
+            padding: 16,
+          }}
+        >
           <Text variant="title" numberOfLines={1}>
             {transfer.kind === 'upload' ? 'Uploading' : 'Downloading'}{' '}
             {transfer.path}
@@ -1257,7 +1284,13 @@ export function FilesScreen({
               ? 'Complete.'
               : transfer.error ?? ''}
           </Text>
-          <View className="flex-row justify-end gap-2">
+          <View
+            style={{
+              flexDirection: 'row',
+              justifyContent: 'flex-end',
+              gap: 8,
+            }}
+          >
             {transfer.active ? (
               <Button
                 variant="outline"
@@ -1265,7 +1298,7 @@ export function FilesScreen({
                 onPress={cancelTransfer}
                 accessibilityLabel="Cancel transfer"
               >
-                <Text>Cancel</Text>
+                Cancel
               </Button>
             ) : null}
             {transfer.conflict === true ? (
@@ -1274,30 +1307,40 @@ export function FilesScreen({
                 onPress={retryReplace}
                 accessibilityLabel="Replace the existing file and retry"
               >
-                <Text>Replace and retry</Text>
+                Replace and retry
               </Button>
             ) : null}
             {!transfer.active || transfer.conflict === true ? (
               <Button variant="ghost" size="sm" onPress={dismissTransfer}>
-                <Text>Dismiss</Text>
+                Dismiss
               </Button>
             ) : null}
           </View>
-        </View>
+        </Surface>
       ) : null}
 
       {phase === 'ready' ? (
-        <View className="flex-row items-center justify-between border-t border-border px-2 py-1">
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderTopWidth: 1,
+            borderTopColor: colors.outlineVariant as string,
+            paddingHorizontal: 8,
+            paddingVertical: 4,
+          }}
+        >
           <Button
             variant="ghost"
             size="sm"
+            icon="refresh"
             onPress={() => loadDir(cwdRef.current)}
             accessibilityLabel="Refresh this folder"
           >
-            <Icon name="refresh" size={16} />
-            <Text>Refresh</Text>
+            Refresh
           </Button>
-          <Text variant="caption" className="ml-2 flex-shrink">
+          <Text variant="caption" style={{ marginLeft: 8, flexShrink: 1 }}>
             {canTransfer
               ? 'Transfers: resume available, no integrity check'
               : 'Browsing and metadata only.'}
@@ -1313,40 +1356,19 @@ export function FilesScreen({
         <SheetHeader>
           <SheetTitle>{nameClash?.name ?? ''} already exists</SheetTitle>
         </SheetHeader>
-        <SheetContent className="gap-2 pb-6">
-          <Text variant="muted" className="px-1 pb-1">
+        <SheetContent style={{ gap: 8, paddingBottom: 24 }}>
+          <Text
+            variant="muted"
+            style={{ paddingHorizontal: 4, paddingBottom: 4 }}
+          >
             A file with this name is already in your download folder.
           </Text>
-          <Pressable
-            role="button"
+          <MenuRow
+            icon="content-copy"
+            label="Keep both"
             onPress={resolveKeepBoth}
-            android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
-            className="h-14 flex-row items-center gap-4 rounded-2xl px-4 active:bg-surface-variant/40"
-          >
-            <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
-              <Icon
-                name="copy"
-                size={20}
-                className="text-on-secondary-container"
-              />
-            </View>
-            <Text className="text-base font-medium flex-1">Keep both</Text>
-          </Pressable>
-          <Pressable
-            role="button"
-            onPress={resolveReplace}
-            android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
-            className="h-14 flex-row items-center gap-4 rounded-2xl px-4 active:bg-surface-variant/40"
-          >
-            <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
-              <Icon
-                name="refresh"
-                size={20}
-                className="text-on-secondary-container"
-              />
-            </View>
-            <Text className="text-base font-medium flex-1">Replace</Text>
-          </Pressable>
+          />
+          <MenuRow icon="refresh" label="Replace" onPress={resolveReplace} />
         </SheetContent>
       </Sheet>
 
@@ -1358,10 +1380,11 @@ export function FilesScreen({
         <SheetHeader>
           <SheetTitle>{menuFor ?? ''}</SheetTitle>
         </SheetHeader>
-        <SheetContent className="gap-1 pb-6">
+        <SheetContent style={{ gap: 4, paddingBottom: 24 }}>
           {canTransfer ? (
-            <Pressable
-              role="button"
+            <MenuRow
+              icon="file-download"
+              label="Download"
               onPress={() => {
                 const name = menuFor;
                 if (name === null) return;
@@ -1373,51 +1396,23 @@ export function FilesScreen({
                   entry !== undefined && entry.size > 0 ? entry.size : -1,
                 );
               }}
-              android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
-              className="h-14 flex-row items-center gap-4 rounded-2xl px-4 active:bg-surface-variant/40"
-            >
-              <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
-                <Icon
-                  name="file-down"
-                  size={20}
-                  className="text-on-secondary-container"
-                />
-              </View>
-              <Text className="text-base font-medium flex-1">Download</Text>
-            </Pressable>
+            />
           ) : null}
-          <Pressable
-            role="button"
+          <MenuRow
+            icon="pencil"
+            label="Rename"
             onPress={() => {
               if (menuFor !== null) beginRename(menuFor);
             }}
-            android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
-            className="h-14 flex-row items-center gap-4 rounded-2xl px-4 active:bg-surface-variant/40"
-          >
-            <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
-              <Icon
-                name="pencil"
-                size={20}
-                className="text-on-secondary-container"
-              />
-            </View>
-            <Text className="text-base font-medium flex-1">Rename</Text>
-          </Pressable>
-          <Pressable
-            role="button"
+          />
+          <MenuRow
+            icon="delete"
+            label="Delete"
+            destructive
             onPress={() => {
               if (menuFor !== null) beginRemove(menuFor);
             }}
-            android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
-            className="h-14 flex-row items-center gap-4 rounded-2xl px-4 active:bg-surface-variant/40"
-          >
-            <View className="h-10 w-10 items-center justify-center rounded-full bg-destructive-container">
-              <Icon name="trash" size={20} className="text-destructive" />
-            </View>
-            <Text className="text-base font-medium text-destructive flex-1">
-              Delete
-            </Text>
-          </Pressable>
+          />
         </SheetContent>
       </Sheet>
 
@@ -1454,7 +1449,7 @@ export function FilesScreen({
         </DialogContent>
         <DialogFooter>
           <Button variant="ghost" onPress={cancelPrompt}>
-            <Text>Cancel</Text>
+            Cancel
           </Button>
           <Button
             variant={prompt?.kind === 'remove' ? 'destructive' : 'default'}
@@ -1463,7 +1458,7 @@ export function FilesScreen({
               prompt?.kind === 'remove' ? 'Delete' : 'Confirm'
             }
           >
-            <Text>{prompt?.kind === 'remove' ? 'Delete' : 'OK'}</Text>
+            {prompt?.kind === 'remove' ? 'Delete' : 'OK'}
           </Button>
         </DialogFooter>
       </Dialog>
@@ -1471,18 +1466,83 @@ export function FilesScreen({
   );
 }
 
+// A row in one of this screen's action sheets.
+function MenuRow({
+  icon,
+  label,
+  destructive = false,
+  onPress,
+}: {
+  icon: IconName;
+  label: string;
+  destructive?: boolean;
+  onPress: () => void;
+}): React.ReactElement {
+  const { colors } = useTheme();
+  return (
+    <TouchableRipple
+      role="button"
+      onPress={onPress}
+      style={{
+        height: 56,
+        borderRadius: 16,
+        paddingHorizontal: 16,
+        justifyContent: 'center',
+      }}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+        <View
+          style={{
+            height: 40,
+            width: 40,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: 999,
+            backgroundColor: (destructive
+              ? colors.errorContainer
+              : colors.secondaryContainer) as string,
+          }}
+        >
+          <Icon
+            name={icon}
+            size={20}
+            color={
+              (destructive
+                ? colors.error
+                : colors.onSecondaryContainer) as string
+            }
+          />
+        </View>
+        <Text
+          variant="body"
+          style={{
+            flex: 1,
+            fontWeight: '500',
+            ...(destructive ? { color: colors.error as string } : {}),
+          }}
+        >
+          {label}
+        </Text>
+      </View>
+    </TouchableRipple>
+  );
+}
+
 // The parent-directory row. At module scope so FlatList's header type is
 // stable across renders.
 function UpRow({ onPress }: { onPress: () => void }): React.ReactElement {
+  const { colors } = useTheme();
   return (
     <Button
       variant="ghost"
-      className="h-14 justify-start rounded-none px-4"
+      icon="arrow-up"
+      style={{ borderRadius: 0 }}
+      contentStyle={{ height: 56, justifyContent: 'flex-start' }}
+      labelStyle={{ color: colors.onSurfaceVariant as string }}
       accessibilityLabel="Up one level"
       onPress={onPress}
     >
-      <Icon name="arrow-up" className="text-muted-foreground" />
-      <Text className="text-muted-foreground">..</Text>
+      ..
     </Button>
   );
 }

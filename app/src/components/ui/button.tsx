@@ -1,7 +1,5 @@
 import * as React from 'react';
-import { Pressable, type PressableProps } from 'react-native';
-import { cn } from '../../lib/utils';
-import { TextClassContext } from './text';
+import { Button as PaperButton, useTheme } from 'react-native-paper';
 
 export type ButtonVariant =
   | 'default'
@@ -15,100 +13,65 @@ export type ButtonVariant =
 
 export type ButtonSize = 'default' | 'sm' | 'lg' | 'icon';
 
-const BUTTON_CONTAINER_STYLES: Record<ButtonVariant, string> = {
-  default: 'bg-primary',
-  destructive: 'bg-destructive',
-  outline: 'border border-outline bg-transparent',
-  secondary: 'bg-secondary-container',
-  tonal: 'bg-secondary-container',
-  elevated: 'bg-surface-container-low shadow-sm',
-  ghost: 'bg-transparent active:bg-surface-variant/40',
-  link: '',
+type PaperButtonProps = React.ComponentProps<typeof PaperButton>;
+type PaperMode = NonNullable<PaperButtonProps['mode']>;
+
+const MODE: Record<ButtonVariant, PaperMode> = {
+  default: 'contained',
+  destructive: 'contained',
+  outline: 'outlined',
+  secondary: 'contained-tonal',
+  tonal: 'contained-tonal',
+  elevated: 'elevated',
+  ghost: 'text',
+  link: 'text',
 };
 
-const BUTTON_SIZE_STYLES: Record<ButtonSize, string> = {
-  default: 'h-11 px-6 py-2.5',
-  sm: 'h-9 px-4',
-  lg: 'h-12 px-8',
-  icon: 'h-11 w-11 p-0',
+/**
+ * Content heights, so a row of buttons lines up with the touch targets around
+ * it. Applied as a minimum: the label decides the rest.
+ */
+const MIN_HEIGHT: Record<ButtonSize, number> = {
+  default: 40,
+  sm: 32,
+  lg: 56,
+  icon: 40,
 };
 
-const BUTTON_TEXT_STYLES: Record<ButtonVariant, string> = {
-  default: 'text-on-primary',
-  destructive: 'text-destructive-foreground',
-  outline: 'text-primary',
-  secondary: 'text-on-secondary-container',
-  tonal: 'text-on-secondary-container',
-  elevated: 'text-primary',
-  ghost: 'text-primary',
-  link: 'text-primary underline',
-};
-
-const BUTTON_TEXT_SIZES: Record<ButtonSize, string> = {
-  default: '',
-  sm: 'text-xs',
-  lg: 'text-base',
-  icon: '',
-};
-
-function buttonVariants(props?: {
-  variant?: ButtonVariant;
-  size?: ButtonSize;
-}): string {
-  const v = props?.variant ?? 'default';
-  const s = props?.size ?? 'default';
-  return cn(
-    'group flex flex-row items-center justify-center gap-2 rounded-full overflow-hidden active:opacity-85',
-    BUTTON_CONTAINER_STYLES[v],
-    BUTTON_SIZE_STYLES[s],
-  );
-}
-
-function buttonTextVariants(props?: {
-  variant?: ButtonVariant;
-  size?: ButtonSize;
-}): string {
-  const v = props?.variant ?? 'default';
-  const s = props?.size ?? 'default';
-  return cn(
-    'text-sm font-medium tracking-wide',
-    BUTTON_TEXT_STYLES[v],
-    BUTTON_TEXT_SIZES[s],
-  );
-}
-
-interface ButtonProps extends PressableProps {
+interface ButtonProps extends Omit<PaperButtonProps, 'mode'> {
   variant?: ButtonVariant;
   size?: ButtonSize;
 }
 
 function Button({
-  className,
   variant = 'default',
   size = 'default',
-  disabled,
+  contentStyle,
+  labelStyle,
   ...props
 }: ButtonProps): React.ReactElement {
-  const isFilled = variant === 'default' || variant === 'destructive';
+  const { colors } = useTheme();
+  const destructive = variant === 'destructive';
   return (
-    <TextClassContext.Provider value={buttonTextVariants({ variant, size })}>
-      <Pressable
-        role="button"
-        disabled={disabled ?? false}
-        accessibilityState={{ disabled: disabled ?? false }}
-        android_ripple={{
-          color: isFilled ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.08)',
-          borderless: false,
-        }}
-        className={cn(
-          buttonVariants({ variant, size }),
-          disabled === true && 'opacity-38',
-          className,
-        )}
-        {...props}
-      />
-    </TextClassContext.Provider>
+    <PaperButton
+      mode={MODE[variant]}
+      compact={size === 'sm' || size === 'icon'}
+      buttonColor={destructive ? colors.error : undefined}
+      textColor={destructive ? colors.onError : undefined}
+      contentStyle={[
+        // A minimum, never a fixed height: Paper sizes the label from the
+        // theme's type scale, and a hard height clipped it at the small size.
+        { minHeight: MIN_HEIGHT[size] },
+        size === 'icon' ? { minWidth: MIN_HEIGHT.icon } : null,
+        contentStyle,
+      ]}
+      labelStyle={[
+        variant === 'link' ? { textDecorationLine: 'underline' } : null,
+        labelStyle,
+      ]}
+      {...props}
+    />
   );
 }
 
-export { Button, buttonTextVariants, buttonVariants };
+export { Button };

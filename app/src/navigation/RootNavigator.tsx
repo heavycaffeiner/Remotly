@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { StatusBar } from 'react-native';
+import { Platform, StatusBar } from 'react-native';
 import {
   DarkTheme,
   DefaultTheme,
@@ -7,14 +7,15 @@ import {
   type Theme,
 } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { adaptNavigationTheme, useTheme } from 'react-native-paper';
 
 import { MainNavigator } from './MainNavigator';
 import { SshTerminalScreen } from '../features/ssh-terminal/SshTerminalScreen';
 import { SshHostEditorScreen } from '../features/hosts/SshHostEditorScreen';
 import { FilesScreen } from '../features/files/FilesScreen';
 import { TransferIndicator } from '../features/files/TransferIndicator';
+import { HerdrWorkspacesScreen } from '../features/herdr/HerdrWorkspacesScreen';
 import { TransferSheet } from '../features/files/TransferSheet';
-import { themeColors, useAppliedColorScheme } from '../theme/useColorScheme';
 import type { RootStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -25,31 +26,31 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 // than recycling them. That is what keeps a live terminal session alive when
 // the user navigates away and back, so no per-screen opt-in is needed here.
 export function RootNavigator(): React.ReactElement {
-  const scheme = useAppliedColorScheme();
+  const theme = useTheme();
+  const isDark = theme.dark;
 
   // The navigator's own container colors have to track the theme, or the
   // background flashes the wrong color during a transition.
   const navTheme = useMemo<Theme>(() => {
-    const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
-    const c = themeColors[scheme];
-    return {
-      ...base,
-      colors: {
-        ...base.colors,
-        primary: c.primary,
-        background: c.background,
-        card: c.card,
-        text: c.foreground,
-        border: c.border,
-        notification: c.primary,
-      },
-    };
-  }, [scheme]);
+    const adapted = adaptNavigationTheme({
+      reactNavigationLight: DefaultTheme,
+      reactNavigationDark: DarkTheme,
+      materialLight: theme,
+      materialDark: theme,
+    });
+    return isDark ? adapted.DarkTheme : adapted.LightTheme;
+  }, [isDark, theme]);
 
   return (
     <NavigationContainer theme={navTheme}>
       <StatusBar
-        barStyle={scheme === 'dark' ? 'light-content' : 'dark-content'}
+        barStyle={
+          isDark
+            ? 'light-content'
+            : Platform.OS === 'ios'
+            ? 'dark-content'
+            : 'light-content'
+        }
       />
       <Stack.Navigator
         initialRouteName="Main"
@@ -59,6 +60,10 @@ export function RootNavigator(): React.ReactElement {
         <Stack.Screen name="SshTerminal" component={SshTerminalScreen} />
         <Stack.Screen name="SshHostEditor" component={SshHostEditorScreen} />
         <Stack.Screen name="Files" component={FilesScreen} />
+        <Stack.Screen
+          name="HerdrWorkspaces"
+          component={HerdrWorkspacesScreen}
+        />
       </Stack.Navigator>
       {/* Above the whole stack, not inside a screen. Transfers outlive the
           screen that started them, so an indicator mounted within one

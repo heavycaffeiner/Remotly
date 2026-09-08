@@ -538,12 +538,14 @@ func (s *Session) failStage(code, stage string, err error) {
 	})
 }
 
-// handshakeFail maps a handshake error to an SshCode and a stage.
-func (s *Session) handshakeFail(err error) {
+// handshakeCode maps a handshake error to an SshCode and a stage. The
+// terminal session and the one-shot exec both connect through this, so they
+// classify the same failure identically.
+func handshakeCode(err error) (code, stage string) {
 	msg := err.Error()
 	lower := strings.ToLower(msg)
-	code := CodeConnectFailed
-	stage := StageHandshake
+	code = CodeConnectFailed
+	stage = StageHandshake
 	switch {
 	case strings.Contains(lower, "host key rejected"):
 		code, stage = CodeHostKeyRejected, StageHostKey
@@ -556,6 +558,11 @@ func (s *Session) handshakeFail(err error) {
 	case strings.Contains(lower, "handshake failed"):
 		code, stage = CodeAuthFailed, StageHandshake
 	}
+	return code, stage
+}
+
+func (s *Session) handshakeFail(err error) {
+	code, stage := handshakeCode(err)
 	s.failStage(code, stage, err)
 }
 
@@ -573,12 +580,19 @@ func (s *Session) signer() (ssh.Signer, error) {
 // keyboard-interactive method answers the server's password prompt with the
 // same secret, so a Windows host with the default policy authenticates.
 func (s *Session) authMethods(signer ssh.Signer) []ssh.AuthMethod {
+	return buildAuthMethods(s.cfg.Password, s.cfg.PrivateKey, signer)
+}
+
+// buildAuthMethods offers every credential the caller supplied. The
+// keyboard-interactive method answers a server's password prompt with the same
+// secret, which Windows OpenSSH requires when PasswordAuthentication is off
+// and KbdInteractiveAuthentication is on.
+func buildAuthMethods(password string, privateKey []byte, signer ssh.Signer) []ssh.AuthMethod {
 	var methods []ssh.AuthMethod
-	if len(s.cfg.PrivateKey) > 0 && signer != nil {
+	if len(privateKey) > 0 && signer != nil {
 		methods = append(methods, ssh.PublicKeys(signer))
 	}
-	if s.cfg.Password != "" {
-		password := s.cfg.Password
+	if password != "" {
 		methods = append(methods, ssh.Password(password))
 		methods = append(methods, ssh.KeyboardInteractive(passwordChallenge(password)))
 	}

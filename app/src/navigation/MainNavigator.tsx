@@ -11,16 +11,18 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Animated,
-  Pressable,
   useAnimatedValue,
   View,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
+import { Surface, TouchableRipple, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HostsScreen } from '../features/hosts/HostsScreen';
 import { SettingsScreen } from '../features/settings/SettingsScreen';
-import { Icon, type IconName } from '../components/ui/icon';
+import { Icon } from '../components/ui/icon';
+import type { IconName } from '../lib/icons';
 import { Text } from '../components/ui/text';
-import { cn } from '../lib/utils';
 import { useWidthClass } from '../theme/useColorScheme';
 import { MAIN_TABS, type MainTab } from './types';
 
@@ -32,7 +34,7 @@ interface TabDef {
 
 const TABS: readonly TabDef[] = [
   { key: 'Hosts', title: 'Hosts', icon: 'server' },
-  { key: 'Settings', title: 'Settings', icon: 'settings' },
+  { key: 'Settings', title: 'Settings', icon: 'cog' },
 ];
 
 export function MainNavigator({
@@ -45,6 +47,7 @@ export function MainNavigator({
     initial && MAIN_TABS.includes(initial) ? initial : 'Hosts',
   );
   const expanded = useWidthClass() === 'expanded';
+  const { colors } = useTheme();
 
   // Kept mounted and toggled with display, so a screen's state and in-flight
   // requests survive a tab switch.
@@ -61,16 +64,22 @@ export function MainNavigator({
 
   if (expanded) {
     return (
-      <View className="flex-1 flex-row bg-background">
+      <View
+        style={{
+          flex: 1,
+          flexDirection: 'row',
+          backgroundColor: colors.background,
+        }}
+      >
         <NavigationRail active={active} onSelect={setActive} />
-        <View className="flex-1">{scenes}</View>
+        <View style={{ flex: 1 }}>{scenes}</View>
       </View>
     );
   }
 
   return (
-    <View className="flex-1 bg-background">
-      <View className="flex-1">{scenes}</View>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <View style={{ flex: 1 }}>{scenes}</View>
       <NavigationBar active={active} onSelect={setActive} />
     </View>
   );
@@ -90,8 +99,7 @@ function Scene({
       accessibilityElementsHidden={!active}
       importantForAccessibility={active ? 'auto' : 'no-hide-descendants'}
       pointerEvents={active ? 'auto' : 'none'}
-      style={{ display: active ? 'flex' : 'none' }}
-      className="flex-1"
+      style={{ flex: 1, display: active ? 'flex' : 'none' }}
     >
       {children}
     </View>
@@ -105,11 +113,17 @@ interface NavProps {
 
 function NavigationBar({ active, onSelect }: NavProps): React.ReactElement {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
   return (
-    <View
+    <Surface
+      elevation={2}
       accessibilityRole="tablist"
-      style={{ paddingBottom: insets.bottom }}
-      className="h-20 flex-row bg-surface-container"
+      style={{
+        height: 80 + insets.bottom,
+        flexDirection: 'row',
+        paddingBottom: insets.bottom,
+        backgroundColor: colors.surfaceContainer,
+      }}
     >
       {TABS.map(tab => (
         <NavItem
@@ -117,20 +131,28 @@ function NavigationBar({ active, onSelect }: NavProps): React.ReactElement {
           tab={tab}
           selected={active === tab.key}
           onSelect={onSelect}
-          className="flex-1"
+          style={{ flex: 1 }}
         />
       ))}
-    </View>
+    </Surface>
   );
 }
 
 function NavigationRail({ active, onSelect }: NavProps): React.ReactElement {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
   return (
-    <View
+    <Surface
+      elevation={2}
       accessibilityRole="tablist"
-      style={{ paddingTop: insets.top + 16, paddingBottom: insets.bottom }}
-      className="w-20 gap-3 bg-surface-container px-2"
+      style={{
+        width: 80,
+        gap: 12,
+        paddingHorizontal: 8,
+        paddingTop: insets.top + 16,
+        paddingBottom: insets.bottom,
+        backgroundColor: colors.surfaceContainer,
+      }}
     >
       {TABS.map(tab => (
         <NavItem
@@ -138,10 +160,10 @@ function NavigationRail({ active, onSelect }: NavProps): React.ReactElement {
           tab={tab}
           selected={active === tab.key}
           onSelect={onSelect}
-          className="w-16"
+          style={{ width: 64 }}
         />
       ))}
-    </View>
+    </Surface>
   );
 }
 
@@ -149,20 +171,19 @@ interface NavItemProps {
   tab: TabDef;
   selected: boolean;
   onSelect: (tab: MainTab) => void;
-  className?: string;
+  style?: StyleProp<ViewStyle>;
 }
 
 function NavItem({
   tab,
   selected,
   onSelect,
-  className,
+  style,
 }: NavItemProps): React.ReactElement {
   const press = useCallback(() => onSelect(tab.key), [onSelect, tab.key]);
+  const { colors } = useTheme();
 
-  // The selection pill grows in rather than appearing. useNativeDriver is off
-  // because scaleX drives layout-adjacent geometry here, and the pill is a
-  // single small view per tab.
+  // The selection pill grows in rather than appearing.
   const grow = useAnimatedValue(selected ? 1 : 0);
   const reduceMotion = useReducedMotion();
   useEffect(() => {
@@ -180,44 +201,67 @@ function NavItem({
   }, [selected, grow, reduceMotion]);
 
   return (
-    <Pressable
+    <TouchableRipple
       onPress={press}
+      borderless
       accessibilityRole="tab"
       accessibilityLabel={tab.title}
       accessibilityState={{ selected }}
-      android_ripple={{
-        color: 'rgba(0, 0, 0, 0.08)',
-        borderless: true,
-        radius: 28,
-      }}
-      className={cn('h-20 items-center justify-center py-2', className)}
+      style={[
+        { height: 80, alignItems: 'center', justifyContent: 'center' },
+        style,
+      ]}
     >
-      <View className="h-8 w-16 items-center justify-center overflow-hidden rounded-full">
-        <Animated.View
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          style={{ opacity: grow, transform: [{ scaleX: grow }] }}
-          className="absolute inset-0 rounded-full bg-secondary-container"
-        />
-        <Icon
-          name={tab.icon}
-          size={24}
-          className={
-            selected ? 'text-on-secondary-container' : 'text-on-surface-variant'
-          }
-        />
+      <View style={{ alignItems: 'center', paddingVertical: 8 }}>
+        <View
+          style={{
+            height: 32,
+            width: 64,
+            alignItems: 'center',
+            justifyContent: 'center',
+            overflow: 'hidden',
+            borderRadius: 999,
+          }}
+        >
+          <Animated.View
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              borderRadius: 999,
+              backgroundColor: colors.secondaryContainer,
+              opacity: grow,
+              transform: [{ scaleX: grow }],
+            }}
+          />
+          <Icon
+            name={tab.icon}
+            size={24}
+            color={
+              selected
+                ? (colors.onSecondaryContainer as string)
+                : (colors.onSurfaceVariant as string)
+            }
+          />
+        </View>
+        <Text
+          variant="caption"
+          style={{
+            marginTop: 4,
+            fontWeight: selected ? '600' : '500',
+            color: selected
+              ? (colors.onSurface as string)
+              : (colors.onSurfaceVariant as string),
+          }}
+        >
+          {tab.title}
+        </Text>
       </View>
-      <Text
-        className={cn(
-          'mt-1 text-xs tracking-tight',
-          selected
-            ? 'font-semibold text-on-surface'
-            : 'text-on-surface-variant font-medium',
-        )}
-      >
-        {tab.title}
-      </Text>
-    </Pressable>
+    </TouchableRipple>
   );
 }
 

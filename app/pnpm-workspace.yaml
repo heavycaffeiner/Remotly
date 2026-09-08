@@ -1,0 +1,3 @@
+minimumReleaseAgeExclude:
+  - '@react-native-vector-icons/common@13.0.3'
+  - '@react-native-vector-icons/material-design-icons@13.1.4'

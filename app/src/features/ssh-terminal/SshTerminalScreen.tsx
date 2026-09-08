@@ -41,6 +41,7 @@ import {
   DialogTitle,
 } from '../../components/ui/dialog';
 import { Text } from '../../components/ui/text';
+import { TERMINAL_FOREGROUND } from '../../theme/terminalChrome';
 import { useSettings } from '../../theme/SettingsProvider';
 import { log } from '../../lib/log';
 import {
@@ -202,13 +203,13 @@ export function SshTerminalScreen(): React.ReactElement {
       {
         key: 'select-all',
         title: 'Select all',
-        icon: 'select',
+        icon: 'select-all',
         onPress: () => void terminal.current?.selectAll(),
       },
       {
         key: 'copy',
         title: 'Copy selection',
-        icon: 'copy',
+        icon: 'content-copy',
         onPress: () => {
           void terminal.current?.copy().then(text => {
             setCopyNotice(text === null ? 'Nothing selected' : 'Copied');
@@ -230,7 +231,7 @@ export function SshTerminalScreen(): React.ReactElement {
       {
         key: 'disconnect',
         title: 'Disconnect',
-        icon: 'unplug',
+        icon: 'power-plug-off',
         destructive: true,
         onPress: disconnectAll,
       },
@@ -275,22 +276,24 @@ export function SshTerminalScreen(): React.ReactElement {
 
   const overlay =
     ssh.fatal !== '' ? (
-      <View className="items-center gap-4">
-        <Text variant="title" className="text-center text-terminal-foreground">
+      <View style={{ alignItems: 'center', gap: 16 }}>
+        <Text
+          variant="title"
+          style={{ textAlign: 'center', color: TERMINAL_FOREGROUND }}
+        >
           {ssh.fatal}
         </Text>
-        <Button onPress={goBack}>
-          <Text>Go back</Text>
-        </Button>
+        <Button onPress={goBack}>Go back</Button>
       </View>
     ) : state.tabs.length === 0 && ssh.loaded ? (
-      <View className="items-center gap-4">
-        <Text variant="title" className="text-center text-terminal-foreground">
+      <View style={{ alignItems: 'center', gap: 16 }}>
+        <Text
+          variant="title"
+          style={{ textAlign: 'center', color: TERMINAL_FOREGROUND }}
+        >
           No open sessions
         </Text>
-        <Button onPress={ssh.newTab}>
-          <Text>New session</Text>
-        </Button>
+        <Button onPress={ssh.newTab}>New session</Button>
       </View>
     ) : null;
 
@@ -374,7 +377,7 @@ export function SshTerminalScreen(): React.ReactElement {
                 {
                   key: 'shell',
                   label: 'Shell',
-                  icon: 'terminal' as const,
+                  icon: 'console' as const,
                   onPress: ssh.newTab,
                 },
                 {
@@ -457,7 +460,7 @@ function HostKeyDialog({
             ? `The key for ${hostLabel} does not match the one this device accepted before. This can mean the server was rebuilt, or that someone is intercepting the connection.`
             : `${hostLabel} has not been connected to from this device before.`}
         </Text>
-        <Text variant="code" className="text-muted-foreground">
+        <Text variant="code">
           {`${prompt.algorithm} ${prompt.fingerprint}`}
         </Text>
         <Text variant="callout">
@@ -466,10 +469,10 @@ function HostKeyDialog({
       </DialogContent>
       <DialogFooter>
         <Button variant="ghost" onPress={onReject}>
-          <Text>Reject</Text>
+          Reject
         </Button>
         <Button onPress={onAccept}>
-          <Text>{prompt.changed ? 'Accept the new key' : 'Accept'}</Text>
+          {prompt.changed ? 'Accept the new key' : 'Accept'}
         </Button>
       </DialogFooter>
     </Dialog>

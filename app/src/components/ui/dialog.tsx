@@ -1,7 +1,6 @@
 import * as React from 'react';
-import { Modal, Pressable, View, type ViewProps } from 'react-native';
-import { KeyboardLifted } from '../KeyboardLifted';
-import { cn } from '../../lib/utils';
+import { Dialog as PaperDialog, Portal } from 'react-native-paper';
+import { useKeyboardHeight } from '../KeyboardLifted';
 import { Text } from './text';
 
 interface DialogProps {
@@ -11,86 +10,64 @@ interface DialogProps {
   dismissable?: boolean;
   children: React.ReactNode;
 }
-
-/**
- * A modal dialog following Material Design 3 specifications (28dp radius, no border).
- */
 function Dialog({
   open,
   onClose,
   dismissable = true,
   children,
 }: DialogProps): React.ReactElement {
+  // Paper's Dialog has no keyboard handling of its own, and a Portal puts it
+  // outside the screen tree, so a dialog with a text field sits under the IME.
+  // The margin shrinks the centred box from the bottom, which re-centres the
+  // dialog in the space that is left.
+  const keyboard = useKeyboardHeight();
   return (
-    <Modal
-      visible={open}
-      transparent
-      animationType="fade"
-      statusBarTranslucent
-      navigationBarTranslucent
-      onRequestClose={dismissable ? onClose : undefined}
-    >
-      <KeyboardLifted className="flex-1 items-center justify-center bg-black/60 p-6">
-        {dismissable ? (
-          <Pressable
-            className="absolute inset-0"
-            accessibilityLabel="Dismiss"
-            onPress={onClose}
-          />
-        ) : null}
-        <View className="w-full max-w-md rounded-[28px] bg-popover shadow-xl overflow-hidden">
-          {children}
-        </View>
-      </KeyboardLifted>
-    </Modal>
+    <Portal>
+      <PaperDialog
+        visible={open}
+        onDismiss={onClose}
+        dismissable={dismissable}
+        dismissableBackButton={dismissable}
+        style={{ marginBottom: keyboard }}
+      >
+        {children}
+      </PaperDialog>
+    </Portal>
   );
 }
 
-function DialogHeader({ className, ...props }: ViewProps): React.ReactElement {
-  return <View className={cn('gap-3 p-6 pb-4', className)} {...props} />;
+// Transparent: Paper lays the dialog out from its own Title/Content/Actions
+// children, so the header must not introduce a wrapper between them.
+function DialogHeader({
+  children,
+}: {
+  children: React.ReactNode;
+}): React.ReactElement {
+  return <>{children}</>;
 }
 
-function DialogTitle({
-  className,
-  ...props
-}: React.ComponentProps<typeof Text>): React.ReactElement {
-  return (
-    <Text
-      role="heading"
-      variant="h3"
-      className={cn(
-        'text-2xl font-normal text-foreground tracking-tight',
-        className,
-      )}
-      {...props}
-    />
-  );
+function DialogTitle(
+  props: React.ComponentProps<typeof PaperDialog.Title>,
+): React.ReactElement {
+  return <PaperDialog.Title {...props} />;
 }
 
-function DialogDescription({
-  className,
-  ...props
-}: React.ComponentProps<typeof Text>): React.ReactElement {
-  return (
-    <Text
-      variant="muted"
-      className={cn('text-sm leading-relaxed', className)}
-      {...props}
-    />
-  );
+function DialogDescription(
+  props: React.ComponentProps<typeof Text>,
+): React.ReactElement {
+  return <Text variant="muted" {...props} />;
 }
 
-function DialogContent({ className, ...props }: ViewProps): React.ReactElement {
-  return <View className={cn('gap-4 px-6 pb-4', className)} {...props} />;
+function DialogContent(
+  props: React.ComponentProps<typeof PaperDialog.Content>,
+): React.ReactElement {
+  return <PaperDialog.Content {...props} />;
 }
 
-function DialogFooter({ className, ...props }: ViewProps): React.ReactElement {
-  return (
-    <View
-      className={cn('flex-row justify-end gap-2 px-6 pb-6 pt-2', className)}
-      {...props}
-    />
-  );
+function DialogFooter(
+  props: React.ComponentProps<typeof PaperDialog.Actions>,
+): React.ReactElement {
+  return <PaperDialog.Actions {...props} />;
 }
 
 export {

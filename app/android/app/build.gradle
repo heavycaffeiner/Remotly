@@ -107,6 +107,15 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
+    // Paper v6 renders Material Community Icons through the maintained
+    // Material Design Icons package. Android resolves the font by its
+    // `MaterialDesignIcons` basename from assets/fonts.
+    sourceSets {
+        main {
+            assets.srcDirs += ['../../node_modules/@react-native-vector-icons/material-design-icons/fonts']
+        }
+    }
+
     namespace "com.remotly.app"
     defaultConfig {
         applicationId "com.remotly.app"
@@ -204,6 +213,11 @@ dependencies {
     implementation remotly.androidx.core.ktx
     implementation remotly.androidx.fragment
     implementation remotly.gson
+
+    // Material You (dynamic color) reads. The library supplies the MD3
+    // dynamic themes and the support gate; the color extraction lives in
+    // RemotlyDynamicColorsModule.
+    implementation remotly.material
 
     // Go sshcore engine (RN-05): SSH/SFTP via golang.org/x/crypto + pkg/sftp,
     // bound with gomobile. Shipped as a local AAR (scripts/build-sshcore.sh).

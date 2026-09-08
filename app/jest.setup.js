@@ -9,6 +9,20 @@
 // return an EventSubscription-shaped object with remove(); list methods resolve
 // an empty list; the one-shot take methods resolve their "empty" shape.
 
+// Reanimated checks reduced motion through `window.matchMedia` on the path it
+// takes without the JSI worklets module. The RN preset defines `window` but
+// not that function.
+if (
+  typeof globalThis.window !== 'undefined' &&
+  typeof globalThis.window.matchMedia !== 'function'
+) {
+  globalThis.window.matchMedia = () => ({
+    matches: false,
+    addEventListener() {},
+    removeEventListener() {},
+  });
+}
+
 const emitter = () => jest.fn(() => ({ remove: jest.fn() }));
 const resolved = (v) => jest.fn().mockResolvedValue(v);
 
@@ -79,6 +93,13 @@ jest.mock('./src/specs/NativeRemotlySftp', () => ({
   },
 }));
 
+jest.mock('./src/specs/NativeRemotlyHerdr', () => ({
+  __esModule: true,
+  default: {
+    exec: resolved({ ok: true, exitCode: 0, stdout: '', stderr: '', code: '', message: '' }),
+  },
+}));
+
 jest.mock('./src/specs/NativeRemotlyFileIO', () => ({
   __esModule: true,
   default: {
@@ -126,6 +147,15 @@ jest.mock('./src/specs/NativeRemotlyAppInfo', () => ({
   },
 }));
 
+// Material You is unavailable in the test environment, so the dynamic
+// scheme never applies and the default theme is used.
+jest.mock('./src/specs/NativeRemotlyDynamicColors', () => ({
+  __esModule: true,
+  default: {
+    get: resolved({ available: false }),
+  },
+}));
+
 jest.mock('./src/specs/NativeRemotlyCamera', () => ({
   __esModule: true,
   default: {
@@ -138,5 +168,12 @@ jest.mock('./src/specs/NativeRemotlyNotify', () => ({
   __esModule: true,
   default: {
     notify: resolved(true),
+  },
+}));
+
+jest.mock('./src/specs/NativeRemotlyDynamicColors', () => ({
+  __esModule: true,
+  default: {
+    get: resolved({ available: false }),
   },
 }));

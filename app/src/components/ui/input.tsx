@@ -1,30 +1,25 @@
 import * as React from 'react';
-import { TextInput } from 'react-native';
-import { cn } from '../../lib/utils';
+import { TextInput as PaperTextInput } from 'react-native-paper';
+import type { TextInputHandles, TextInputProps } from 'react-native-paper';
 
-type InputProps = React.ComponentProps<typeof TextInput> & {
-  /** Draws the error ring and marks the field invalid for assistive tech. */
+type InputProps = Omit<TextInputProps, 'variant' | 'error'> & {
+  /** Draws the error outline and marks the field invalid for assistive tech. */
   invalid?: boolean;
 };
 
-const Input = React.forwardRef<
-  React.ComponentRef<typeof TextInput>,
-  InputProps
->(function InputField({ className, invalid = false, ...props }, ref) {
-  return (
-    <TextInput
-      ref={ref}
-      accessibilityState={{ disabled: props.editable === false }}
-      placeholderClassName="text-muted-foreground"
-      className={cn(
-        'h-12 rounded-lg border bg-surface px-4 text-base text-foreground',
-        invalid ? 'border-2 border-destructive' : 'border-outline/50',
-        props.editable === false && 'opacity-38',
-        className,
-      )}
-      {...props}
-    />
-  );
-});
+const Input = React.forwardRef<TextInputHandles, InputProps>(
+  function InputField({ invalid = false, editable, ...props }, ref) {
+    return (
+      <PaperTextInput
+        ref={ref}
+        variant="outlined"
+        error={invalid}
+        editable={editable}
+        disabled={editable === false}
+        {...props}
+      />
+    );
+  },
+);
 
 export { Input };

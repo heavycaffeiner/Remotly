@@ -5,7 +5,9 @@
 // a screen reader.
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { FlatList, Pressable, View } from 'react-native';
+import { FlatList, View } from 'react-native';
+import { Card, FAB, TouchableRipple, useTheme } from 'react-native-paper';
+import type { IconName } from '../../lib/icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
@@ -101,6 +103,17 @@ export function HostsScreen(): React.ReactElement {
     [navigation],
   );
 
+  const openWorkspaces = useCallback(
+    (entry: HostListEntry) => {
+      setMenuFor(null);
+      navigation.navigate('HerdrWorkspaces', {
+        hostId: entry.id,
+        hostName: entry.name,
+      });
+    },
+    [navigation],
+  );
+
   const openEdit = useCallback(
     (entry: HostListEntry) => {
       setMenuFor(null);
@@ -137,7 +150,7 @@ export function HostsScreen(): React.ReactElement {
     return [
       {
         key: 'search',
-        icon: 'search',
+        icon: 'magnify',
         title: searchOpen ? 'Hide search' : 'Search hosts',
         onPress: () => {
           setSearchOpen(v => !v);
@@ -172,7 +185,7 @@ export function HostsScreen(): React.ReactElement {
       ) : null}
 
       {phase === 'ready' && !empty ? (
-        <View className="flex-1 px-4">
+        <View style={{ flex: 1, paddingHorizontal: 16 }}>
           {showSearch ? (
             <Input
               value={query}
@@ -181,7 +194,7 @@ export function HostsScreen(): React.ReactElement {
               accessibilityLabel="Search hosts"
               autoCapitalize="none"
               autoCorrect={false}
-              className="mb-3 h-12 rounded-full border-outline/30 bg-surface-container-high px-4"
+              style={{ marginBottom: 12 }}
             />
           ) : null}
 
@@ -190,7 +203,7 @@ export function HostsScreen(): React.ReactElement {
             keyExtractor={item => item.id}
             contentContainerStyle={{ paddingTop: 8, paddingBottom: 96, gap: 8 }}
             ListEmptyComponent={
-              <View className="items-center p-6">
+              <View style={{ alignItems: 'center', padding: 24 }}>
                 <Text variant="muted">No hosts match this search.</Text>
               </View>
             }
@@ -202,64 +215,28 @@ export function HostsScreen(): React.ReactElement {
       ) : null}
 
       {phase === 'ready' ? (
-        <View
-          style={{
-            position: 'absolute',
-            bottom: 24,
-            right: 24,
-            zIndex: 10,
-            elevation: 6,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.28,
-            shadowRadius: 6,
-          }}
-          className="h-14 w-14 rounded-2xl bg-primary-container"
-        >
-          <Pressable
-            role="button"
-            accessibilityLabel="Add a host"
-            onPress={() => setAddOpen(true)}
-            android_ripple={{
-              color: 'rgba(0, 0, 0, 0.12)',
-              borderless: false,
-            }}
-            className="h-full w-full items-center justify-center rounded-2xl overflow-hidden"
-          >
-            <Icon name="plus" size={28} className="text-on-primary-container" />
-          </Pressable>
-        </View>
+        <FAB
+          icon="plus"
+          accessibilityLabel="Add a host"
+          onPress={() => setAddOpen(true)}
+          style={{ position: 'absolute', bottom: 24, right: 24, zIndex: 10 }}
+        />
       ) : null}
 
       <Sheet open={addOpen} onClose={() => setAddOpen(false)}>
         <SheetHeader>
           <SheetTitle>Add a host</SheetTitle>
         </SheetHeader>
-        <SheetContent className="gap-2 pb-6">
-          <Pressable
-            role="button"
-            accessibilityLabel="Add SSH host"
+        <SheetContent style={{ gap: 8, paddingBottom: 24 }}>
+          <MenuRow
+            icon="console"
+            label="Add SSH host"
+            description="Connect to any remote server with standard SSH"
             onPress={() => {
               setAddOpen(false);
               navigation.navigate('SshHostEditor');
             }}
-            android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
-            className="flex-row items-center gap-4 rounded-2xl p-4 active:bg-surface-variant/40"
-          >
-            <View className="h-11 w-11 items-center justify-center rounded-full bg-secondary-container">
-              <Icon
-                name="terminal"
-                size={24}
-                className="text-on-secondary-container"
-              />
-            </View>
-            <View className="flex-1">
-              <Text className="text-base font-medium">Add SSH host</Text>
-              <Text variant="caption">
-                Connect to any remote server with standard SSH
-              </Text>
-            </View>
-          </Pressable>
+          />
         </SheetContent>
       </Sheet>
 
@@ -271,6 +248,7 @@ export function HostsScreen(): React.ReactElement {
           openPrimary(entry);
         }}
         onFiles={openFiles}
+        onWorkspaces={openWorkspaces}
         onEdit={openEdit}
         onRemove={entry => {
           setMenuFor(null);
@@ -294,6 +272,76 @@ export function HostsScreen(): React.ReactElement {
   );
 }
 
+// A row in one of this screen's action sheets.
+function MenuRow({
+  icon,
+  label,
+  description,
+  destructive = false,
+  onPress,
+}: {
+  icon: IconName;
+  label: string;
+  description?: string;
+  destructive?: boolean;
+  onPress: () => void;
+}): React.ReactElement {
+  const { colors } = useTheme();
+  return (
+    <TouchableRipple
+      role="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={{
+        minHeight: 56,
+        borderRadius: 16,
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        justifyContent: 'center',
+      }}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+        <View
+          style={{
+            height: 44,
+            width: 44,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: 999,
+            backgroundColor: (destructive
+              ? colors.errorContainer
+              : colors.secondaryContainer) as string,
+          }}
+        >
+          <Icon
+            name={icon}
+            size={22}
+            color={
+              (destructive
+                ? colors.error
+                : colors.onSecondaryContainer) as string
+            }
+          />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text
+            variant="body"
+            style={{
+              fontWeight: '500',
+              ...(destructive ? { color: colors.error as string } : {}),
+            }}
+          >
+            {label}
+          </Text>
+          {description === undefined ? null : (
+            <Text variant="caption">{description}</Text>
+          )}
+        </View>
+      </View>
+    </TouchableRipple>
+  );
+}
+
 interface HostRowProps {
   entry: HostListEntry;
   onOpen: (entry: HostListEntry) => void;
@@ -303,44 +351,54 @@ interface HostRowProps {
 // At module scope, not inline in renderItem, so row state is not thrown away
 // on every list render.
 function HostRow({ entry, onOpen, onMenu }: HostRowProps): React.ReactElement {
+  const { colors } = useTheme();
   const handleOpen = useCallback(() => onOpen(entry), [onOpen, entry]);
   const handleMenu = useCallback(() => onMenu(entry), [onMenu, entry]);
   return (
-    <Pressable
-      role="button"
-      accessibilityLabel={entry.accessibilityLabel}
-      onPress={handleOpen}
-      onLongPress={handleMenu}
-      android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
-      className="flex-row items-center gap-3.5 rounded-2xl border border-outline-variant/30 bg-card p-4 overflow-hidden active:bg-surface-variant/40"
-    >
-      <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
-        <Icon name="terminal" className="text-on-secondary-container" />
-      </View>
-      <View className="flex-1 gap-0.5">
-        <Text numberOfLines={1} className="font-medium">
-          {entry.name}
-        </Text>
-        <Text variant="caption" numberOfLines={1}>
-          {entry.detail}
-        </Text>
-      </View>
-      {entry.sessions === undefined ? null : (
-        <Badge variant="secondary">
-          <Icon
-            name="terminal"
-            size={12}
-            className="text-on-secondary-container"
+    <Card mode="outlined" onPress={handleOpen} onLongPress={handleMenu}>
+      <View
+        accessibilityLabel={entry.accessibilityLabel}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 14,
+          padding: 16,
+        }}
+      >
+        <View
+          style={{
+            height: 40,
+            width: 40,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: 999,
+            backgroundColor: colors.secondaryContainer as string,
+          }}
+        >
+          <Icon name="console" color={colors.onSecondaryContainer as string} />
+        </View>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text numberOfLines={1} style={{ fontWeight: '500' }}>
+            {entry.name}
+          </Text>
+          <Text variant="caption" numberOfLines={1}>
+            {entry.detail}
+          </Text>
+        </View>
+        {entry.sessions === undefined ? null : (
+          <Badge
+            variant="secondary"
+            icon="console"
+            label={String(entry.sessions)}
           />
-          <Text>{String(entry.sessions)}</Text>
-        </Badge>
-      )}
-      <IconButton
-        icon="more"
-        label={`Actions for ${entry.name}`}
-        onPress={handleMenu}
-      />
-    </Pressable>
+        )}
+        <IconButton
+          icon="dots-vertical"
+          label={`Actions for ${entry.name}`}
+          onPress={handleMenu}
+        />
+      </View>
+    </Card>
   );
 }
 
@@ -349,6 +407,7 @@ interface HostActionsMenuProps {
   onDismiss: () => void;
   onOpen: (entry: HostListEntry) => void;
   onFiles: (entry: HostListEntry) => void;
+  onWorkspaces: (entry: HostListEntry) => void;
   onEdit: (entry: HostListEntry) => void;
   onRemove: (entry: HostListEntry) => void;
 }
@@ -358,6 +417,7 @@ function HostActionsMenu({
   onDismiss,
   onOpen,
   onFiles,
+  onWorkspaces,
   onEdit,
   onRemove,
 }: HostActionsMenuProps): React.ReactElement | null {
@@ -367,68 +427,26 @@ function HostActionsMenu({
       <SheetHeader>
         <SheetTitle>{entry.name}</SheetTitle>
       </SheetHeader>
-      <SheetContent className="gap-1 pb-6">
-        <Pressable
-          role="button"
+      <SheetContent style={{ gap: 4, paddingBottom: 24 }}>
+        <MenuRow
+          icon="console"
+          label="Open terminal"
           onPress={() => onOpen(entry)}
-          android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
-          className="h-14 flex-row items-center gap-4 rounded-2xl px-4 active:bg-surface-variant/40"
-        >
-          <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
-            <Icon
-              name="terminal"
-              size={22}
-              className="text-on-secondary-container"
-            />
-          </View>
-          <Text className="text-base font-medium flex-1">Open terminal</Text>
-        </Pressable>
-
-        <Pressable
-          role="button"
-          onPress={() => onFiles(entry)}
-          android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
-          className="h-14 flex-row items-center gap-4 rounded-2xl px-4 active:bg-surface-variant/40"
-        >
-          <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
-            <Icon
-              name="folder"
-              size={22}
-              className="text-on-secondary-container"
-            />
-          </View>
-          <Text className="text-base font-medium flex-1">Files</Text>
-        </Pressable>
-
-        <Pressable
-          role="button"
-          onPress={() => onEdit(entry)}
-          android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
-          className="h-14 flex-row items-center gap-4 rounded-2xl px-4 active:bg-surface-variant/40"
-        >
-          <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary-container">
-            <Icon
-              name="pencil"
-              size={22}
-              className="text-on-secondary-container"
-            />
-          </View>
-          <Text className="text-base font-medium flex-1">Edit</Text>
-        </Pressable>
-
-        <Pressable
-          role="button"
+        />
+        <MenuRow icon="folder" label="Files" onPress={() => onFiles(entry)} />
+        <MenuRow
+          icon="view-dashboard"
+          label="Workspaces"
+          description="Herdr workspaces running on this host"
+          onPress={() => onWorkspaces(entry)}
+        />
+        <MenuRow icon="pencil" label="Edit" onPress={() => onEdit(entry)} />
+        <MenuRow
+          icon="delete"
+          label="Remove"
+          destructive
           onPress={() => onRemove(entry)}
-          android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
-          className="h-14 flex-row items-center gap-4 rounded-2xl px-4 active:bg-surface-variant/40"
-        >
-          <View className="h-10 w-10 items-center justify-center rounded-full bg-destructive-container">
-            <Icon name="trash" size={22} className="text-destructive" />
-          </View>
-          <Text className="text-base font-medium text-destructive flex-1">
-            Remove
-          </Text>
-        </Pressable>
+        />
       </SheetContent>
     </Sheet>
   );

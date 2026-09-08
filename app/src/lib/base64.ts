@@ -143,3 +143,36 @@ export function decodeBase64(input: string): Uint8Array {
   }
   return out;
 }
+
+// UTF-8 decode, hand-rolled for the same reason as the encoder above: Hermes
+// (and the RN tsconfig, which omits the dom lib) provides no TextDecoder.
+export function decodeUtf8(bytes: Uint8Array): string {
+  let out = '';
+  let i = 0;
+  while (i < bytes.length) {
+    const b0 = bytes[i];
+    let cp: number;
+    if (b0 < 0x80) {
+      cp = b0;
+      i += 1;
+    } else if ((b0 & 0xe0) === 0xc0) {
+      cp = ((b0 & 0x1f) << 6) | (bytes[i + 1] & 0x3f);
+      i += 2;
+    } else if ((b0 & 0xf0) === 0xe0) {
+      cp =
+        ((b0 & 0x0f) << 12) |
+        ((bytes[i + 1] & 0x3f) << 6) |
+        (bytes[i + 2] & 0x3f);
+      i += 3;
+    } else {
+      cp =
+        ((b0 & 0x07) << 18) |
+        ((bytes[i + 1] & 0x3f) << 12) |
+        ((bytes[i + 2] & 0x3f) << 6) |
+        (bytes[i + 3] & 0x3f);
+      i += 4;
+    }
+    out += String.fromCodePoint(cp);
+  }
+  return out;
+}

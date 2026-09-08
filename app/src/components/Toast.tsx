@@ -5,8 +5,9 @@
 // stays put.
 
 import * as React from 'react';
-import { Keyboard, type KeyboardEvent, View } from 'react-native';
+import { useKeyboardHeight } from './KeyboardLifted';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Surface, useTheme } from 'react-native-paper';
 import { Text } from './ui/text';
 import { subscribeTransfers, transferBarVisible } from '../lib/transfers';
 import {
@@ -23,32 +24,6 @@ import {
  */
 const TRANSFER_BAR_CLEARANCE = TAB_BAR_HEIGHT + INDICATOR_HEIGHT;
 
-/**
- * How much of the screen the software keyboard covers, in pixels.
- *
- * The toast is positioned absolutely, and Yoga resolves a bottom inset against
- * the containing node's measured size less its border, never its padding. An
- * ancestor's paddingBottom that lifts the rest of the tree clear of the IME
- * therefore does not move the toast at all, and it ends up drawn behind the
- * keyboard. Measuring the keyboard here is what keeps it visible.
- */
-function useKeyboardHeight(): number {
-  const [height, setHeight] = React.useState(0);
-
-  React.useEffect(() => {
-    const show = Keyboard.addListener('keyboardDidShow', (e: KeyboardEvent) => {
-      setHeight(Math.max(0, Math.round(e.endCoordinates.height)));
-    });
-    const hide = Keyboard.addListener('keyboardDidHide', () => setHeight(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
-
-  return height;
-}
-
 interface ToastProps {
   /** Empty renders nothing. Callers pass state directly. */
   message: string;
@@ -62,6 +37,7 @@ export function Toast({
   durationMs = 2000,
 }: ToastProps): React.ReactElement | null {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
   const dismissRef = React.useRef(onDismiss);
   dismissRef.current = onDismiss;
 
@@ -88,21 +64,32 @@ export function Toast({
   if (message === '') return null;
 
   return (
-    <View
+    <Surface
+      elevation={3}
       pointerEvents="none"
       style={{
+        position: 'absolute',
+        left: 16,
+        right: 16,
+        zIndex: 20,
+        borderRadius: 8,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        backgroundColor: colors.inverseSurface as string,
         bottom:
           insets.bottom +
           16 +
           keyboard +
           (barVisible ? TRANSFER_BAR_CLEARANCE : 0),
       }}
-      className="absolute inset-x-4 z-20 rounded-md bg-foreground px-4 py-3"
       accessibilityLiveRegion="polite"
     >
-      <Text className="text-background" numberOfLines={2}>
+      <Text
+        style={{ color: colors.inverseOnSurface as string }}
+        numberOfLines={2}
+      >
         {message}
       </Text>
-    </View>
+    </Surface>
   );
 }

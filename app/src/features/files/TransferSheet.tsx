@@ -5,6 +5,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { ScrollView, View } from 'react-native';
+import { useTheme } from 'react-native-paper';
 import { Button } from '../../components/ui/button';
 import { Icon } from '../../components/ui/icon';
 import { Progress } from '../../components/ui/progress';
@@ -97,7 +98,10 @@ export function TransferSheet(): React.ReactElement {
         </SheetHeader>
 
         {list.length === 0 ? (
-          <Text className="py-6 text-center text-sm text-muted-foreground">
+          <Text
+            variant="muted"
+            style={{ paddingVertical: 24, textAlign: 'center' }}
+          >
             Nothing transferring
           </Text>
         ) : (
@@ -105,10 +109,10 @@ export function TransferSheet(): React.ReactElement {
           // shrink inside it. A fixed cap here fought that: on a short screen
           // the list kept its height and the Clear button was pushed off.
           <ScrollView
-            className="shrink"
+            style={{ flexShrink: 1 }}
             contentContainerStyle={{ paddingBottom: 4 }}
           >
-            <View className="gap-3">
+            <View style={{ gap: 12 }}>
               {list.map(t => (
                 <TransferRow key={t.id} record={t} onNotice={setNotice} />
               ))}
@@ -120,10 +124,10 @@ export function TransferSheet(): React.ReactElement {
           <Button
             variant="ghost"
             size="sm"
-            className="mt-3 self-end"
+            style={{ marginTop: 12, alignSelf: 'flex-end' }}
             onPress={clearFinished}
           >
-            <Text>Clear finished</Text>
+            Clear finished
           </Button>
         ) : null}
       </SheetContent>
@@ -138,6 +142,7 @@ function TransferRow({
   record: TransferRecord;
   onNotice: (message: string) => void;
 }): React.ReactElement {
+  const { colors } = useTheme();
   const cancel = useCallback(() => {
     cancelTransfer(record.id);
     onNotice(`Cancelled ${record.name}`);
@@ -160,14 +165,14 @@ function TransferRow({
   const resumes = record.resumable === true && record.transferred > 0;
 
   return (
-    <View className="gap-1.5">
-      <View className="flex-row items-center gap-2">
+    <View style={{ gap: 6 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Icon
           name={record.direction === 'upload' ? 'arrow-up' : 'arrow-down'}
           size={16}
-          className="text-muted-foreground"
+          color={colors.onSurfaceVariant as string}
         />
-        <Text className="flex-1 text-sm text-foreground" numberOfLines={1}>
+        <Text variant="callout" style={{ flex: 1 }} numberOfLines={1}>
           {record.name}
         </Text>
         {record.phase === 'active' ? (
@@ -177,7 +182,7 @@ function TransferRow({
             accessibilityLabel={`Cancel ${record.name}`}
             onPress={cancel}
           >
-            <Text>Cancel</Text>
+            Cancel
           </Button>
         ) : canPickUp ? (
           <Button
@@ -188,7 +193,7 @@ function TransferRow({
             }`}
             onPress={retry}
           >
-            <Text>{resumes ? 'Resume' : 'Retry'}</Text>
+            {resumes ? 'Resume' : 'Retry'}
           </Button>
         ) : null}
       </View>
@@ -200,9 +205,7 @@ function TransferRow({
         />
       ) : null}
 
-      <Text className="text-xs text-muted-foreground">
-        {statusLine(record)}
-      </Text>
+      <Text variant="caption">{statusLine(record)}</Text>
     </View>
   );
 }

@@ -6,11 +6,12 @@
 // information rather than something read continuously.
 
 import * as React from 'react';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
+import { Surface, TouchableRipple, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { cn } from '../../lib/utils';
 import { IconButton } from '../../components/Screen';
-import { Icon, type IconName } from '../../components/ui/icon';
+import { Icon } from '../../components/ui/icon';
+import type { IconName } from '../../lib/icons';
 import { Text } from '../../components/ui/text';
 import {
   Sheet,
@@ -51,25 +52,45 @@ export function TerminalToolbar({
   actions,
 }: TerminalToolbarProps): React.ReactElement {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
   const [open, setOpen] = React.useState(false);
 
   return (
-    <View
-      style={{ paddingTop: insets.top }}
-      className="border-b border-border bg-card"
+    <Surface
+      elevation={0}
+      style={{
+        paddingTop: insets.top,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.outlineVariant as string,
+        backgroundColor: colors.surfaceContainerLow as string,
+      }}
     >
-      <View className="h-10 flex-row items-center px-1">
+      <View
+        style={{
+          height: 40,
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingHorizontal: 4,
+        }}
+      >
         <IconButton icon="arrow-left" label="Go back" onPress={onBack} />
-        <View className="flex-1 flex-row items-baseline gap-2">
-          <Text className="shrink text-sm font-medium" numberOfLines={1}>
+        <View
+          style={{
+            flex: 1,
+            flexDirection: 'row',
+            alignItems: 'baseline',
+            gap: 8,
+          }}
+        >
+          <Text
+            variant="callout"
+            style={{ flexShrink: 1, fontWeight: '500' }}
+            numberOfLines={1}
+          >
             {title}
           </Text>
           {subtitle === undefined ? null : (
-            <Text
-              variant="caption"
-              numberOfLines={1}
-              className="shrink text-xs"
-            >
+            <Text variant="caption" numberOfLines={1} style={{ flexShrink: 1 }}>
               {subtitle}
             </Text>
           )}
@@ -84,7 +105,7 @@ export function TerminalToolbar({
         )}
         {actions.length === 0 ? null : (
           <IconButton
-            icon="more"
+            icon="dots-vertical"
             label="Terminal actions"
             onPress={() => setOpen(true)}
           />
@@ -95,9 +116,9 @@ export function TerminalToolbar({
         <SheetHeader>
           <SheetTitle>{title}</SheetTitle>
         </SheetHeader>
-        <SheetContent className="gap-1 pb-6">
+        <SheetContent style={{ gap: 4, paddingBottom: 24 }}>
           {actions.map(a => (
-            <Pressable
+            <TouchableRipple
               key={a.key}
               role="button"
               disabled={a.disabled ?? false}
@@ -106,44 +127,62 @@ export function TerminalToolbar({
                 setOpen(false);
                 a.onPress();
               }}
-              android_ripple={{ color: 'rgba(0, 0, 0, 0.08)' }}
-              className={cn(
-                'h-14 flex-row items-center gap-4 rounded-2xl px-4 active:bg-surface-variant/40',
-                a.disabled === true && 'opacity-40',
-              )}
+              style={{
+                height: 56,
+                borderRadius: 16,
+                paddingHorizontal: 16,
+                justifyContent: 'center',
+                opacity: a.disabled === true ? 0.4 : 1,
+              }}
             >
               <View
-                className={cn(
-                  'h-10 w-10 items-center justify-center rounded-full',
-                  a.destructive === true
-                    ? 'bg-destructive-container'
-                    : 'bg-secondary-container',
-                )}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 16,
+                }}
               >
-                <Icon
-                  name={a.icon}
-                  size={20}
-                  className={
-                    a.destructive === true
-                      ? 'text-destructive'
-                      : 'text-on-secondary-container'
-                  }
-                />
+                <View
+                  style={{
+                    height: 40,
+                    width: 40,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: 999,
+                    backgroundColor:
+                      a.destructive === true
+                        ? (colors.errorContainer as string)
+                        : (colors.secondaryContainer as string),
+                  }}
+                >
+                  <Icon
+                    name={a.icon}
+                    size={20}
+                    color={
+                      a.destructive === true
+                        ? (colors.error as string)
+                        : (colors.onSecondaryContainer as string)
+                    }
+                  />
+                </View>
+                <Text
+                  variant="body"
+                  style={{
+                    flex: 1,
+                    fontWeight: '500',
+                    color:
+                      a.destructive === true
+                        ? (colors.error as string)
+                        : (colors.onSurface as string),
+                  }}
+                >
+                  {a.title}
+                </Text>
               </View>
-              <Text
-                className={cn(
-                  'text-base font-medium flex-1',
-                  a.destructive === true
-                    ? 'text-destructive'
-                    : 'text-on-surface',
-                )}
-              >
-                {a.title}
-              </Text>
-            </Pressable>
+            </TouchableRipple>
           ))}
         </SheetContent>
       </Sheet>
-    </View>
+    </Surface>
   );
 }

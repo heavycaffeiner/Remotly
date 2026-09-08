@@ -126,6 +126,11 @@ func (ts *testServer) handleSession(ch ssh.Channel, requests <-chan *ssh.Request
 			if req.WantReply {
 				req.Reply(true, nil)
 			}
+		case "exec":
+			if req.WantReply {
+				req.Reply(true, nil)
+			}
+			go serveExec(ch, req.Payload)
 		case "window-change":
 			var w struct {
 				Columns uint32

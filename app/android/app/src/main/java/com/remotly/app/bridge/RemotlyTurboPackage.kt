@@ -10,7 +10,9 @@ import com.remotly.app.camera.RemotlyCameraModule
 import com.remotly.app.terminal.fabric.RemotlyTerminalViewManager
 import com.remotly.app.specs.NativeRemotlyAppInfoSpec
 import com.remotly.app.specs.NativeRemotlyCameraSpec
+import com.remotly.app.specs.NativeRemotlyDynamicColorsSpec
 import com.remotly.app.specs.NativeRemotlyFileIOSpec
+import com.remotly.app.specs.NativeRemotlyHerdrSpec
 import com.remotly.app.specs.NativeRemotlyNotifySpec
 import com.remotly.app.specs.NativeRemotlySettingsSpec
 import com.remotly.app.specs.NativeRemotlySftpSpec
@@ -35,8 +37,10 @@ class RemotlyTurboPackage : BaseReactPackage() {
             NativeRemotlySftpSpec.NAME -> RemotlySftpModule(reactContext)
             NativeRemotlyTerminalStoreSpec.NAME -> RemotlyTerminalStoreModule(reactContext)
             NativeRemotlyFileIOSpec.NAME -> RemotlyFileIOModule(reactContext)
+            NativeRemotlyHerdrSpec.NAME -> RemotlyHerdrModule(reactContext)
             NativeRemotlyCameraSpec.NAME -> RemotlyCameraModule(reactContext)
             NativeRemotlyAppInfoSpec.NAME -> RemotlyAppInfoModule(reactContext)
+            NativeRemotlyDynamicColorsSpec.NAME -> RemotlyDynamicColorsModule(reactContext)
             NativeRemotlyNotifySpec.NAME -> RemotlyNotifyModule(reactContext)
             else -> null
         }
@@ -107,10 +111,28 @@ class RemotlyTurboPackage : BaseReactPackage() {
                         false,
                         true,
                     ),
+                NativeRemotlyHerdrSpec.NAME to
+                    ReactModuleInfo(
+                        NativeRemotlyHerdrSpec.NAME,
+                        NativeRemotlyHerdrSpec.NAME,
+                        false,
+                        false,
+                        false,
+                        true,
+                    ),
                 NativeRemotlyCameraSpec.NAME to
                     ReactModuleInfo(
                         NativeRemotlyCameraSpec.NAME,
                         NativeRemotlyCameraSpec.NAME,
+                        false,
+                        false,
+                        false,
+                        true,
+                    ),
+                NativeRemotlyDynamicColorsSpec.NAME to
+                    ReactModuleInfo(
+                        NativeRemotlyDynamicColorsSpec.NAME,
+                        NativeRemotlyDynamicColorsSpec.NAME,
                         false,
                         false,
                         false,

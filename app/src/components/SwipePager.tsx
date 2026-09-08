@@ -103,10 +103,9 @@ export function SwipePager({
   );
 
   return (
-    <View className="flex-1" {...responder.panHandlers}>
+    <View style={{ flex: 1 }} {...responder.panHandlers}>
       <Animated.View
-        className="flex-1"
-        style={{ opacity: fade, transform: [{ translateX: slide }] }}
+        style={{ flex: 1, opacity: fade, transform: [{ translateX: slide }] }}
       >
         {children}
       </Animated.View>

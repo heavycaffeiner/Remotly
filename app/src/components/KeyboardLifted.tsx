@@ -16,10 +16,12 @@ import {
   type KeyboardEvent,
   type LayoutChangeEvent,
   View,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 
 interface KeyboardLiftedProps {
-  className?: string;
+  style?: StyleProp<ViewStyle>;
   children: React.ReactNode;
 }
 
@@ -79,8 +81,34 @@ export function useKeyboardOverlap(): {
   return { overlap, onLayout, ref };
 }
 
+/**
+ * How much of the screen the software keyboard covers, in pixels.
+ *
+ * For a node that cannot be lifted by padding an ancestor: an absolutely
+ * positioned view, whose bottom inset Yoga resolves against the containing
+ * node's size rather than its padding, or a Portal-rendered dialog, which is
+ * not a descendant of the screen at all. Both end up drawn behind the IME
+ * unless they read the keyboard themselves.
+ */
+export function useKeyboardHeight(): number {
+  const [height, setHeight] = React.useState(0);
+
+  React.useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', (e: KeyboardEvent) => {
+      setHeight(Math.max(0, Math.round(e.endCoordinates.height)));
+    });
+    const hide = Keyboard.addListener('keyboardDidHide', () => setHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+
+  return height;
+}
+
 export function KeyboardLifted({
-  className,
+  style,
   children,
 }: KeyboardLiftedProps): React.ReactElement {
   const { overlap, onLayout, ref } = useKeyboardOverlap();
@@ -88,8 +116,7 @@ export function KeyboardLifted({
     <View
       ref={ref}
       onLayout={onLayout}
-      style={{ paddingBottom: overlap }}
-      className={className}
+      style={[{ paddingBottom: overlap }, style]}
     >
       {children}
     </View>
