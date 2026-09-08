@@ -99,6 +99,72 @@ function render(
   return tree;
 }
 
+/** Every string the tree renders, in order. */
+function texts(tree: ReactTestRenderer): string[] {
+  const out: string[] = [];
+  const walk = (node: unknown): void => {
+    if (typeof node === 'string') {
+      out.push(node);
+      return;
+    }
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    const el = node as { children?: unknown } | null;
+    if (el !== null && typeof el === 'object' && 'children' in el) {
+      walk(el.children);
+    }
+  };
+  walk(tree.toJSON());
+  return out;
+}
+
+describe('SessionTabs with one session', () => {
+  const ONE = [TABS[0]];
+
+  /**
+   * The bar would repeat what the title already says, and it costs two
+   * terminal rows.
+   */
+  it('draws no bar', () => {
+    const tree = render({ tabs: ONE, activeSessionId: ONE[0].sessionId });
+
+    expect(tree.root.findAllByType(ScrollView)).toHaveLength(0);
+  });
+
+  /**
+   * Renaming is driven from the terminal's menu through renameRequest, and the
+   * dialog it opens lives here. Unmounting with the bar left that action dead.
+   */
+  it('still opens the rename dialog the menu asks for', () => {
+    const tree = render({
+      tabs: ONE,
+      activeSessionId: ONE[0].sessionId,
+      onRename: () => undefined,
+    });
+    expect(texts(tree)).not.toContain('Rename session');
+
+    act(() => {
+      tree.update(
+        <PaperProvider>
+          <SessionTabs
+            tabs={ONE}
+            activeSessionId={ONE[0].sessionId}
+            onSelect={() => undefined}
+            onClose={() => undefined}
+            onNew={() => undefined}
+            onRename={() => undefined}
+            renameRequest={1}
+          />
+        </PaperProvider>,
+      );
+    });
+
+    expect(texts(tree)).toContain('Rename session');
+  });
+});
+
 describe('SessionTabs strip', () => {
   /**
    * A horizontal ScrollView in a flex-row sizes to its content unless it is

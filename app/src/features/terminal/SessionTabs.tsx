@@ -191,77 +191,84 @@ export function SessionTabs({
   );
 
   return (
-    <Surface
-      elevation={0}
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        borderBottomWidth: 1,
-        borderBottomColor: colors.outlineVariant as string,
-        backgroundColor: colors.surfaceContainerLow as string,
-      }}
-    >
-      <ScrollView
-        ref={stripRef}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        keyboardShouldPersistTaps="always"
-        contentContainerStyle={{ paddingHorizontal: 8, gap: 6 }}
-        // flex:1 is what bounds the strip to the space left beside the add
-        // button. Without it a horizontal ScrollView in a flex-row sizes to its
-        // content, so the measured width is the content width, the scrollable
-        // range computes as zero, and the offset can never be pulled back after
-        // a tab closes.
-        style={{ flex: 1, paddingVertical: 6 }}
-        accessibilityRole="tablist"
-        onLayout={e => {
-          viewportWidth.current = e.nativeEvent.layout.width;
-        }}
-        scrollEventThrottle={16}
-        onScroll={e => {
-          offset.current = e.nativeEvent.contentOffset.x;
-        }}
-        // Closing a tab shrinks the content. The strip keeps the offset it had
-        // while the wider content existed, which leaves it parked past the last
-        // tab showing blank space, so an offset beyond the new end is pulled
-        // back to it. Only when it is actually past: clamping unconditionally
-        // would fight the scroll-to-active above and drag the strip to the end
-        // on every switch.
-        onContentSizeChange={width => {
-          contentWidth.current = width;
-          const max = Math.max(0, width - viewportWidth.current);
-          if (offset.current > max) {
-            offset.current = max;
-            stripRef.current?.scrollTo({ x: max, animated: true });
-          }
-          // The content width is the other measurement a scroll waits on, so
-          // a target held for it runs here. This is the ordinary path on
-          // screen open: the tabs report their positions before the content
-          // has been measured, so the scroll cannot be decided until now.
-          const waiting = pendingActive.current;
-          if (waiting !== null && scrollToTab(waiting)) {
-            pendingActive.current = null;
-          }
-        }}
-      >
-        {tabs.map(tab => (
-          <Tab
-            key={tab.sessionId}
-            tab={tab}
-            active={tab.sessionId === activeSessionId}
-            onSelect={onSelect}
-            onClose={onClose}
-            onLayout={onTabLayout}
-            {...(onRename ? { onRename: beginRename } : {})}
+    <>
+      {/* One tab needs no bar: the chip repeats what the title already says,
+          and it costs two terminal rows. The dialogs below stay mounted either
+          way, since the menu drives rename through renameRequest. */}
+      {tabs.length > 1 ? (
+        <Surface
+          elevation={0}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            borderBottomWidth: 1,
+            borderBottomColor: colors.outlineVariant as string,
+            backgroundColor: colors.surfaceContainerLow as string,
+          }}
+        >
+          <ScrollView
+            ref={stripRef}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="always"
+            contentContainerStyle={{ paddingHorizontal: 8, gap: 6 }}
+            // flex:1 is what bounds the strip to the space left beside the add
+            // button. Without it a horizontal ScrollView in a flex-row sizes to its
+            // content, so the measured width is the content width, the scrollable
+            // range computes as zero, and the offset can never be pulled back after
+            // a tab closes.
+            style={{ flex: 1, paddingVertical: 6 }}
+            accessibilityRole="tablist"
+            onLayout={e => {
+              viewportWidth.current = e.nativeEvent.layout.width;
+            }}
+            scrollEventThrottle={16}
+            onScroll={e => {
+              offset.current = e.nativeEvent.contentOffset.x;
+            }}
+            // Closing a tab shrinks the content. The strip keeps the offset it had
+            // while the wider content existed, which leaves it parked past the last
+            // tab showing blank space, so an offset beyond the new end is pulled
+            // back to it. Only when it is actually past: clamping unconditionally
+            // would fight the scroll-to-active above and drag the strip to the end
+            // on every switch.
+            onContentSizeChange={width => {
+              contentWidth.current = width;
+              const max = Math.max(0, width - viewportWidth.current);
+              if (offset.current > max) {
+                offset.current = max;
+                stripRef.current?.scrollTo({ x: max, animated: true });
+              }
+              // The content width is the other measurement a scroll waits on, so
+              // a target held for it runs here. This is the ordinary path on
+              // screen open: the tabs report their positions before the content
+              // has been measured, so the scroll cannot be decided until now.
+              const waiting = pendingActive.current;
+              if (waiting !== null && scrollToTab(waiting)) {
+                pendingActive.current = null;
+              }
+            }}
+          >
+            {tabs.map(tab => (
+              <Tab
+                key={tab.sessionId}
+                tab={tab}
+                active={tab.sessionId === activeSessionId}
+                onSelect={onSelect}
+                onClose={onClose}
+                onLayout={onTabLayout}
+                {...(onRename ? { onRename: beginRename } : {})}
+              />
+            ))}
+          </ScrollView>
+          <IconButton
+            icon="plus"
+            label={newKinds === undefined ? 'New session' : 'New tab'}
+            disabled={!canAdd}
+            onPress={newKinds === undefined ? onNew : () => setPicking(true)}
           />
-        ))}
-      </ScrollView>
-      <IconButton
-        icon="plus"
-        label={newKinds === undefined ? 'New session' : 'New tab'}
-        disabled={!canAdd}
-        onPress={newKinds === undefined ? onNew : () => setPicking(true)}
-      />
+        </Surface>
+      ) : null}
 
       {newKinds === undefined ? null : (
         <Sheet open={picking} onClose={() => setPicking(false)}>
@@ -342,7 +349,7 @@ export function SessionTabs({
           </Button>
         </DialogFooter>
       </Dialog>
-    </Surface>
+    </>
   );
 }
 

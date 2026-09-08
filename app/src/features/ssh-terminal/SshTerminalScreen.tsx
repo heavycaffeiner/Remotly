@@ -375,11 +375,11 @@ export function SshTerminalScreen(): React.ReactElement {
         sessionIndex={state.tabs.findIndex(
           t => t.sessionId === state.activeSessionId,
         )}
-        // One session needs no strip: the chip would repeat what the bar
-        // already says, and it costs two terminal rows. Everything it carries
-        // (new, rename, close) is in the overflow menu.
+        // Mounted from the first session on, though it draws no bar until the
+        // second: it owns the rename dialog and the new-tab sheet, which the
+        // overflow menu drives.
         tabStrip={
-          state.tabs.length > 1 ? (
+          state.tabs.length > 0 ? (
             <SessionTabs
               tabs={tabViews}
               activeSessionId={state.activeSessionId}
