@@ -67,6 +67,14 @@ export function MuxSwipe({
   const responder = useMemo(
     () =>
       PanResponder.create({
+        // A gesture that is never claimed gets no release or terminate, so a
+        // pinch left its measurements behind and the next drag measured its
+        // travel from where that one started. A first finger down is the one
+        // moment every gesture passes through.
+        onStartShouldSetPanResponderCapture: e => {
+          if (e.nativeEvent.touches.length <= 1) reset();
+          return false;
+        },
         onMoveShouldSetPanResponderCapture: (e, g) => {
           if (!live.current.enabled || live.current.disabled) return false;
           const shape = twoFingerShape(e);
