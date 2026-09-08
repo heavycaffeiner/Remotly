@@ -249,12 +249,15 @@ class TerminalView @JvmOverloads constructor(
     flingFrameNanos = 0L
     flingReportsWheel = false
   }
-  // Where the fingers started, so a two-finger drag that keeps them the same
-  // distance apart is not read as a pinch. Two fingers moving together is the
-  // gesture that navigates the multiplexer, and they never travel perfectly
-  // parallel, so the span drifts enough to zoom without this.
+  // Where the gesture began, so a two-finger drag can be told from a pinch:
+  // one moves the point between the fingers, the other changes the distance
+  // between them. Both are measured from here rather than frame to frame,
+  // because fingers dragged together drift apart as they go and a running
+  // total crosses any threshold eventually.
   private var scaleBeginSpan = 0f
-  private var scaleLive = false
+  private var scaleBeginFocusX = 0f
+  private var scaleBeginFocusY = 0f
+  private var twoFinger = TerminalZoom.TwoFinger.UNDECIDED
 
   private val scaleDetector = ScaleGestureDetector(
     context,
@@ -262,25 +265,34 @@ class TerminalView @JvmOverloads constructor(
       override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
         tapDetector.onPointerDown()
         scaleBeginSpan = detector.currentSpan
-        scaleLive = false
+        scaleBeginFocusX = detector.focusX
+        scaleBeginFocusY = detector.focusY
+        twoFinger = TerminalZoom.TwoFinger.UNDECIDED
         return true
       }
 
       override fun onScale(detector: ScaleGestureDetector): Boolean {
-        if (!scaleLive) {
-          if (kotlin.math.abs(detector.currentSpan - scaleBeginSpan) < PINCH_SLOP_DP * resources.displayMetrics.density) {
-            return true
-          }
-          scaleLive = true
+        if (twoFinger == TerminalZoom.TwoFinger.UNDECIDED) {
+          twoFinger = TerminalZoom.classify(
+            detector.currentSpan - scaleBeginSpan,
+            kotlin.math.hypot(
+              (detector.focusX - scaleBeginFocusX).toDouble(),
+              (detector.focusY - scaleBeginFocusY).toDouble(),
+            ).toFloat(),
+            TerminalZoom.DECIDE_SLOP_DP * resources.displayMetrics.density,
+          )
         }
+        // A swipe never zooms, however far the fingers drift from here on.
+        if (twoFinger != TerminalZoom.TwoFinger.PINCH) return true
         val nextSp = TerminalZoom.scale(fontSizePx / spToPx(1f), detector.scaleFactor)
         fontSizePx = spToPx(nextSp)
         return true
       }
 
       override fun onScaleEnd(detector: ScaleGestureDetector) {
-        if (!scaleLive) return
-        scaleLive = false
+        val pinched = twoFinger == TerminalZoom.TwoFinger.PINCH
+        twoFinger = TerminalZoom.TwoFinger.UNDECIDED
+        if (!pinched) return
         val settled = TerminalZoom.settle(fontSizePx / spToPx(1f))
         fontSizePx = spToPx(settled.toFloat())
         host?.onFontSizeChange(settled)
@@ -1626,11 +1638,6 @@ class TerminalView @JvmOverloads constructor(
     const val MOUSE_PRESS = 0
     const val MOUSE_RELEASE = 1
     const val MOUSE_BUTTON_LEFT = 1
-
-    // How far the fingers have to close or spread before a two-finger drag
-    // counts as a pinch. A parallel drag drifts a few dp; a pinch passes this
-    // in the first moment.
-    const val PINCH_SLOP_DP = 24f
 
 
     const val MAX_COLS = 512
