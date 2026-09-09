@@ -1,9 +1,10 @@
 // Which multiplexer move a released drag asks for.
 //
-// One gesture: a single finger sideways moves between workspaces. Two fingers
-// are the terminal's pinch and are left alone, since a drag and a pinch cannot
-// be told apart reliably enough to share the surface with a font size. Tabs
-// and panes are moved from the terminal's menu.
+// One gesture: a single finger sideways moves between the multiplexer's tabs,
+// which is the strip a terminal user reaches for most. Two fingers are the
+// terminal's pinch and are left alone, since a drag and a pinch cannot be told
+// apart reliably enough to share the surface with a font size. Workspaces and
+// panes are moved from the terminal's menu.
 //
 // Kept apart from the view so the thresholds are testable without a touch.
 
@@ -38,9 +39,9 @@ function committed(distance: number, velocity: number): boolean {
  *
  * Sideways follows the direction a paged view scrolls, where dragging left
  * brings the next thing in. A drag that is not clearly sideways does nothing:
- * on a terminal the alternative is a scroll being read as a workspace change.
- * A drag that ever had a second finger down does nothing either, because that
- * is the pinch.
+ * on a terminal the alternative is a scroll being read as a tab change. A drag
+ * that ever had a second finger down does nothing either, because that is the
+ * pinch.
  */
 export function muxAction(swipe: MuxSwipe): MuxAction | null {
   const { fingers, dx, dy, vx } = swipe;
@@ -48,5 +49,5 @@ export function muxAction(swipe: MuxSwipe): MuxAction | null {
   const sideways =
     Math.abs(dx) > Math.abs(dy) * SWIPE_AXIS_RATIO && committed(dx, vx);
   if (!sideways) return null;
-  return dx < 0 ? 'workspace-next' : 'workspace-previous';
+  return dx < 0 ? 'tab-next' : 'tab-previous';
 }

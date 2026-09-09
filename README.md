@@ -35,8 +35,8 @@ A standalone SSH and SFTP client for Android.
   second session, created from the same screen, gets a terminal of its own.
   Verified against herdr 0.9.0; the wire format has been stable since 0.8.2.
 - **Terminal gestures.** In a terminal attached to herdr, a sideways swipe
-  moves between its workspaces. Two fingers stay the terminal's pinch, so tabs
-  and panes are moved from its menu, which also lists the workspace moves.
+  moves between its tabs. Two fingers stay the terminal's pinch, so workspaces
+  and panes are moved from its menu, which also lists the tab moves.
 
 ## Layout
 

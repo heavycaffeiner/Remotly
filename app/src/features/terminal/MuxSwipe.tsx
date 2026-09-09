@@ -1,7 +1,7 @@
 // The gesture layer over an attached multiplexer.
 //
 // Wraps the terminal and claims a one-finger sideways drag, which moves between
-// the multiplexer's workspaces. Claimed with the capture responder because the
+// the multiplexer's tabs. Claimed with the capture responder because the
 // native terminal view handles touches itself; without capturing, the drag
 // never reaches here.
 //

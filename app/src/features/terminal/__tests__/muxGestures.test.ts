@@ -17,9 +17,9 @@ function swipe(
 }
 
 describe('a swipe across an attached terminal', () => {
-  it('moves between workspaces', () => {
-    expect(muxAction(swipe({ dx: -120 }))).toBe('workspace-next');
-    expect(muxAction(swipe({ dx: 120 }))).toBe('workspace-previous');
+  it("moves between the multiplexer's tabs", () => {
+    expect(muxAction(swipe({ dx: -120 }))).toBe('tab-next');
+    expect(muxAction(swipe({ dx: 120 }))).toBe('tab-previous');
   });
 
   // Two fingers are the pinch that sets the font size. A drag cannot be told
@@ -29,8 +29,8 @@ describe('a swipe across an attached terminal', () => {
     expect(muxAction(swipe({ fingers: 2, dy: -300 }))).toBeNull();
   });
 
-  // The terminal scrolls vertically, and a scroll that moved workspace would
-  // be unusable.
+  // The terminal scrolls vertically, and a scroll that changed tab would be
+  // unusable.
   it('ignores a drag up or down', () => {
     expect(muxAction(swipe({ dy: -200 }))).toBeNull();
   });
@@ -42,7 +42,7 @@ describe('a swipe across an attached terminal', () => {
   // A flick is as deliberate as a long drag, and requiring the distance made
   // the gesture feel unresponsive.
   it('takes a fast flick that did not travel far', () => {
-    expect(muxAction(swipe({ dx: -36, vx: -0.9 }))).toBe('workspace-next');
+    expect(muxAction(swipe({ dx: -36, vx: -0.9 }))).toBe('tab-next');
   });
 });
 
@@ -71,7 +71,7 @@ describe('the keys a gesture sends to herdr', () => {
     ]);
   });
 
-  // The menu still moves tabs and panes, with the bindings herdr ships.
+  // The menu moves workspaces and panes as well.
   it('cycles tabs and panes with the bindings herdr ships', () => {
     expect([...herdrKeys('tab-next')]).toEqual([PREFIX, 0x6e]);
     expect([...herdrKeys('tab-previous')]).toEqual([PREFIX, 0x70]);
