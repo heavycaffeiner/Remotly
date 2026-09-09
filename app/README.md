@@ -142,14 +142,16 @@ The screen's menu creates one: `herdr --session <name>` starts a session that
 is not there yet, so attaching is the creation, and reuse is keyed on which
 session a tab attached to rather than on its title.
 
-Swipes across an attached terminal are addressed to herdr rather than to the
-app's own tabs: one finger sideways moves between its tabs, two fingers
-sideways between panes, two fingers up and down between workspaces. They go
-out as the chords herdr already binds, since a gesture has to land in the
-frame it was made and a socket call is a fresh exec channel plus a snapshot
-read. Workspace movement ships unbound, so that one drives the picker: open,
-move the selection, confirm. Every one of them is in the terminal's menu too,
-for anyone who cannot make the gesture.
+A one-finger sideways swipe across an attached terminal moves between herdr's
+workspaces. It goes out as the chord herdr binds, since a gesture has to land
+in the frame it was made and a socket call is a fresh exec channel plus a
+snapshot read. Workspace movement ships unbound, so it drives the picker: open,
+move the selection, confirm.
+
+Two fingers are left to the terminal's pinch. A two-finger drag and a pinch
+cannot be told apart reliably enough to share a surface with the font size, so
+nothing navigates with them. Tabs and panes are moved from the terminal's menu,
+where the workspace moves are also listed for anyone who cannot swipe.
 
 To exercise the screen against a real server, run one in a container with
 herdr installed and `herdr server` started, publish its SSH port, and add a

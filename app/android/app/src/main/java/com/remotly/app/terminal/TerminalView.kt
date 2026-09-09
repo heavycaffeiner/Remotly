@@ -249,50 +249,21 @@ class TerminalView @JvmOverloads constructor(
     flingFrameNanos = 0L
     flingReportsWheel = false
   }
-  // Where the gesture began, so a two-finger drag can be told from a pinch:
-  // one moves the point between the fingers, the other changes the distance
-  // between them. Both are measured from here rather than frame to frame,
-  // because fingers dragged together drift apart as they go and a running
-  // total crosses any threshold eventually.
-  private var scaleBeginSpan = 0f
-  private var scaleBeginFocusX = 0f
-  private var scaleBeginFocusY = 0f
-  private var twoFinger = TerminalZoom.TwoFinger.UNDECIDED
-
   private val scaleDetector = ScaleGestureDetector(
     context,
     object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
       override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
         tapDetector.onPointerDown()
-        scaleBeginSpan = detector.currentSpan
-        scaleBeginFocusX = detector.focusX
-        scaleBeginFocusY = detector.focusY
-        twoFinger = TerminalZoom.TwoFinger.UNDECIDED
         return true
       }
 
       override fun onScale(detector: ScaleGestureDetector): Boolean {
-        if (twoFinger == TerminalZoom.TwoFinger.UNDECIDED) {
-          twoFinger = TerminalZoom.classify(
-            detector.currentSpan - scaleBeginSpan,
-            kotlin.math.hypot(
-              (detector.focusX - scaleBeginFocusX).toDouble(),
-              (detector.focusY - scaleBeginFocusY).toDouble(),
-            ).toFloat(),
-            TerminalZoom.DECIDE_SLOP_DP * resources.displayMetrics.density,
-          )
-        }
-        // A swipe never zooms, however far the fingers drift from here on.
-        if (twoFinger != TerminalZoom.TwoFinger.PINCH) return true
         val nextSp = TerminalZoom.scale(fontSizePx / spToPx(1f), detector.scaleFactor)
         fontSizePx = spToPx(nextSp)
         return true
       }
 
       override fun onScaleEnd(detector: ScaleGestureDetector) {
-        val pinched = twoFinger == TerminalZoom.TwoFinger.PINCH
-        twoFinger = TerminalZoom.TwoFinger.UNDECIDED
-        if (!pinched) return
         val settled = TerminalZoom.settle(fontSizePx / spToPx(1f))
         fontSizePx = spToPx(settled.toFloat())
         host?.onFontSizeChange(settled)

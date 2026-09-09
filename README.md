@@ -34,9 +34,9 @@ A standalone SSH and SFTP client for Android.
   focus, one attached tab per session, because that is what a session shows. A
   second session, created from the same screen, gets a terminal of its own.
   Verified against herdr 0.9.0; the wire format has been stable since 0.8.2.
-- **Terminal gestures.** In a terminal attached to herdr, one finger sideways
-  moves between its tabs, two fingers sideways between panes, and two fingers
-  up and down between workspaces. The same moves are in the terminal's menu.
+- **Terminal gestures.** In a terminal attached to herdr, a sideways swipe
+  moves between its workspaces. Two fingers stay the terminal's pinch, so tabs
+  and panes are moved from its menu, which also lists the workspace moves.
 
 ## Layout
 

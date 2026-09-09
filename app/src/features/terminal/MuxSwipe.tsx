@@ -1,16 +1,17 @@
 // The gesture layer over an attached multiplexer.
 //
-// Wraps the terminal and claims a drag once it is clearly one of the three
-// moves. Claimed with the capture responder because the native terminal view
-// handles touches itself; without capturing, the drag never reaches here.
+// Wraps the terminal and claims a one-finger sideways drag, which moves between
+// the multiplexer's workspaces. Claimed with the capture responder because the
+// native terminal view handles touches itself; without capturing, the drag
+// never reaches here.
 //
-// Two fingers are read the same way the terminal reads them for the pinch:
-// distance between them against travel of the point between them. Both sides
-// have to agree, or a gesture zooms and moves the workspace at once.
+// A second finger down hands the whole gesture back: two fingers are the pinch
+// that sets the font size, and a two-finger drag cannot be told from a pinch
+// reliably enough to drive navigation with it.
 
 import React, { useMemo, useRef } from 'react';
-import { PanResponder, View, type GestureResponderEvent } from 'react-native';
-import { muxAction, twoFingerIsPinch, twoFingerIsSwipe } from './muxGestures';
+import { PanResponder, View } from 'react-native';
+import { muxAction } from './muxGestures';
 import type { MuxAction } from './muxKeys';
 import { SWIPE_AXIS_RATIO, SWIPE_CLAIM_PX } from '../../lib/swipeNav';
 
@@ -21,23 +22,6 @@ interface MuxSwipeProps {
   /** Blocks the gesture, for example while a text selection is up. */
   disabled?: boolean;
   children: React.ReactNode;
-}
-
-/** What two fingers turned out to be doing, once it is clear. */
-type Verdict = 'unknown' | 'swipe' | 'pinch';
-
-/** The distance between the first two touches, and the point between them. */
-function twoFingerShape(
-  e: GestureResponderEvent,
-): { span: number; x: number; y: number } | null {
-  const touches = e.nativeEvent.touches;
-  if (touches.length < 2) return null;
-  const [a, b] = touches;
-  return {
-    span: Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY),
-    x: (a.pageX + b.pageX) / 2,
-    y: (a.pageY + b.pageY) / 2,
-  };
 }
 
 export function MuxSwipe({
@@ -51,56 +35,26 @@ export function MuxSwipe({
   const live = useRef({ enabled, disabled, onAction });
   live.current = { enabled, disabled, onAction };
 
-  // The finger count at the moment of release is one, since the others have
-  // lifted by then, so the highest count during the drag is what identifies
-  // the gesture.
+  // The count at release is one, since the other fingers have lifted by then,
+  // so the highest count during the drag is what says whether this was a pinch.
   const fingers = useRef(0);
-  const verdict = useRef<Verdict>('unknown');
-  const start = useRef<{ span: number; x: number; y: number } | null>(null);
-
-  const reset = () => {
-    fingers.current = 0;
-    verdict.current = 'unknown';
-    start.current = null;
-  };
 
   const responder = useMemo(
     () =>
       PanResponder.create({
-        // A gesture that is never claimed gets no release or terminate, so a
-        // pinch left its measurements behind and the next drag measured its
-        // travel from where that one started. A first finger down is the one
-        // moment every gesture passes through.
+        // A gesture that is never claimed reports no release and no terminate,
+        // so the count is cleared where every gesture begins instead.
         onStartShouldSetPanResponderCapture: e => {
-          if (e.nativeEvent.touches.length <= 1) reset();
+          if (e.nativeEvent.touches.length <= 1) fingers.current = 0;
           return false;
         },
         onMoveShouldSetPanResponderCapture: (e, g) => {
           if (!live.current.enabled || live.current.disabled) return false;
-          const shape = twoFingerShape(e);
-          if (shape !== null) {
-            fingers.current = Math.max(fingers.current, 2);
-            if (start.current === null) {
-              start.current = shape;
-              return false;
-            }
-            if (verdict.current === 'unknown') {
-              const travel = Math.hypot(
-                shape.x - start.current.x,
-                shape.y - start.current.y,
-              );
-              const spanChange = shape.span - start.current.span;
-              if (twoFingerIsPinch(travel, spanChange)) {
-                // Left to the terminal for the rest of the gesture: it is the
-                // one that resizes the font.
-                verdict.current = 'pinch';
-              } else if (twoFingerIsSwipe(travel, spanChange)) {
-                verdict.current = 'swipe';
-              }
-            }
-            return verdict.current === 'swipe';
-          }
-          if (fingers.current >= 2) return verdict.current === 'swipe';
+          fingers.current = Math.max(
+            fingers.current,
+            e.nativeEvent.touches.length,
+          );
+          if (fingers.current >= 2) return false;
           return (
             Math.abs(g.dx) > SWIPE_CLAIM_PX &&
             Math.abs(g.dx) > Math.abs(g.dy) * SWIPE_AXIS_RATIO
@@ -114,11 +68,12 @@ export function MuxSwipe({
             vx: g.vx,
             vy: g.vy,
           });
-          const pinched = verdict.current === 'pinch';
-          reset();
-          if (action !== null && !pinched) live.current.onAction(action);
+          fingers.current = 0;
+          if (action !== null) live.current.onAction(action);
         },
-        onPanResponderTerminate: reset,
+        onPanResponderTerminate: () => {
+          fingers.current = 0;
+        },
       }),
     [],
   );
