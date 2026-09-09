@@ -60,6 +60,15 @@ export function MuxSwipe({
             Math.abs(g.dx) > Math.abs(g.dy) * SWIPE_AXIS_RATIO
           );
         },
+        // The capture check stops running once the drag is claimed, so a
+        // second finger landing after that would go uncounted and the release
+        // would still move a workspace.
+        onPanResponderMove: e => {
+          fingers.current = Math.max(
+            fingers.current,
+            e.nativeEvent.touches.length,
+          );
+        },
         onPanResponderRelease: (_e, g) => {
           const action = muxAction({
             fingers: fingers.current,
