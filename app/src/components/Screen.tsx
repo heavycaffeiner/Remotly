@@ -123,7 +123,14 @@ export function Screen({
         </Appbar.Header>
       )}
 
-      {children}
+      {/* A view of its own, kept out of view flattening, so a screen's states
+          swap inside a container that exists for the screen's whole life. Left
+          as bare children, the branches were mounted next to the appbar and a
+          swap could arrive after Android had already dropped their parent: the
+          content then measured zero and the screen looked empty. */}
+      <View style={{ flex: 1 }} collapsable={false}>
+        {children}
+      </View>
 
       <Sheet open={menuOpen} onClose={() => setMenuOpen(false)}>
         <SheetHeader>

@@ -153,7 +153,12 @@ export function SshHostEditorScreen(): React.ReactElement {
     [auth, keyContents, passphrase, password],
   );
 
-  const close = useCallback(() => navigation.goBack(), [navigation]);
+  // Leaving on the next frame, not this one. Popping in the same frame as a
+  // commit raced the screen being detached: Android was told to insert a view
+  // whose parent had already moved, which is fatal in a release build.
+  const close = useCallback(() => {
+    requestAnimationFrame(() => navigation.goBack());
+  }, [navigation]);
 
   const runTest = useCallback(async () => {
     if (!hostValid || !userValid || !portValid || !secretValid) return;
