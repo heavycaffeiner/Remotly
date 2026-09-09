@@ -123,11 +123,8 @@ export function Screen({
         </Appbar.Header>
       )}
 
-      {/* A view of its own, kept out of view flattening, so a screen's states
-          swap inside a container that exists for the screen's whole life. Left
-          as bare children, the branches were mounted next to the appbar and a
-          swap could arrive after Android had already dropped their parent: the
-          content then measured zero and the screen looked empty. */}
+      {/* Own view, kept out of view flattening, so state swaps happen inside a
+          container that outlives them. */}
       <View style={{ flex: 1 }} collapsable={false}>
         {children}
       </View>

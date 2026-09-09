@@ -110,9 +110,11 @@ export function SshTerminalScreen(): React.ReactElement {
     navigation.goBack();
   }, [navigation]);
 
+  // Leaving on the next frame: dropping every tab and popping in one frame
+  // raced the screen being detached, which is fatal in a release build.
   const disconnectAll = useCallback(() => {
     disconnect();
-    navigation.goBack();
+    requestAnimationFrame(() => navigation.goBack());
   }, [disconnect, navigation]);
 
   // Files is a tab on this host, not a separate page: it can be left open
