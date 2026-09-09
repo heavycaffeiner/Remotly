@@ -29,9 +29,14 @@ const TONE_BADGE: Record<Tone, BadgeVariant> = {
   danger: 'destructive',
 };
 
+// These three are what a screen swaps in and out while it loads, so they trade
+// places with a sibling that also holds text. A layout-only view is flattened
+// away on Android, which leaves both branches' text parented to the screen
+// itself and the swap fails to mount. Each keeps its own view instead.
 export function Loading({ label }: { label: string }): React.ReactElement {
   return (
     <View
+      collapsable={false}
       style={{
         flex: 1,
         alignItems: 'center',
@@ -64,6 +69,7 @@ export function Empty({
   const { colors } = useTheme();
   return (
     <View
+      collapsable={false}
       style={{
         flex: 1,
         alignItems: 'center',
@@ -109,6 +115,7 @@ export function ErrorState({
   const { colors } = useTheme();
   return (
     <View
+      collapsable={false}
       style={{
         flex: 1,
         alignItems: 'center',
