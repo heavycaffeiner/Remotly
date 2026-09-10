@@ -169,8 +169,14 @@ gesture has to land in the frame it was made and a command is a fresh exec
 channel plus a snapshot read.
 
 The second tap is claimed in the capture phase, which cancels that touch in the
-terminal below, so it opens no keyboard and moves no cursor. A drag clears the
+terminal below, so it opens no keyboard and sends no click. A drag clears the
 tap that preceded it: a tap after a swipe is a first tap.
+
+The first tap is an ordinary one and herdr's own view has mouse reporting on,
+so it clicks: the pane under the finger takes focus in the workspace being
+left. Suppressing that would mean holding every click for the length of the
+double-tap window, which is felt in any program that reads the mouse, so the
+click stands.
 
 After a gesture the workspace screen re-reads. A tab move only changes which
 chip is current, but a workspace move leaves the screen's title and strip on a

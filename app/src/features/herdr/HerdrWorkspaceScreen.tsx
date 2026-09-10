@@ -192,6 +192,9 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
         setTimeout(() => void load(), GESTURE_SETTLE_MS);
         return;
       }
+      if (action !== 'workspace-next' && action !== 'workspace-previous') {
+        return;
+      }
       const direction = action === 'workspace-next' ? 1 : -1;
       void (async () => {
         try {
