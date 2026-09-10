@@ -118,8 +118,20 @@ export function sshHostKeyPrompt(hostId: string): SshHostKeyPrompt | null {
   return entry(hostId).hostKey;
 }
 
+/**
+ * How many tabs of a kind's own surface are open.
+ *
+ * Workspace terminals are driven by their own screen, so they do not spend
+ * the SSH strip's budget: a couple of workspaces open would otherwise stop
+ * "New session" there with nothing on screen to say why.
+ */
+function surfaceCount(state: SshTabsState, kind: SshTabKind): number {
+  const workspace = kind === 'workspace';
+  return state.tabs.filter(t => (t.kind === 'workspace') === workspace).length;
+}
+
 export function sshCanAddTab(hostId: string): boolean {
-  return entry(hostId).state.tabs.length < MAX_SSH_TABS;
+  return surfaceCount(entry(hostId).state, 'shell') < MAX_SSH_TABS;
 }
 
 /** True once at least one tab has been opened for this host. */
@@ -410,7 +422,8 @@ export function openSshTab(
   } = {},
 ): string | null {
   const e = entry(hostId);
-  if (e.state.tabs.length >= MAX_SSH_TABS) return null;
+  const kind = opts.kind ?? 'shell';
+  if (surfaceCount(e.state, kind) >= MAX_SSH_TABS) return null;
   e.seq += 1;
   const sessionId = mintSessionId(e.seq);
   // Numbered past the highest in use, not by how many are open. Counting open
@@ -420,7 +433,7 @@ export function openSshTab(
     e.state,
     sessionId,
     opts.title ?? `Shell ${nextShellNumber(e.state.tabs)}`,
-    opts.kind ?? 'shell',
+    kind,
   );
   if (tab === null) return null;
   // A given title is pinned: it names the herdr session the tab is attached

@@ -8,12 +8,14 @@ import {
   reportSshTerminalTitle,
   resizeSshHost,
   selectSshTab,
+  sshCanAddTab,
   sshHostSized,
   sshHostStarted,
   sshHostState,
   subscribeSshHost,
 } from '../sshSessions';
 import { remotlySsh } from '../ssh';
+import { MAX_SSH_TABS } from '../sshTabs';
 import terminalStoreModule from '../../specs/NativeRemotlyTerminalStore';
 import { decodeBase64 } from '../base64';
 
@@ -602,6 +604,22 @@ describe('a tab opened with a command', () => {
     expect(sshHostState(id).tabs).toHaveLength(1);
     expect(sshHostState(id).tabs[0].workspaceId).toBe('w2');
     expect(sshHostState(id).tabs[0].title).toBe('deploy');
+  });
+
+  // A workspace terminal is driven by its own screen, so it must not spend
+  // the SSH strip's budget: "New session" there would stop with nothing on
+  // screen saying why.
+  it('leaves the shell budget alone', () => {
+    const id = freshHost();
+    openSshWorkspaceTab(id, { workspaceId: 'w1', label: 'api', runs: 'herdr' });
+    ssh.__state(id, only(id), { state: 'active' });
+
+    for (let i = 0; i < MAX_SSH_TABS; i += 1) openSshTab(id);
+
+    expect(sshHostState(id).tabs.filter(t => t.kind === 'shell')).toHaveLength(
+      MAX_SSH_TABS,
+    );
+    expect(sshCanAddTab(id)).toBe(false);
   });
 
   it('opens a new one when that terminal has since closed', () => {

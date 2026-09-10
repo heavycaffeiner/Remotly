@@ -85,7 +85,9 @@ export function findSshTab(
  * Appends a tab and makes it active.
  *
  * Returns the state unchanged with a null tab when the cap is reached, so the
- * caller can say so rather than silently dropping the request.
+ * caller can say so rather than silently dropping the request. The cap is per
+ * surface: workspace terminals belong to their own screen and do not spend
+ * the strip's budget.
  */
 export function addSshTab(
   state: SshTabsState,
@@ -95,7 +97,10 @@ export function addSshTab(
 ): { state: SshTabsState; tab: SshTab | null } {
   const existing = findSshTab(state, sessionId);
   if (existing !== null) return { state, tab: existing };
-  if (sessionId === '' || state.tabs.length >= MAX_SSH_TABS) {
+  const surface = state.tabs.filter(
+    t => (t.kind === 'workspace') === (kind === 'workspace'),
+  ).length;
+  if (sessionId === '' || surface >= MAX_SSH_TABS) {
     return { state, tab: null };
   }
   const tab: SshTab = {
