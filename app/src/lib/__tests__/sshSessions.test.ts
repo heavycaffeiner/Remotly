@@ -622,6 +622,24 @@ describe('a tab opened with a command', () => {
     expect(sshCanAddTab(id)).toBe(false);
   });
 
+  // And the other way: a full strip must not stop a workspace from opening,
+  // since that terminal is not in the strip at all.
+  it('opens over a full shell strip', () => {
+    const id = freshHost();
+    for (let i = 0; i < MAX_SSH_TABS; i += 1) openSshTab(id);
+
+    const opened = openSshWorkspaceTab(id, {
+      workspaceId: 'w1',
+      label: 'api',
+      runs: 'herdr',
+    });
+
+    expect(opened).not.toBeNull();
+    expect(
+      sshHostState(id).tabs.filter(t => t.kind === 'workspace'),
+    ).toHaveLength(1);
+  });
+
   it('opens a new one when that terminal has since closed', () => {
     const id = freshHost();
     openSshWorkspaceTab(id, { workspaceId: 'w1', label: 'api', runs: 'herdr' });
