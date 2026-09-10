@@ -213,6 +213,37 @@ describe('a host kept current by events', () => {
     jest.useRealTimers();
   });
 
+  // A phone in a pocket must not keep asking. The gate is what keeps this
+  // from becoming the standing poll it replaced.
+  it('stops re-reading while the app is in the background', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+    const stop = subscribeHerdrHost('hC', null, () => undefined);
+    for (let i = 0; i < 10; i += 1) await tick();
+    pushLine({
+      hostId: 'hC',
+      line: '{"result":{"type":"subscription_started"}}',
+    });
+    expect(herdrHostState('hC', null).feed).toBe('live');
+
+    // The mock exposes a plain field, so the state is set rather than spied.
+    const front = AppState.currentState;
+    AppState.currentState = 'background';
+    const reads = snapshotReads();
+    jest.advanceTimersByTime(4 * 3000);
+    for (let i = 0; i < 5; i += 1) await tick();
+    expect(snapshotReads()).toBe(reads);
+
+    // Back in front, it picks up again.
+    AppState.currentState = 'active';
+    jest.advanceTimersByTime(3000);
+    for (let i = 0; i < 5; i += 1) await tick();
+    expect(snapshotReads()).toBe(reads + 1);
+
+    AppState.currentState = front;
+    stop();
+    jest.useRealTimers();
+  });
+
   it('adds a created tab from the record the event carries', async () => {
     const stop = await start('h3');
     pushLine({
