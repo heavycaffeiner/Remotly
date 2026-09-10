@@ -12,6 +12,35 @@ dynamic color.
 Android is the shipped platform. iOS builds from the same source but is not
 feature-complete and is not released.
 
+## Known issues
+
+### A release build can die when the first host is saved
+
+A release build sometimes dies when the first host is saved. Measured on an
+emulator by installing fresh and driving the form: 5 crashes in 29 runs on
+1.8.x, 0 in 8 on 1.7.1 and 0 in 7 on 1.8.2, which is too few on the older
+builds to attribute it to anything in particular.
+
+The stack, from a release build with R8 turned off so the names are real:
+
+```text
+java.lang.IllegalStateException: addViewAt: failed to insert view [750]
+  into parent [756] at index 0
+  at SurfaceMountingManager.addViewAt(SurfaceMountingManager.kt:372)
+  at IntBufferBatchMountItem.execute(IntBufferBatchMountItem.kt:122)
+Caused by: The specified child already has a parent.
+```
+
+A plain `ReactViewGroup` is moved between two parents inside one Fabric mount
+transaction, and no app frame appears in the stack. Two guesses were measured
+and both failed: `removeClippedSubviews={false}` on the hosts list (1 crash in
+8) and waiting for the keyboard to report itself down before popping the editor
+(3 in 10). Neither is in the tree.
+
+The next step is to name the moving view rather than guess: log the mount
+instructions from Fabric for the commit that follows the save, then remove the
+reparent at its source.
+
 ## Requirements
 
 | Tool | Version |
@@ -179,6 +208,11 @@ why a snapshot is read again when a screen is focused and when the app returns
 to the foreground: one command, at the moment the user is looking, rather than
 a standing timer.
 
+The tradeoff is deliberate and worth knowing: a chord typed inside herdr while
+this screen stays open and in front is not caught up until the user navigates
+away and back, or leaves the app and returns. The app's own gestures do not
+need it, because they go over the socket and herdr publishes those.
+
 The terminal it attaches lives in the ordinary session store but with
 `kind: 'workspace'`, and SshTerminal filters that kind out of its strip. So the
 app's SSH tabs and a workspace's tabs never mix, and coming back from a
@@ -268,30 +302,3 @@ keyboard app.
 - A Pixel-class device with current Gboard.
 - A Samsung device with Samsung Keyboard.
 - One device at API 24 to 30 for Ed25519 coverage, one at a current API level.
-
-## Known issue: view reparenting on the first host save
-
-A release build sometimes dies when the first host is saved. Measured on an
-emulator by installing fresh and driving the form: 5 crashes in 29 runs on
-1.8.x, 0 in 8 on 1.7.1 and 0 in 7 on 1.8.2, which is too few on the older
-builds to attribute it to anything in particular.
-
-The stack, from a release build with R8 turned off so the names are real:
-
-```text
-java.lang.IllegalStateException: addViewAt: failed to insert view [750]
-  into parent [756] at index 0
-  at SurfaceMountingManager.addViewAt(SurfaceMountingManager.kt:372)
-  at IntBufferBatchMountItem.execute(IntBufferBatchMountItem.kt:122)
-Caused by: The specified child already has a parent.
-```
-
-A plain `ReactViewGroup` is moved between two parents inside one Fabric mount
-transaction, and no app frame appears in the stack. Two guesses were measured
-and both failed: `removeClippedSubviews={false}` on the hosts list (1 crash in
-8) and waiting for the keyboard to report itself down before popping the editor
-(3 in 10). Neither is in the tree.
-
-The next step is to name the moving view rather than guess: log the mount
-instructions from Fabric for the commit that follows the save, then remove the
-reparent at its source.
