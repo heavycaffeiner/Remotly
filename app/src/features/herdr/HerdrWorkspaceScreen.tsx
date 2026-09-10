@@ -186,12 +186,27 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
   );
 
   // A workspace named in the route was chosen somewhere else, so it is the one
-  // case where this screen has to focus it: once, on the way in.
+  // case where this screen has to focus it: once, on the way in. Painted
+  // first, or the first loaded frame would show whichever workspace herdr
+  // still had focused.
   const requested = params.workspaceId ?? null;
   useEffect(() => {
     if (requested === null) return;
+    applyHerdrLocal(hostId, session, {
+      kind: 'workspace-focused',
+      workspaceId: requested,
+    });
     void act(() => focusHerdrWorkspace(hostId, requested, session));
   }, [act, hostId, requested, session]);
+
+  // herdr publishes nothing for a move its own key bindings made, so a tab
+  // switched by typing `prefix+n` reaches no event. Coming back to this screen
+  // is when that is caught up: one read, where the user can see the answer.
+  useFocusEffect(
+    useCallback(() => {
+      void refreshHerdrHost(hostId, session);
+    }, [hostId, session]),
+  );
 
   /**
    * Finishes a gesture.

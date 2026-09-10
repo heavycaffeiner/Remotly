@@ -8,6 +8,7 @@
 // State is a value, replaced on change, so a screen renders from
 // useSyncExternalStore without a deep compare.
 
+import { AppState } from 'react-native';
 import {
   HERDR_EVENT_TYPES,
   eventStreamCommand,
@@ -56,16 +57,6 @@ const ACK_TIMEOUT_MS = 4000;
 
 /** Polls between attempts at the stream, so a retry is bounded. */
 const STREAM_RETRY_POLLS = 5;
-
-/**
- * How often a live host is reconciled with a snapshot, in ms.
- *
- * herdr publishes nothing for a move made by its own key bindings, so a user
- * who types `prefix+n` in the terminal instead of swiping changes the focused
- * tab with no event. The app's own moves go over the socket and do emit, so
- * this is only the backstop for what was typed: one command, rarely.
- */
-const RECONCILE_MS = 30000;
 
 interface Entry {
   key: string;
@@ -184,27 +175,26 @@ function start(entry: Entry): void {
   // happens during the snapshot read is lost.
   void openStream(entry);
   void read(entry);
-  reconcile(entry);
+  watchForeground();
 }
 
 /**
- * Re-reads a live host every so often.
+ * Re-reads every watched host when the app comes back to the foreground.
  *
- * Everything the app does is reported by an event, so this catches only what
- * the user typed inside herdr, which herdr's own key bindings change without
- * publishing anything. The poll fallback already re-reads, so this runs only
- * while the stream is the source.
+ * herdr publishes nothing for a move its own key bindings made, so a tab
+ * switched by typing `prefix+n` reaches no event. Rather than a standing
+ * timer, which is what this whole change removed, the catch-up happens when
+ * the user returns: one read per host, at the moment they are looking.
+ * Screens do the same on focus.
  */
-function reconcile(entry: Entry): void {
-  const epoch = entry.epoch;
-  const tick = (): void => {
-    setTimeout(() => {
-      if (entry.epoch !== epoch) return;
-      if (entry.state.feed === 'live') void read(entry);
-      tick();
-    }, RECONCILE_MS);
-  };
-  tick();
+let foregroundWatched = false;
+function watchForeground(): void {
+  if (foregroundWatched) return;
+  foregroundWatched = true;
+  AppState.addEventListener('change', state => {
+    if (state !== 'active') return;
+    entries.forEach(entry => void read(entry));
+  });
 }
 
 function stop(entry: Entry): void {

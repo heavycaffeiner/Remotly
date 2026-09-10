@@ -7,6 +7,7 @@
 // cannot apply exactly asks for a snapshot instead of guessing, and that a
 // reader which never acknowledges leaves the host on the fallback re-read.
 
+import { AppState } from 'react-native';
 import NativeHerdr from '../../specs/NativeRemotlyHerdr';
 import type {
   HerdrLineEvent,
@@ -175,26 +176,19 @@ describe('a host kept current by events', () => {
     stop();
   });
 
-  // herdr publishes nothing for a move its own key bindings made, so a live
-  // host is still reconciled with a snapshot now and then. Without it a tab
-  // switched by typing `prefix+n` would never reach the strip.
-  it('reconciles a live host with a snapshot now and then', async () => {
-    jest.useFakeTimers({ doNotFake: ['setImmediate'] });
-    const stop = subscribeHerdrHost('hA', null, () => undefined);
-    for (let i = 0; i < 10; i += 1) await tick();
-    pushLine({
-      hostId: 'hA',
-      line: '{"result":{"type":"subscription_started"}}',
-    });
-    expect(herdrHostState('hA', null).feed).toBe('live');
+  // herdr publishes nothing for a move its own key bindings made, so a tab
+  // switched by typing `prefix+n` reaches no event. Coming back to the app is
+  // where that is caught up, rather than on a standing timer.
+  it('re-reads every watched host on the way back to the foreground', async () => {
+    const stop = await start('hA');
     const reads = snapshotReads();
 
-    jest.advanceTimersByTime(30000);
+    const listener = (AppState.addEventListener as jest.Mock).mock.calls.at(-1);
+    expect(listener?.[0]).toBe('change');
+    (listener?.[1] as (state: string) => void)('active');
     for (let i = 0; i < 5; i += 1) await tick();
-
     expect(snapshotReads()).toBe(reads + 1);
     stop();
-    jest.useRealTimers();
   });
 
   it('adds a created tab from the record the event carries', async () => {
