@@ -489,6 +489,9 @@ export const TerminalScreen = forwardRef<
           ? { primaryAction: toolbarPrimary }
           : {})}
         actions={toolbarActions}
+        onMenuOpen={() => {
+          void viewport.current?.hideKeyboard().catch(() => undefined);
+        }}
       />
 
       {tabStrip}

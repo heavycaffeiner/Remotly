@@ -434,12 +434,15 @@ export function HerdrWorkspacesScreen(): React.ReactElement {
       actions={actions}
       menuActions={menuActions}
     >
-      {phase === 'loading' ? <Loading label="Loading workspaces" /> : null}
+      {/* One expression, not a slot per phase: a commit that changed several
+          siblings at once left Android reparenting text between them.
 
-      {/* A host whose key has never been accepted cannot be reached by any
+          A host whose key has never been accepted cannot be reached by any
           one-shot exec, so retrying alone can never succeed. The way out is
           the terminal, which is the only screen that can show the prompt. */}
-      {phase === 'error' && needsHostKey ? (
+      {phase === 'loading' ? (
+        <Loading label="Loading workspaces" />
+      ) : phase === 'error' && needsHostKey ? (
         <Empty
           icon="shield-key"
           title="Accept this host key first"
@@ -456,9 +459,7 @@ export function HerdrWorkspacesScreen(): React.ReactElement {
             },
           }}
         />
-      ) : null}
-
-      {phase === 'error' && !needsHostKey ? (
+      ) : phase === 'error' ? (
         <ErrorState
           title="Could not reach herdr"
           message={error}
@@ -467,9 +468,7 @@ export function HerdrWorkspacesScreen(): React.ReactElement {
             void load(session);
           }}
         />
-      ) : null}
-
-      {phase === 'ready' ? (
+      ) : (
         <View style={{ flex: 1 }}>
           <View style={{ paddingHorizontal: 16, paddingTop: 8, gap: 6 }}>
             {sessions.length > 1 ? (
@@ -550,7 +549,7 @@ export function HerdrWorkspacesScreen(): React.ReactElement {
             />
           )}
         </View>
-      ) : null}
+      )}
 
       {phase === 'ready' && workspaces.length > 0 ? (
         <Fab

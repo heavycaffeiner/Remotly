@@ -163,17 +163,18 @@ export function HostsScreen(): React.ReactElement {
 
   return (
     <Screen title="Hosts" actions={actions}>
-      {phase === 'loading' ? <Loading label="Loading hosts" /> : null}
-
-      {phase === 'error' ? (
+      {/* One expression, not four slots that each flip between an element and
+          null: a commit that changed several siblings at once left Android
+          reparenting text between them. */}
+      {phase === 'loading' ? (
+        <Loading label="Loading hosts" />
+      ) : phase === 'error' ? (
         <ErrorState
           title="Could not load hosts"
           message="The host store could not be read. Your saved hosts are still on the device."
           onRetry={() => void load()}
         />
-      ) : null}
-
-      {empty ? (
+      ) : empty ? (
         <Empty
           icon="server-off"
           title="No hosts yet"
@@ -183,9 +184,7 @@ export function HostsScreen(): React.ReactElement {
             onPress: () => navigation.navigate('SshHostEditor'),
           }}
         />
-      ) : null}
-
-      {phase === 'ready' && !empty ? (
+      ) : (
         <View style={{ flex: 1, paddingHorizontal: 16 }}>
           {showSearch ? (
             <Input
@@ -213,7 +212,7 @@ export function HostsScreen(): React.ReactElement {
             )}
           />
         </View>
-      ) : null}
+      )}
 
       {phase === 'ready' ? (
         <Fab

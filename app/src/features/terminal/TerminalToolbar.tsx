@@ -42,6 +42,14 @@ interface TerminalToolbarProps {
     disabled?: boolean;
   };
   actions: readonly TerminalMenuAction[];
+  /**
+   * Called as the menu opens.
+   *
+   * The terminal's keyboard is put up by the native view, so it outlives an
+   * ordinary dismiss and would take the sheet's touches. The owner is the one
+   * that can lower it.
+   */
+  onMenuOpen?: () => void;
 }
 
 export function TerminalToolbar({
@@ -50,6 +58,7 @@ export function TerminalToolbar({
   onBack,
   primaryAction,
   actions,
+  onMenuOpen,
 }: TerminalToolbarProps): React.ReactElement {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
@@ -107,7 +116,10 @@ export function TerminalToolbar({
           <IconButton
             icon="dots-vertical"
             label="Terminal actions"
-            onPress={() => setOpen(true)}
+            onPress={() => {
+              onMenuOpen?.();
+              setOpen(true);
+            }}
           />
         )}
       </View>
