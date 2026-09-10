@@ -239,6 +239,26 @@ export function nextHerdrWorkspace(
   return ordered[(start + direction + ordered.length) % ordered.length] ?? null;
 }
 
+/**
+ * The tab beside the focused one, in herdr's own order, wrapping at both ends.
+ *
+ * A sideways gesture goes over the socket rather than as the chord herdr binds
+ * for it, because herdr emits no event for a move its own binding made and the
+ * strip would be left showing the tab the session had left. Naming the target
+ * here is what makes that one command.
+ */
+export function nextHerdrTab(
+  tabs: readonly HerdrTab[],
+  focusedTabId: string | null,
+  direction: 1 | -1,
+): HerdrTab | null {
+  const ordered = [...tabs].sort((a, b) => a.number - b.number);
+  if (ordered.length < 2) return null;
+  const at = ordered.findIndex(t => t.tabId === focusedTabId);
+  const start = at < 0 ? 0 : at;
+  return ordered[(start + direction + ordered.length) % ordered.length] ?? null;
+}
+
 export async function closeHerdrWorkspace(
   hostId: string,
   workspaceId: string,

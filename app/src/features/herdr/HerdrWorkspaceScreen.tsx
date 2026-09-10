@@ -48,6 +48,7 @@ import {
   focusHerdrTab,
   focusHerdrWorkspace,
   invokeHerdrPluginAction,
+  nextHerdrTab,
   nextHerdrWorkspace,
   renameHerdrTab,
 } from '../../lib/herdrClient';
@@ -136,6 +137,12 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
     () => (workspaceId === null ? [] : herdr.tabs[workspaceId] ?? []),
     [herdr.tabs, workspaceId],
   );
+  // herdr's own focus, falling back to the flag on the record for a snapshot
+  // that reported one without the other.
+  const focusedTabId =
+    tabs.find(t => t.tabId === herdr.focusedTabId)?.tabId ??
+    tabs.find(t => t.focused)?.tabId ??
+    null;
 
   const hostState = useSyncExternalStore(
     useCallback(cb => subscribeSshHost(hostId, cb), [hostId]),
@@ -193,17 +200,31 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
   /**
    * Finishes a gesture.
    *
-   * A tab move is a chord the terminal already sent and herdr's own event
-   * reports where it landed, so there is nothing to do here. A workspace move
-   * has no chord: herdr ships those unbound, so the move is made over the
-   * socket, from the order this screen is already holding.
+   * Both moves are made over the socket rather than as a chord typed into the
+   * terminal. herdr emits no event for a move its own key binding made, so a
+   * chord left the strip and the title showing where the session used to be;
+   * a focus command emits one, and the target is already known here.
    */
   const onGesture = useCallback(
     (action: MuxAction) => {
+      const direction =
+        action === 'tab-next' || action === 'workspace-next' ? 1 : -1;
+
+      if (action === 'tab-next' || action === 'tab-previous') {
+        const next = nextHerdrTab(tabs, focusedTabId, direction);
+        if (next === null || workspaceId === null) return;
+        applyHerdrLocal(hostId, session, {
+          kind: 'tab-focused',
+          tabId: next.tabId,
+          workspaceId,
+        });
+        void act(() => focusHerdrTab(hostId, next.tabId, session));
+        return;
+      }
+
       if (action !== 'workspace-next' && action !== 'workspace-previous') {
         return;
       }
-      const direction = action === 'workspace-next' ? 1 : -1;
       const next = nextHerdrWorkspace(
         { workspaces: herdr.workspaces, focusedWorkspaceId: workspaceId },
         direction,
@@ -221,7 +242,7 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
       });
       void act(() => focusHerdrWorkspace(hostId, next.workspaceId, session));
     },
-    [act, hostId, session, herdr.workspaces, workspaceId],
+    [act, hostId, session, herdr.workspaces, workspaceId, tabs, focusedTabId],
   );
 
   const selectTab = useCallback(
@@ -275,11 +296,6 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
     (size: { cols: number; rows: number }) => resizeSshHost(hostId, size),
     [hostId],
   );
-
-  const focusedTabId =
-    tabs.find(t => t.tabId === herdr.focusedTabId)?.tabId ??
-    tabs.find(t => t.focused)?.tabId ??
-    null;
 
   const tabViews = useMemo<SessionTabView[]>(
     () =>

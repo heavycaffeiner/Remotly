@@ -191,12 +191,17 @@ started, never with its output, and the events report what it did; a host
 without the plugin answers `plugin_action_not_found`.
 
 A one-finger sideways swipe across an attached terminal moves between herdr's
-tabs, as the chord herdr binds for it (`prefix+n` and `prefix+p`). A double tap
-moves to the next workspace, the coarser step. That one has no chord to send:
-`next_workspace` and `previous_workspace` ship unbound, and herdr's picker did
-not open for a typed `prefix+w` either, so the move goes over the socket from
-the order the screen is already holding. One command, and measured at 0.08s
-from the tap on a release build.
+tabs, and a double tap moves to the next workspace, the coarser step. Both go
+over the socket rather than as the chord herdr binds (`prefix+n`, `prefix+p`),
+for the same reason: **herdr emits no event for a move made by its own key
+binding.** A chord left the strip and the title on the tab the session had
+just left, which is what an event-fed screen cannot see. A focus command emits
+the event, and the target is already known here, so it stays one command:
+measured at 0.28s to 0.32s for a tab and 0.11s for a workspace.
+
+Workspaces have no chord to send in any case: `next_workspace` and
+`previous_workspace` ship unbound, and a typed `prefix+w` did not open herdr's
+picker either. Panes still move as chords, since nothing here draws them.
 
 The second tap is claimed in the capture phase, which cancels that touch in the
 terminal below, so it opens no keyboard and sends no click. What disarms a tap

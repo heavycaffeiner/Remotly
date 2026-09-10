@@ -8,8 +8,8 @@
 // nothing but stderr all lead to different messages on screen.
 
 import { encodeBase64String } from '../base64';
-import { HerdrError } from '../herdr';
-import { execHerdr, herdrSnapshot } from '../herdrClient';
+import { HerdrError, type HerdrTab } from '../herdr';
+import { execHerdr, herdrSnapshot, nextHerdrTab } from '../herdrClient';
 import NativeHerdr from '../../specs/NativeRemotlyHerdr';
 
 type ExecResult = {
@@ -275,5 +275,43 @@ describe('herdrSnapshot', () => {
     );
 
     await expect(herdrSnapshot('h1')).rejects.toBeInstanceOf(HerdrError);
+  });
+});
+
+// A sideways gesture goes over the socket because herdr emits no event for a
+// move its own key binding made, so the order the app follows and the target
+// it names are both decided here.
+describe('where a move lands', () => {
+  const tab = (id: string, number: number): HerdrTab => ({
+    tabId: id,
+    workspaceId: 'w1',
+    label: '',
+    number,
+    paneCount: 1,
+    focused: false,
+    agentStatus: 'unknown',
+  });
+
+  // herdr's numbers are not contiguous once tabs have been closed, so the
+  // order is the numbers, never the ids.
+  const tabs = [tab('w1:t9', 9), tab('w1:t3', 3), tab('w1:t6', 6)];
+
+  it('takes the next tab by number, not by id', () => {
+    expect(nextHerdrTab(tabs, 'w1:t3', 1)?.tabId).toBe('w1:t6');
+  });
+
+  it('wraps at both ends', () => {
+    expect(nextHerdrTab(tabs, 'w1:t9', 1)?.tabId).toBe('w1:t3');
+    expect(nextHerdrTab(tabs, 'w1:t3', -1)?.tabId).toBe('w1:t9');
+  });
+
+  it('has nowhere to go with one tab', () => {
+    expect(nextHerdrTab([tab('w1:t1', 1)], 'w1:t1', 1)).toBeNull();
+  });
+
+  // A focus the app has not seen yet must still move somewhere rather than
+  // leave the gesture doing nothing.
+  it('starts from the first tab when the focused one is unknown', () => {
+    expect(nextHerdrTab(tabs, null, 1)?.tabId).toBe('w1:t6');
   });
 });

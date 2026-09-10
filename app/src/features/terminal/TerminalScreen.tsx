@@ -274,14 +274,14 @@ export const TerminalScreen = forwardRef<
   const muxRef = useRef(onMuxAction);
   muxRef.current = onMuxAction;
 
-  // A tab or pane move is a chord the multiplexer already understands, so it
-  // goes out as ordinary input: the round trip a command needs is longer than
-  // the gesture it answers. A workspace move has no chord to send, so it is
-  // left to the owner, which reaches the multiplexer over its own connection.
-  // The owner hears about every move either way, because what is on screen
-  // afterwards is its to read.
+  // A pane move is a chord the multiplexer already understands, so it goes out
+  // as ordinary input. Tab and workspace moves are left to the owner, which
+  // makes them over its own connection: herdr emits no event for a move made
+  // by its own key binding, so a strip driven by events would not follow a
+  // chord typed here. The owner hears about every move either way, because
+  // what is on screen afterwards is its to read.
   const handleMuxAction = useCallback((action: MuxAction) => {
-    if (action !== 'workspace-next' && action !== 'workspace-previous') {
+    if (action === 'pane-next' || action === 'pane-previous') {
       sendRef.current(herdrKeys(action));
     }
     muxRef.current?.(action);

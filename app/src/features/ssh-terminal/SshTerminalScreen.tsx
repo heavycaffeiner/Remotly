@@ -470,6 +470,12 @@ export function SshTerminalScreen(): React.ReactElement {
           onNotify={postTerminalNotification}
           {...(activeTab?.mux === undefined ? {} : { mux: activeTab.mux })}
           onMuxAction={action => {
+            // This screen has no herdr strip to keep in sync, so a tab move is
+            // the chord, which lands in the frame the gesture was made.
+            if (action === 'tab-next' || action === 'tab-previous') {
+              ssh.send(herdrKeys(action));
+              return;
+            }
             if (action === 'workspace-next') void moveWorkspace(1);
             if (action === 'workspace-previous') void moveWorkspace(-1);
           }}
