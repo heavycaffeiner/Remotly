@@ -26,25 +26,30 @@ A standalone SSH and SFTP client for Android.
   block through bracketed paste rather than as a run of Enter keys.
 - **Image paste.** Pick an image and it uploads over SFTP, then types the
   remote path, which is what an agent reading files from disk expects.
-- **Herdr workspaces.** Where herdr is installed on the host and `herdr
-  server` is running, its workspaces and tabs are listed, created, renamed,
-  focused, and closed from the app over SSH. They keep running on the machine,
-  so closing Remotly or losing the connection leaves every workspace where it
-  was. Entering one opens its own terminal, whose tab strip is that
-  workspace's herdr tabs: a chip selects a herdr tab, and adding, renaming, or
-  closing one goes to the host. The app's own SSH tabs stay in their screen, so
-  a workspace and a plain shell never share a strip. One terminal per herdr
-  session, because the focused workspace is session state rather than per
-  client; a second session gets a terminal of its own.
-  Verified against herdr 0.9.0; the wire format has been stable since 0.8.2.
+- **Herdr workspaces in a sidebar.** Where herdr is installed on the host and
+  `herdr server` is running, one sidebar holds its sessions, their workspaces,
+  and each workspace's tabs, with rename, close, and new-tab on the row they
+  belong to. They keep running on the machine, so closing Remotly or losing
+  the connection leaves every workspace where it was. Entering one attaches a
+  terminal whose tab strip is that workspace's herdr tabs. The app's own SSH
+  tabs stay in their own screen, so a workspace and a plain shell never share a
+  strip. One terminal per herdr session, because the focused workspace is
+  session state rather than per client; a second session gets a terminal of its
+  own. Verified against herdr 0.9.0; the wire format has been stable since
+  0.8.2.
+- **Kept current by herdr's events, not a timer.** One SSH connection is held
+  per host and the app subscribes to herdr's control socket over it, so a
+  workspace renamed on the desktop shows up here at once and an idle screen
+  costs no connections. A host with no way to run the reader falls back to
+  re-reading every four seconds.
 - **Herdr plugin.** `plugin/` is a herdr plugin the app drives from the
   workspace terminal's menu: a tab in the focused pane's directory, every pane
   of a tab spread into tabs of their own, and pane zoom. Install it with
   `herdr plugin install heavycaffeiner/Remotly/plugin`.
 - **Terminal gestures.** In a terminal attached to herdr, a sideways swipe
   moves between its tabs and a double tap moves to the next workspace. Two
-  fingers stay the terminal's pinch, so panes are moved from its menu, which
-  also lists the tab and workspace moves.
+  fingers stay the terminal's pinch, so panes are moved from its menu. The
+  sidebar is the path for anyone who cannot make the gestures.
 
 ## Layout
 

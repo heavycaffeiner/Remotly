@@ -103,10 +103,15 @@ The result is `android/app/libs/sshcore.aar`, consumed as an AAR dependency.
 
 ## Herdr
 
-The Workspaces screen drives the `herdr` CLI on the remote host.
-`src/lib/herdr.ts` builds each command string and parses the document it
-prints; `src/lib/herdrClient.ts` runs it through the herdr bridge, one SSH
-exec per call.
+The sidebar and the workspace terminal drive the `herdr` CLI on the remote
+host. `src/lib/herdr.ts` builds each command string and parses the document it
+prints; `src/lib/herdrClient.ts` runs it through the herdr bridge.
+
+One authenticated SSH connection is held per host and every command runs as a
+channel on it (`HerdrBridge`, `sshcore.Control`). The handshake was most of
+what a control call cost from a phone: a per-command connection measured about
+0.7s, and a chip tap 1.0s end to end. A connection that broke is dropped and
+redialled once, which is what a resumed app or a moved network looks like.
 
 That shape decides what can be exposed. A command that prints one document and
 exits works. `session attach`, `agent attach`, and the streaming `pane`
@@ -132,13 +137,40 @@ What the host still has to supply is a running `herdr server`. Without it the
 CLI answers with a `server_not_running` document, which the screen reports as
 such.
 
-"Open terminal" enters the workspace, which is its own screen
+Opening herdr on a host lands on whichever workspace herdr has focused
 (`HerdrWorkspaceScreen`). That screen focuses the workspace, attaches a
-terminal running `herdr`, and draws the workspace's herdr tabs as its strip:
-`tab list --workspace` feeds the chips, and select, add, rename, and close are
-`tab focus`, `tab create`, `tab rename`, and `tab close`. The strip is re-read
-on a timer as well as after the app acts, because tabs also change from the
-desktop and from the terminal's own gestures.
+terminal running `herdr`, and draws that workspace's herdr tabs as its strip.
+Select, add, rename, and close are `tab focus`, `tab create`, `tab rename`,
+and `tab close`.
+
+Everything that manages a host lives in the sidebar (`HostSidebar`): its
+sessions, their workspaces, and each workspace's tabs, with rename, close, and
+new-tab on the row they belong to. It opens from the bar and, where the window
+is at least 720dp wide, it is simply always there. It never takes an edge
+swipe: a horizontal swipe over an attached terminal moves a herdr tab, and a
+drawer on that edge would fight it. The sidebar is also the whole non-gesture
+path, which is why the terminal's menu no longer carries tab and workspace
+moves.
+
+What both draw comes from one store per host and session (`lib/herdrStore.ts`).
+It bootstraps from `api snapshot` and then follows herdr's own events, so a
+change made in the app, by a gesture, or on the desktop lands without a timer.
+There is no streaming CLI command (`herdr api` has `snapshot` and `schema`), so
+the events come from the control socket: the app runs a reader on the host over
+one channel that stays open, `socat`, `nc -U`, `python3`, or `perl`, whichever
+answers the subscription first. A host where none of them acknowledges falls
+back to re-reading every four seconds, which is what every host did before.
+
+Only the workspace and tab events are subscribed to. The `pane.*` family
+includes a per-scroll event, and asking for it would deliver a line on every
+wheel turn. A focus event carries ids alone; labels come from the snapshot and
+stay current through `workspace.renamed`, `tab.renamed`, and the full record in
+`tab.created`. A move event carries a new order the app will not read field by
+field, so those two re-read the snapshot instead.
+
+A chip tap and a workspace move paint before the command is answered, and
+herdr's event confirms the same ids afterwards. Applying an event twice is a
+no-op because the store keys on herdr's ids.
 
 The terminal it attaches lives in the ordinary session store but with
 `kind: 'workspace'`, and SshTerminal filters that kind out of its strip. So the
@@ -150,27 +182,27 @@ workspace is session state rather than per client, so a second attached
 terminal would only mirror the first. `herdr workspace focus` takes no client
 scope and the root command takes no `--workspace`, so this is herdr's model,
 not a shortcut here. Entering another workspace retags that terminal. Two
-workspaces at once means two sessions, each with its own terminal. The
-Workspaces menu creates one: `herdr --session <name>` starts a session that is
-not there yet, so attaching is the creation.
+workspaces at once means two sessions, each with its own terminal, and the
+sidebar lists the sessions a host has.
 
-The workspace terminal's menu also invokes the plugin in `plugin/`:
-`tab-here`, `panes-to-tabs`, and `zoom`. `plugin action invoke` answers that
-the action started, never with its output, so the app re-reads the tab list
-rather than waiting; a host without the plugin answers
-`plugin_action_not_found`, which the screen reports with the install command.
+The workspace terminal's menu invokes the plugin in `plugin/`: `tab-here`,
+`panes-to-tabs`, and `zoom`. `plugin action invoke` answers that the action
+started, never with its output, and the events report what it did; a host
+without the plugin answers `plugin_action_not_found`.
 
 A one-finger sideways swipe across an attached terminal moves between herdr's
 tabs, as the chord herdr binds for it (`prefix+n` and `prefix+p`). A double tap
-moves to the next workspace, which is the coarser step and has no binding to
-send: it drives herdr's picker, since `next_workspace` and `previous_workspace`
-ship unbound. Both go out as keys rather than as a herdr command, since a
-gesture has to land in the frame it was made and a command is a fresh exec
-channel plus a snapshot read.
+moves to the next workspace, the coarser step. That one has no chord to send:
+`next_workspace` and `previous_workspace` ship unbound, and herdr's picker did
+not open for a typed `prefix+w` either, so the move goes over the socket from
+the order the screen is already holding. One command, and measured at 0.08s
+from the tap on a release build.
 
 The second tap is claimed in the capture phase, which cancels that touch in the
-terminal below, so it opens no keyboard and sends no click. A drag clears the
-tap that preceded it: a tap after a swipe is a first tap.
+terminal below, so it opens no keyboard and sends no click. What disarms a tap
+is its own movement: a touch the terminal keeps handling reports no release
+here, so a fast scroll used to read as a run of taps landing in the same place.
+Past 40px of travel the tap is no longer a candidate.
 
 The first tap is an ordinary one and herdr's own view has mouse reporting on,
 so it clicks: the pane under the finger takes focus in the workspace being
@@ -178,16 +210,10 @@ left. Suppressing that would mean holding every click for the length of the
 double-tap window, which is felt in any program that reads the mouse, so the
 click stands.
 
-After a gesture the workspace screen re-reads. A tab move only changes which
-chip is current, but a workspace move leaves the screen's title and strip on a
-workspace the terminal is no longer showing, so that path reads the snapshot
-and adopts whichever workspace herdr now has focused.
-
 Two fingers are left to the terminal's pinch. A two-finger drag and a pinch
 cannot be told apart reliably enough to share a surface with the font size, so
-nothing navigates with them. Panes are moved from the terminal's menu, where
-the tab and workspace moves are also listed for anyone who cannot make the
-gesture.
+nothing navigates with them. Panes are moved from the terminal's menu; the
+sidebar covers tabs and workspaces for anyone who cannot make the gesture.
 
 To exercise the screen against a real server, run one in a container with
 herdr installed and `herdr server` started, publish its SSH port, and add a

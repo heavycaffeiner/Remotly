@@ -13,17 +13,17 @@ export type RootStackParamList = {
   /** Omit `hostId` to create a host; pass it to edit an existing one. */
   SshHostEditor: { hostId?: string } | undefined;
   Files: { hostId: string };
-  /** Herdr workspaces on a host. `hostName` is for the header only. */
-  HerdrWorkspaces: { hostId: string; hostName: string };
   /**
-   * One workspace's terminal. `session` is the herdr session it belongs to,
-   * null for the default one; `label` names the workspace in the header.
+   * A herdr terminal on a host. `session` is the herdr session it belongs to,
+   * null for the default one. Omit `workspaceId` to land on whichever
+   * workspace herdr has focused, which is what opening herdr on a host means;
+   * `label` only saves the header a frame while the first snapshot arrives.
    */
   HerdrWorkspace: {
     hostId: string;
     hostName: string;
-    workspaceId: string;
-    label: string;
+    workspaceId?: string;
+    label?: string;
     session: string | null;
   };
 };

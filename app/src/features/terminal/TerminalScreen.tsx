@@ -58,6 +58,8 @@ export interface TerminalScreenProps {
   title: string;
   subtitle?: string;
   onBack: () => void;
+  /** Opens the host's sidebar from the bar. Omitted where there is none. */
+  onSidebar?: () => void;
   /** Sends user input bytes to the session. */
   onSend: (bytes: Uint8Array) => void;
   /**
@@ -166,6 +168,7 @@ export const TerminalScreen = forwardRef<
     title,
     subtitle,
     onBack,
+    onSidebar,
     onSend,
     onResize,
     sessionKey,
@@ -501,6 +504,16 @@ export const TerminalScreen = forwardRef<
         title={title}
         {...(subtitle ? { subtitle } : {})}
         onBack={onBack}
+        {...(onSidebar === undefined
+          ? {}
+          : {
+              onSidebar: () => {
+                // The IME draws over a panel that slides in from the edge, so
+                // it goes away first, exactly as it does for the menu.
+                void viewport.current?.hideKeyboard().catch(() => undefined);
+                onSidebar();
+              },
+            })}
         {...(toolbarPrimary && pane == null
           ? { primaryAction: toolbarPrimary }
           : {})}

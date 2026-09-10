@@ -34,6 +34,8 @@ import { useSshTabs, type SshHostKeyPrompt } from './useSshTabs';
 import { herdrKeys, type MuxKeyAction } from '../terminal/muxKeys';
 import { FilesScreen } from '../files/FilesScreen';
 import { Toast } from '../../components/Toast';
+import { HostSidebar } from '../herdr/HostSidebar';
+import { useDrawerPermanent } from '../../components/ui/drawer';
 import { Button } from '../../components/ui/button';
 import {
   Dialog,
@@ -83,6 +85,8 @@ export function SshTerminalScreen(): React.ReactElement {
   // Asks the tab strip to open its rename dialog, so the menu item and the
   // long press share one dialog rather than each having their own.
   const [renameRequest, setRenameRequest] = useState(0);
+  const [sidebar, setSidebar] = useState(false);
+  const permanent = useDrawerPermanent();
   // Restores the keyboard after the host key dialog closes, but only when it
   // was up beforehand. Opening one unprompted is a keyboard nobody asked for.
   const restoreAfterDialog = useRef<(() => void) | null>(null);
@@ -229,22 +233,13 @@ export function SshTerminalScreen(): React.ReactElement {
     [activeTab?.muxSession, hostId],
   );
 
+  // Only the pane moves are here. Tabs and workspaces are rows in the
+  // sidebar, where they carry their own names and actions; keeping duplicates
+  // in a menu of seventeen was what made this one unreadable.
   const muxActions = useMemo<TerminalMenuAction[]>(() => {
     if (activeTab?.mux === undefined) return [];
     const move = (action: MuxKeyAction) => () => ssh.send(herdrKeys(action));
     return [
-      {
-        key: 'mux-tab-next',
-        title: 'Next herdr tab',
-        icon: 'arrow-right',
-        onPress: move('tab-next'),
-      },
-      {
-        key: 'mux-tab-previous',
-        title: 'Previous herdr tab',
-        icon: 'arrow-left',
-        onPress: move('tab-previous'),
-      },
       {
         key: 'mux-pane-next',
         title: 'Next pane',
@@ -257,20 +252,8 @@ export function SshTerminalScreen(): React.ReactElement {
         icon: 'view-dashboard',
         onPress: move('pane-previous'),
       },
-      {
-        key: 'mux-workspace-next',
-        title: 'Next workspace',
-        icon: 'arrow-down',
-        onPress: () => void moveWorkspace(1),
-      },
-      {
-        key: 'mux-workspace-previous',
-        title: 'Previous workspace',
-        icon: 'arrow-up',
-        onPress: () => void moveWorkspace(-1),
-      },
     ];
-  }, [activeTab?.mux, ssh, moveWorkspace]);
+  }, [activeTab?.mux, ssh]);
 
   const actions = useMemo<TerminalMenuAction[]>(
     () => [
@@ -424,85 +407,109 @@ export function SshTerminalScreen(): React.ReactElement {
   );
 
   return (
-    <>
-      <TerminalScreen
-        ref={terminal}
-        title={title}
-        {...(subtitle ? { subtitle } : {})}
-        onBack={goBack}
-        onSend={ssh.send}
-        onResize={ssh.resize}
-        sessionKey={state.activeSessionId ?? ''}
-        {...sessionIdProp}
-        fontSize={settings.terminalFontSize}
-        cursorStyle={settings.cursorStyle}
-        autoOpenKeyboard={settings.openKeyboardOnTerminal}
-        showKeyRow={settings.showExtraKeyRow}
-        keyRepeatDelayMs={settings.keyRepeatDelayMs}
-        haptics={settings.hapticFeedback}
-        onFontSizeChange={fontSize => {
-          void update({ terminalFontSize: fontSize });
-        }}
-        banner={banner}
-        toolbarActions={actions}
-        {...keyboardPrimary}
-        {...(overlay ? { overlay } : {})}
-        {...(activeTab?.kind === 'files'
-          ? {
-              pane: (
-                <FilesScreen
-                  embedded={{
-                    hostId,
-                    tabId: activeTab.sessionId,
-                  }}
-                />
-              ),
-            }
-          : {})}
-        onReady={ssh.onViewportReady}
-        onTitle={ssh.reportTitle}
-        onNotify={postTerminalNotification}
-        {...(activeTab?.mux === undefined ? {} : { mux: activeTab.mux })}
-        onMuxAction={action => {
-          if (action === 'workspace-next') void moveWorkspace(1);
-          if (action === 'workspace-previous') void moveWorkspace(-1);
-        }}
-        {...(shellTabs.length > 1 ? { onSwitchSession: switchSession } : {})}
-        sessionIndex={shellTabs.findIndex(
-          t => t.sessionId === state.activeSessionId,
-        )}
-        // Mounted from the first session on, though it draws no bar until the
-        // second: it owns the rename dialog and the new-tab sheet, which the
-        // overflow menu drives.
-        tabStrip={
-          shellTabs.length > 0 ? (
-            <SessionTabs
-              tabs={tabViews}
-              activeSessionId={state.activeSessionId}
-              onSelect={handleSelect}
-              onClose={ssh.closeTab}
-              onNew={ssh.newTab}
-              newKinds={[
-                {
-                  key: 'shell',
-                  label: 'Shell',
-                  icon: 'console' as const,
-                  onPress: ssh.newTab,
-                },
-                {
-                  key: 'files',
-                  label: 'Files',
-                  icon: 'folder' as const,
-                  onPress: openFiles,
-                },
-              ]}
-              onRename={ssh.renameTab}
-              renameRequest={renameRequest}
-              canAdd={ssh.canAdd}
-            />
-          ) : null
+    <View style={{ flex: 1, flexDirection: 'row' }}>
+      <HostSidebar
+        hostId={hostId}
+        hostName={title}
+        session={
+          activeTab?.muxSession === '' ? null : activeTab?.muxSession ?? null
         }
+        open={sidebar}
+        onClose={() => setSidebar(false)}
+        permanent={permanent}
+        onEnterWorkspace={request =>
+          navigation.navigate('HerdrWorkspace', {
+            hostId,
+            hostName: title,
+            workspaceId: request.workspaceId,
+            label: request.label,
+            session: request.session,
+          })
+        }
+        onOpenShells={() => undefined}
+        onOpenFiles={openFiles}
       />
+      <View style={{ flex: 1 }}>
+        <TerminalScreen
+          ref={terminal}
+          title={title}
+          {...(subtitle ? { subtitle } : {})}
+          onBack={goBack}
+          {...(permanent ? {} : { onSidebar: () => setSidebar(true) })}
+          onSend={ssh.send}
+          onResize={ssh.resize}
+          sessionKey={state.activeSessionId ?? ''}
+          {...sessionIdProp}
+          fontSize={settings.terminalFontSize}
+          cursorStyle={settings.cursorStyle}
+          autoOpenKeyboard={settings.openKeyboardOnTerminal}
+          showKeyRow={settings.showExtraKeyRow}
+          keyRepeatDelayMs={settings.keyRepeatDelayMs}
+          haptics={settings.hapticFeedback}
+          onFontSizeChange={fontSize => {
+            void update({ terminalFontSize: fontSize });
+          }}
+          banner={banner}
+          toolbarActions={actions}
+          {...keyboardPrimary}
+          {...(overlay ? { overlay } : {})}
+          {...(activeTab?.kind === 'files'
+            ? {
+                pane: (
+                  <FilesScreen
+                    embedded={{
+                      hostId,
+                      tabId: activeTab.sessionId,
+                    }}
+                  />
+                ),
+              }
+            : {})}
+          onReady={ssh.onViewportReady}
+          onTitle={ssh.reportTitle}
+          onNotify={postTerminalNotification}
+          {...(activeTab?.mux === undefined ? {} : { mux: activeTab.mux })}
+          onMuxAction={action => {
+            if (action === 'workspace-next') void moveWorkspace(1);
+            if (action === 'workspace-previous') void moveWorkspace(-1);
+          }}
+          {...(shellTabs.length > 1 ? { onSwitchSession: switchSession } : {})}
+          sessionIndex={shellTabs.findIndex(
+            t => t.sessionId === state.activeSessionId,
+          )}
+          // Mounted from the first session on, though it draws no bar until the
+          // second: it owns the rename dialog and the new-tab sheet, which the
+          // overflow menu drives.
+          tabStrip={
+            shellTabs.length > 0 ? (
+              <SessionTabs
+                tabs={tabViews}
+                activeSessionId={state.activeSessionId}
+                onSelect={handleSelect}
+                onClose={ssh.closeTab}
+                onNew={ssh.newTab}
+                newKinds={[
+                  {
+                    key: 'shell',
+                    label: 'Shell',
+                    icon: 'console' as const,
+                    onPress: ssh.newTab,
+                  },
+                  {
+                    key: 'files',
+                    label: 'Files',
+                    icon: 'folder' as const,
+                    onPress: openFiles,
+                  },
+                ]}
+                onRename={ssh.renameTab}
+                renameRequest={renameRequest}
+                canAdd={ssh.canAdd}
+              />
+            ) : null
+          }
+        />
+      </View>
 
       <HostKeyDialog
         prompt={ssh.hostKey}
@@ -526,7 +533,7 @@ export function SshTerminalScreen(): React.ReactElement {
       />
 
       <Toast message={copyNotice} onDismiss={() => setCopyNotice('')} />
-    </>
+    </View>
   );
 }
 

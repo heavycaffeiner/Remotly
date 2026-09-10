@@ -27,28 +27,64 @@ const METRICS: Metrics = {
 
 const exec = NativeHerdr.exec as jest.MockedFunction<typeof NativeHerdr.exec>;
 
-const TABS = JSON.stringify({
-  id: 'cli:tab:list',
+// The store bootstraps from a snapshot and keeps itself current from the event
+// stream. No stream can acknowledge in a test, so the snapshot is what the
+// screen draws from here.
+const SNAPSHOT = JSON.stringify({
+  id: 'cli:api:snapshot',
   result: {
-    type: 'tab_list',
-    tabs: [
+    snapshot: {
+      focused_workspace_id: 'w2',
+      focused_tab_id: 'w2:t1',
+      focused_pane_id: 'w2:p1',
+      workspaces: [
+        {
+          workspace_id: 'w2',
+          label: 'Remotly',
+          number: 1,
+          tab_count: 2,
+          pane_count: 3,
+          active_tab_id: 'w2:t1',
+          focused: true,
+          agent_status: 'unknown',
+        },
+      ],
+      tabs: [
+        {
+          tab_id: 'w2:t1',
+          workspace_id: 'w2',
+          label: 'shell',
+          number: 1,
+          pane_count: 2,
+          focused: true,
+          agent_status: 'unknown',
+        },
+        {
+          tab_id: 'w2:t4',
+          workspace_id: 'w2',
+          label: 'logs',
+          number: 4,
+          pane_count: 1,
+          focused: false,
+          agent_status: 'unknown',
+        },
+      ],
+      panes: [],
+    },
+  },
+});
+
+const SESSIONS = JSON.stringify({
+  id: 'cli:session:list',
+  result: {
+    type: 'session_list',
+    sessions: [
       {
-        tab_id: 'w2:t1',
-        workspace_id: 'w2',
-        label: 'shell',
-        number: 1,
-        pane_count: 2,
-        focused: true,
-        agent_status: 'unknown',
-      },
-      {
-        tab_id: 'w2:t4',
-        workspace_id: 'w2',
-        label: 'logs',
-        number: 4,
-        pane_count: 1,
-        focused: false,
-        agent_status: 'unknown',
+        name: 'default',
+        default: true,
+        running: true,
+        session_dir: '/home/dev/.config/herdr',
+        socket_path: '/home/dev/.config/herdr/herdr.sock',
       },
     ],
   },
@@ -59,6 +95,12 @@ function plain(command: string): string {
   return command.replace(/'/g, '');
 }
 
+function answer(asked: string): string {
+  if (asked.includes('api snapshot')) return SNAPSHOT;
+  if (asked.includes('session list')) return SESSIONS;
+  return '';
+}
+
 function bridge(): string[] {
   const sent: string[] = [];
   exec.mockImplementation(async (_hostId: string, command: string) => {
@@ -67,7 +109,7 @@ function bridge(): string[] {
     return {
       ok: true,
       exitCode: 0,
-      stdout: encodeBase64String(asked.includes('tab list') ? TABS : ''),
+      stdout: encodeBase64String(answer(asked)),
       stderr: '',
       code: '',
       message: '',

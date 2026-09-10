@@ -74,3 +74,15 @@ export function isDoubleTap(gap: {
   if (elapsedMs < 0 || elapsedMs > DOUBLE_TAP_MS) return false;
   return Math.hypot(dx, dy) <= DOUBLE_TAP_SLOP_PX;
 }
+
+/**
+ * Whether a touch has travelled too far to leave a tap behind it.
+ *
+ * A touch the terminal keeps handling reports no release to the gesture layer,
+ * so a tap candidate is disarmed by its own movement rather than by how it
+ * ended. Without this a fast scroll is a run of touches that each start near
+ * the last, which reads as a double tap.
+ */
+export function movedOffTap(travel: { dx: number; dy: number }): boolean {
+  return Math.hypot(travel.dx, travel.dy) > DOUBLE_TAP_SLOP_PX;
+}

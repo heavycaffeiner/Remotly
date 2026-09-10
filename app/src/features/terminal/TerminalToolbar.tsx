@@ -34,6 +34,8 @@ interface TerminalToolbarProps {
   title: string;
   subtitle?: string;
   onBack: () => void;
+  /** Opens the host's sidebar. Omitted where there is nothing to manage. */
+  onSidebar?: () => void;
   /** A single action shown directly in the bar. */
   primaryAction?: {
     icon: IconName;
@@ -56,6 +58,7 @@ export function TerminalToolbar({
   title,
   subtitle,
   onBack,
+  onSidebar,
   primaryAction,
   actions,
   onMenuOpen,
@@ -82,6 +85,13 @@ export function TerminalToolbar({
           paddingHorizontal: 4,
         }}
       >
+        {onSidebar === undefined ? null : (
+          <IconButton
+            icon="menu"
+            label="Workspaces and tabs"
+            onPress={onSidebar}
+          />
+        )}
         <IconButton icon="arrow-left" label="Go back" onPress={onBack} />
         <View
           style={{

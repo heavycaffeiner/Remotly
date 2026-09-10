@@ -190,29 +190,53 @@ export async function focusHerdrWorkspace(
   await execHerdr(hostId, workspaceFocusCommand(workspaceId, session));
 }
 
+/** Where a move starts from, when the caller already knows it. */
+export interface HerdrWorkspaceOrder {
+  workspaces: HerdrWorkspace[];
+  focusedWorkspaceId: string | null;
+}
+
 /**
  * Moves the session to the workspace beside the focused one.
  *
  * herdr ships `next_workspace` and `previous_workspace` unbound, so there is
  * no chord to send an attached terminal: the move is made over the socket
- * instead, from the order the snapshot reports. Wraps at both ends, so
+ * instead, following herdr's own workspace order. Wraps at both ends, so
  * repeating the gesture keeps going round. Returns where it landed, or null
  * when the session has nowhere else to go.
+ *
+ * [from] is the order the caller is already holding, which is the whole cost
+ * of the gesture: with it the move is one command, without it a snapshot read
+ * comes first.
  */
 export async function moveHerdrWorkspace(
   hostId: string,
   direction: 1 | -1,
   session: string | null = null,
+  from: HerdrWorkspaceOrder | null = null,
 ): Promise<HerdrWorkspace | null> {
-  const snap = await herdrSnapshot(hostId, session);
-  const ordered = [...snap.workspaces].sort((a, b) => a.number - b.number);
-  if (ordered.length < 2) return null;
-  const at = ordered.findIndex(w => w.workspaceId === snap.focusedWorkspaceId);
-  const from = at < 0 ? 0 : at;
-  const next = ordered[(from + direction + ordered.length) % ordered.length];
-  if (next === undefined) return null;
+  const known = from ?? (await herdrSnapshot(hostId, session));
+  const next = nextHerdrWorkspace(known, direction);
+  if (next === null) return null;
   await focusHerdrWorkspace(hostId, next.workspaceId, session);
   return next;
+}
+
+/**
+ * Where a move would land, without making it.
+ *
+ * Separate so the screen can paint the move before the command it sends has
+ * been answered, and so both agree on the order they follow.
+ */
+export function nextHerdrWorkspace(
+  from: HerdrWorkspaceOrder,
+  direction: 1 | -1,
+): HerdrWorkspace | null {
+  const ordered = [...from.workspaces].sort((a, b) => a.number - b.number);
+  if (ordered.length < 2) return null;
+  const at = ordered.findIndex(w => w.workspaceId === from.focusedWorkspaceId);
+  const start = at < 0 ? 0 : at;
+  return ordered[(start + direction + ordered.length) % ordered.length] ?? null;
 }
 
 export async function closeHerdrWorkspace(

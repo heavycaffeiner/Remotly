@@ -34,6 +34,9 @@ type testServer struct {
 	gotPty bool
 	// last window change as (rows, cols)
 	window [2]int
+	// connections that completed a handshake, which is what a reused control
+	// connection must not add to.
+	conns int
 }
 
 func startTestServer(t *testing.T) *testServer {
@@ -83,6 +86,9 @@ func (ts *testServer) handleConn(conn net.Conn, config *ssh.ServerConfig) {
 		conn.Close()
 		return
 	}
+	ts.mu.Lock()
+	ts.conns++
+	ts.mu.Unlock()
 	defer sconn.Close()
 	go ssh.DiscardRequests(reqs)
 	for newChan := range chans {

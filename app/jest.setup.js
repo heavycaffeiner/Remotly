@@ -97,6 +97,10 @@ jest.mock('./src/specs/NativeRemotlyHerdr', () => ({
   __esModule: true,
   default: {
     exec: resolved({ ok: true, exitCode: 0, stdout: '', stderr: '', code: '', message: '' }),
+    subscribe: jest.fn(),
+    release: jest.fn(),
+    onLine: jest.fn(() => ({ remove: jest.fn() })),
+    onStreamEnd: jest.fn(() => ({ remove: jest.fn() })),
   },
 }));
 

@@ -104,12 +104,15 @@ export function HostsScreen(): React.ReactElement {
     [navigation],
   );
 
+  // Opening herdr on a host lands on the workspace herdr has focused; the
+  // sidebar there is where the rest of them are.
   const openWorkspaces = useCallback(
     (entry: HostListEntry) => {
       setMenuFor(null);
-      navigation.navigate('HerdrWorkspaces', {
+      navigation.navigate('HerdrWorkspace', {
         hostId: entry.id,
         hostName: entry.name,
+        session: null,
       });
     },
     [navigation],

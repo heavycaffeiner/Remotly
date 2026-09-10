@@ -20,6 +20,7 @@ export type IconName =
   | 'close'
   | 'check'
   | 'dots-vertical'
+  | 'menu'
   | 'refresh'
   | 'rotate-left'
   | 'play'

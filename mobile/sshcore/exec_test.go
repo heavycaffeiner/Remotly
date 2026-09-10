@@ -190,6 +190,19 @@ func serveExec(ch ssh.Channel, payload []byte) {
 		return
 	}
 
+	// Three lines with a gap, which is what a subscription looks like: the
+	// client must deliver each as it arrives rather than at the end.
+	if payloadStruct.Command == "stream" {
+		for _, line := range []string{"one", "two", "three"} {
+			_, _ = ch.Write([]byte(line + "\n"))
+			time.Sleep(10 * time.Millisecond)
+		}
+		status := make([]byte, 4)
+		_, _ = ch.SendRequest("exit-status", false, status)
+		_ = ch.Close()
+		return
+	}
+
 	exitCode := uint32(0)
 	if payloadStruct.Command == "printf hello" {
 		_, _ = ch.Write([]byte("hello"))

@@ -6,7 +6,13 @@
 // vertical scroll and a two-finger pinch, so what counts and what is ignored
 // is the whole contract here.
 
-import { DOUBLE_TAP_MS, isDoubleTap, muxAction } from '../muxGestures';
+import {
+  DOUBLE_TAP_MS,
+  DOUBLE_TAP_SLOP_PX,
+  isDoubleTap,
+  movedOffTap,
+  muxAction,
+} from '../muxGestures';
 import { herdrKeys } from '../muxKeys';
 
 /** A released drag, with the fields the responder reports. */
@@ -68,6 +74,19 @@ describe('a double tap on an attached terminal', () => {
   // read as a gesture that has not happened yet.
   it('ignores a gap that runs backwards', () => {
     expect(isDoubleTap({ elapsedMs: -1, dx: 0, dy: 0 })).toBe(false);
+  });
+});
+
+describe('what a moving touch leaves behind', () => {
+  // A fast scroll is a run of touches that each start where the last one did.
+  // Every one of them has to disarm the tap, or the second lands as a double
+  // tap and the workspace moves under a user who was reading output.
+  it('disarms a tap once the touch has travelled', () => {
+    expect(movedOffTap({ dx: 0, dy: DOUBLE_TAP_SLOP_PX + 1 })).toBe(true);
+  });
+
+  it('leaves a tap armed while the touch is still within the slop', () => {
+    expect(movedOffTap({ dx: 3, dy: 4 })).toBe(false);
   });
 });
 

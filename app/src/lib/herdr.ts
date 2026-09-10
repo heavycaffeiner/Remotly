@@ -404,6 +404,71 @@ export function apiSnapshotCommand(session: string | null = null): string {
   return joinShell([...herdrPrefix(session), 'api', 'snapshot']);
 }
 
+/** The event types the app's view of a host is drawn from. */
+export const HERDR_EVENT_TYPES: readonly string[] = [
+  'workspace.created',
+  'workspace.closed',
+  'workspace.renamed',
+  'workspace.moved',
+  'workspace.focused',
+  'tab.created',
+  'tab.closed',
+  'tab.renamed',
+  'tab.moved',
+  'tab.focused',
+];
+
+/**
+ * Build the command that streams a session's events.
+ *
+ * herdr publishes events on its control socket and its CLI has no streaming
+ * command, so this is a reader run on the host: one request line, then a line
+ * per event. Whatever the host has speaks it, tried in order of directness;
+ * the app requires the subscription acknowledgement before it trusts the
+ * stream, so a host with none of them fails as a stream that never
+ * acknowledged rather than as a wrong answer.
+ *
+ * [socketPath] comes from herdr's own session document. It is quoted here,
+ * like every other argument the app sends.
+ */
+export function eventStreamCommand(socketPath: string): string {
+  const request = JSON.stringify({
+    id: 'remotly',
+    method: 'events.subscribe',
+    params: {
+      subscriptions: HERDR_EVENT_TYPES.map(type => ({ type })),
+    },
+  });
+  // Written as one shell word per candidate so the remote shell picks the
+  // reader; the request and the path are the only interpolations, both quoted.
+  const perl = [
+    'use IO::Socket::UNIX;',
+    '$|=1;',
+    'my $s=IO::Socket::UNIX->new(Peer=>$ARGV[0]) or exit 1;',
+    'print $s $ARGV[1],"\\n";',
+    'while(my $l=<$s>){print $l}',
+  ].join('');
+  const python = [
+    'import socket,sys',
+    's=socket.socket(socket.AF_UNIX);s.connect(sys.argv[1])',
+    's.sendall((sys.argv[2]+"\\n").encode())',
+    'f=s.makefile()',
+    'for line in f: sys.stdout.write(line);sys.stdout.flush()',
+  ].join('\n');
+  const q = shellQuote;
+  return [
+    `S=${q(socketPath)};`,
+    `R=${q(request)};`,
+    'if command -v socat >/dev/null 2>&1; then',
+    'printf "%s\\n" "$R" | socat -t 3600 - UNIX-CONNECT:"$S";',
+    'elif command -v python3 >/dev/null 2>&1; then',
+    `python3 -c ${q(python)} "$S" "$R";`,
+    'elif command -v perl >/dev/null 2>&1; then',
+    `perl -e ${q(perl)} "$S" "$R";`,
+    'fi',
+  ].join(' ');
+}
+
 // --- parsing ---------------------------------------------------------------
 
 type Raw = Record<string, unknown>;
@@ -583,6 +648,112 @@ export function parseSnapshot(stdout: string): HerdrSnapshot {
     version: asString(s.version),
     protocol: typeof s.protocol === 'number' ? s.protocol : null,
   };
+}
+
+/**
+ * What one line of the event stream says.
+ *
+ * `ack` is the subscription acknowledgement, which is what proves the reader
+ * on the host works at all. `resync` is an event the app subscribes to but
+ * cannot apply from its payload alone, so the caller re-reads a snapshot: one
+ * command on a rare event, rather than a guess at a shape.
+ */
+export type HerdrEvent =
+  | { kind: 'ack' }
+  | { kind: 'resync' }
+  | { kind: 'workspace-created'; workspace: HerdrWorkspace }
+  | { kind: 'workspace-closed'; workspaceId: string }
+  | { kind: 'workspace-renamed'; workspaceId: string; label: string }
+  | { kind: 'workspace-focused'; workspaceId: string }
+  | { kind: 'tab-created'; tab: HerdrTab }
+  | { kind: 'tab-closed'; tabId: string; workspaceId: string }
+  | { kind: 'tab-renamed'; tabId: string; workspaceId: string; label: string }
+  | { kind: 'tab-focused'; tabId: string; workspaceId: string };
+
+/**
+ * Parse one line of the event stream, or null for a line that says nothing
+ * the app uses.
+ *
+ * The stream is a host's output: every field is checked, and a line that does
+ * not carry what its own type needs is dropped rather than half-applied.
+ */
+export function parseHerdrEvent(line: string): HerdrEvent | null {
+  const trimmed = line.trim();
+  if (trimmed === '') return null;
+  let doc: Raw;
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    doc = parsed as Raw;
+  } catch {
+    return null;
+  }
+
+  const result = doc.result;
+  if (result && typeof result === 'object') {
+    const type = asString((result as Raw).type);
+    return type === 'subscription_started' ? { kind: 'ack' } : null;
+  }
+
+  const event = asString(doc.event);
+  const data = (
+    doc.data && typeof doc.data === 'object' ? doc.data : {}
+  ) as Raw;
+  const workspaceId = nonEmpty(data.workspace_id);
+  const tabId = nonEmpty(data.tab_id);
+  const label = asString(data.label);
+  const record = (k: string): Raw | null =>
+    data[k] && typeof data[k] === 'object' ? (data[k] as Raw) : null;
+
+  try {
+    switch (event) {
+      case 'workspace_created': {
+        const w = record('workspace');
+        return w === null
+          ? null
+          : { kind: 'workspace-created', workspace: parseWorkspace(w) };
+      }
+      case 'workspace_closed':
+        return workspaceId === null
+          ? null
+          : { kind: 'workspace-closed', workspaceId };
+      case 'workspace_renamed':
+        return workspaceId === null || label === null
+          ? null
+          : { kind: 'workspace-renamed', workspaceId, label };
+      case 'workspace_focused':
+        return workspaceId === null
+          ? null
+          : { kind: 'workspace-focused', workspaceId };
+      case 'tab_created': {
+        const t = record('tab');
+        return t === null ? null : { kind: 'tab-created', tab: parseTab(t) };
+      }
+      case 'tab_closed':
+        return tabId === null || workspaceId === null
+          ? null
+          : { kind: 'tab-closed', tabId, workspaceId };
+      case 'tab_renamed':
+        return tabId === null || workspaceId === null || label === null
+          ? null
+          : { kind: 'tab-renamed', tabId, workspaceId, label };
+      case 'tab_focused':
+        return tabId === null || workspaceId === null
+          ? null
+          : { kind: 'tab-focused', tabId, workspaceId };
+      // A move carries its new order as a list the app would have to trust
+      // field by field. Reading the snapshot is one command and is exact.
+      case 'workspace_moved':
+      case 'tab_moved':
+        return { kind: 'resync' };
+      default:
+        return null;
+    }
+  } catch {
+    return null;
+  }
 }
 
 // The CLI error document is `{ error: { code, message } }`, printed to stdout

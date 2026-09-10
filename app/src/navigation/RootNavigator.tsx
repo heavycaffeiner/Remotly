@@ -15,7 +15,6 @@ import { SshHostEditorScreen } from '../features/hosts/SshHostEditorScreen';
 import { FilesScreen } from '../features/files/FilesScreen';
 import { TransferIndicator } from '../features/files/TransferIndicator';
 import { HerdrWorkspaceScreen } from '../features/herdr/HerdrWorkspaceScreen';
-import { HerdrWorkspacesScreen } from '../features/herdr/HerdrWorkspacesScreen';
 import { TransferSheet } from '../features/files/TransferSheet';
 import type { RootStackParamList } from './types';
 
@@ -61,10 +60,6 @@ export function RootNavigator(): React.ReactElement {
         <Stack.Screen name="SshTerminal" component={SshTerminalScreen} />
         <Stack.Screen name="SshHostEditor" component={SshHostEditorScreen} />
         <Stack.Screen name="Files" component={FilesScreen} />
-        <Stack.Screen
-          name="HerdrWorkspaces"
-          component={HerdrWorkspacesScreen}
-        />
         <Stack.Screen name="HerdrWorkspace" component={HerdrWorkspaceScreen} />
       </Stack.Navigator>
       {/* Above the whole stack, not inside a screen. Transfers outlive the

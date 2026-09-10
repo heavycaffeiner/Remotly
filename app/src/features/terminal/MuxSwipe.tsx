@@ -11,7 +11,7 @@
 
 import React, { useMemo, useRef } from 'react';
 import { PanResponder, View } from 'react-native';
-import { isDoubleTap, muxAction } from './muxGestures';
+import { isDoubleTap, movedOffTap, muxAction } from './muxGestures';
 import type { MuxAction } from './muxKeys';
 import { SWIPE_AXIS_RATIO, SWIPE_CLAIM_PX } from '../../lib/swipeNav';
 
@@ -81,6 +81,10 @@ export function MuxSwipe({
         },
         onMoveShouldSetPanResponderCapture: (e, g) => {
           if (!live.current.enabled || live.current.disabled) return false;
+          // Runs for touches this layer never claims, which is every scroll
+          // the terminal keeps, so this is where a moving touch stops being a
+          // tap the next one can pair with.
+          if (movedOffTap(g)) lastTap.current = { at: 0, x: 0, y: 0 };
           fingers.current = Math.max(
             fingers.current,
             e.nativeEvent.touches.length,

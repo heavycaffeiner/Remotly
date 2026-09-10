@@ -8,14 +8,11 @@
 // One terminal per herdr session. Which workspace has focus is session state,
 // so a second terminal on the same session could only mirror this one;
 // entering another workspace moves this terminal instead.
+//
+// What the strip and the sidebar draw comes from the event-fed store, so a
+// change made here, from a gesture, or on the desktop lands without a timer.
 
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   useFocusEffect,
   useNavigation,
@@ -24,6 +21,7 @@ import {
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSyncExternalStore } from 'react';
+import { View } from 'react-native';
 
 import {
   TerminalScreen,
@@ -31,6 +29,8 @@ import {
 } from '../terminal/TerminalScreen';
 import type { TerminalMenuAction } from '../terminal/TerminalToolbar';
 import { SessionTabs, type SessionTabView } from '../terminal/SessionTabs';
+import { HostSidebar } from './HostSidebar';
+import { useDrawerPermanent } from '../../components/ui/drawer';
 import { Toast } from '../../components/Toast';
 import { Text } from '../../components/ui/text';
 import { TERMINAL_FOREGROUND } from '../../theme/terminalChrome';
@@ -42,11 +42,17 @@ import {
   focusHerdrTab,
   focusHerdrWorkspace,
   invokeHerdrPluginAction,
-  listHerdrTabs,
-  moveHerdrWorkspace,
+  nextHerdrWorkspace,
   renameHerdrTab,
 } from '../../lib/herdrClient';
-import { HerdrError, type HerdrTab } from '../../lib/herdr';
+import { HerdrError } from '../../lib/herdr';
+import {
+  applyHerdrLocal,
+  herdrHostState,
+  refreshHerdrHost,
+  subscribeHerdrHost,
+  type HerdrHostState,
+} from '../../lib/herdrStore';
 import {
   closeSshTab,
   openSshWorkspaceTab,
@@ -68,21 +74,10 @@ type Route = RouteProp<RootStackParamList, 'HerdrWorkspace'>;
 /** The plugin that carries the actions herdr's own CLI cannot express. */
 const PLUGIN = 'remotly.bridge';
 
-/** How often the strip is re-read while the screen is up, in ms. */
-const POLL_MS = 4000;
-
-/** How long a gesture's chord needs before herdr has acted on it, in ms. */
-const GESTURE_SETTLE_MS = 450;
-
 /** A herdr failure, said in the user's terms. */
 function message(e: unknown): string {
-  if (e instanceof HerdrError) {
-    if (e.code === 'plugin_action_not_found') {
-      return 'This host has no Remotly plugin. Install it with: herdr plugin install heavycaffeiner/Remotly/plugin';
-    }
-    return e.detail;
-  }
-  return 'The herdr command failed.';
+  if (e instanceof HerdrError) return e.message;
+  return e instanceof Error && e.message !== '' ? e.message : 'herdr failed.';
 }
 
 export function HerdrWorkspaceScreen(): React.ReactElement {
@@ -92,19 +87,42 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
   const { settings, update } = useSettings();
   const terminal = useRef<TerminalScreenHandle>(null);
 
-  // Which workspace this terminal is on. It starts as the one entered and
-  // changes when a gesture moves the session to another: the terminal follows
-  // the session's focus, so the strip and the title have to follow it too.
-  const [here, setHere] = useState({
-    workspaceId: params.workspaceId,
-    label: params.label,
+  // Which workspace this terminal is on. It starts as the one entered, or as
+  // whichever herdr has focused when the caller named none, and changes when a
+  // gesture or the sidebar moves the session: the terminal follows the
+  // session's focus, so the strip and the title follow it too.
+  const [here, setHere] = useState<{
+    workspaceId: string | null;
+    label: string;
+  }>({
+    workspaceId: params.workspaceId ?? null,
+    label: params.label ?? '',
   });
-  const { workspaceId, label } = here;
 
-  const [tabs, setTabs] = useState<HerdrTab[]>([]);
   const [notice, setNotice] = useState('');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [renameRequest, setRenameRequest] = useState(0);
+  const [sidebar, setSidebar] = useState(false);
+  const permanent = useDrawerPermanent();
+
+  const herdr: HerdrHostState = useSyncExternalStore(
+    useCallback(
+      cb => subscribeHerdrHost(hostId, session, cb),
+      [hostId, session],
+    ),
+    useCallback(() => herdrHostState(hostId, session), [hostId, session]),
+  );
+
+  // A screen entered without a workspace lands on the focused one, which is
+  // what "open herdr on this host" means.
+  const workspaceId = here.workspaceId ?? herdr.focusedWorkspaceId;
+  const workspace =
+    herdr.workspaces.find(w => w.workspaceId === workspaceId) ?? null;
+  const label = workspace?.label ?? here.label;
+  const tabs = useMemo(
+    () => (workspaceId === null ? [] : herdr.tabs[workspaceId] ?? []),
+    [herdr.tabs, workspaceId],
+  );
 
   const hostState = useSyncExternalStore(
     useCallback(cb => subscribeSshHost(hostId, cb), [hostId]),
@@ -112,27 +130,17 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
   );
   const tab = sessionId === null ? null : findSshTab(hostState, sessionId);
 
-  /** Re-reads the workspace's tabs. Quiet on failure: the strip keeps what it
-   *  has rather than emptying under a transient error. */
-  const load = useCallback(async () => {
-    try {
-      setTabs(await listHerdrTabs(hostId, workspaceId, session));
-    } catch {
-      // Left as it was.
-    }
-  }, [hostId, workspaceId, session]);
-
-  /** Runs one herdr call, then re-reads: herdr owns the tabs, not this screen. */
+  /** Runs one herdr call. herdr owns the tabs, and its events report them. */
   const act = useCallback(
     async (run: () => Promise<void>) => {
       try {
         await run();
       } catch (e) {
         setNotice(message(e));
+        await refreshHerdrHost(hostId, session);
       }
-      await load();
     },
-    [load],
+    [hostId, session],
   );
 
   // Focus the workspace, then attach. Focusing first is what makes the
@@ -140,6 +148,7 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
   // session was last left on.
   useFocusEffect(
     useCallback(() => {
+      if (workspaceId === null) return;
       let cancelled = false;
       void (async () => {
         try {
@@ -163,67 +172,69 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
           return;
         }
         setSessionId(opened);
-        await load();
       })();
       return () => {
         cancelled = true;
       };
-    }, [hostId, workspaceId, label, session, load]),
+    }, [hostId, workspaceId, label, session]),
   );
-
-  // Tabs also change from the desktop and from the terminal's own gestures,
-  // so the strip is re-read on a timer rather than only after the app acts.
-  useEffect(() => {
-    const timer = setInterval(() => void load(), POLL_MS);
-    return () => clearInterval(timer);
-  }, [load]);
 
   /**
    * Finishes a gesture.
    *
-   * A tab move is a chord the terminal already sent, so this only catches the
-   * strip up. A workspace move has no chord: herdr ships those unbound, so
-   * the move itself is made here, and the title and strip follow it.
+   * A tab move is a chord the terminal already sent and herdr's own event
+   * reports where it landed, so there is nothing to do here. A workspace move
+   * has no chord: herdr ships those unbound, so the move is made over the
+   * socket, from the order this screen is already holding.
    */
   const onGesture = useCallback(
     (action: MuxAction) => {
-      if (action === 'tab-next' || action === 'tab-previous') {
-        // The chord lands in the terminal before herdr has answered it.
-        setTimeout(() => void load(), GESTURE_SETTLE_MS);
-        return;
-      }
       if (action !== 'workspace-next' && action !== 'workspace-previous') {
         return;
       }
       const direction = action === 'workspace-next' ? 1 : -1;
-      void (async () => {
-        try {
-          const next = await moveHerdrWorkspace(hostId, direction, session);
-          if (next === null) {
-            setNotice('This session has only one workspace.');
-            return;
-          }
-          setHere({ workspaceId: next.workspaceId, label: next.label });
-        } catch (e) {
-          setNotice(message(e));
-        }
-      })();
+      const next = nextHerdrWorkspace(
+        { workspaces: herdr.workspaces, focusedWorkspaceId: workspaceId },
+        direction,
+      );
+      if (next === null) {
+        setNotice('This session has only one workspace.');
+        return;
+      }
+      // Painted before the command is sent. The gesture has to answer in the
+      // frame it was made; herdr's own event confirms the same ids after.
+      setHere({ workspaceId: next.workspaceId, label: next.label });
+      applyHerdrLocal(hostId, session, {
+        kind: 'workspace-focused',
+        workspaceId: next.workspaceId,
+      });
+      void act(() => focusHerdrWorkspace(hostId, next.workspaceId, session));
     },
-    [hostId, session, load],
+    [act, hostId, session, herdr.workspaces, workspaceId],
   );
 
   const selectTab = useCallback(
-    (tabId: string) => void act(() => focusHerdrTab(hostId, tabId, session)),
-    [act, hostId, session],
+    (tabId: string) => {
+      // Painted before the round trip; the event that follows carries the same
+      // ids, so it lands as a no-op.
+      if (workspaceId !== null) {
+        applyHerdrLocal(hostId, session, {
+          kind: 'tab-focused',
+          tabId,
+          workspaceId,
+        });
+      }
+      void act(() => focusHerdrTab(hostId, tabId, session));
+    },
+    [act, hostId, session, workspaceId],
   );
 
-  const newTab = useCallback(
-    () =>
-      void act(() =>
-        createHerdrTab(hostId, { workspaceId, focus: true }, session),
-      ),
-    [act, hostId, workspaceId, session],
-  );
+  const newTab = useCallback(() => {
+    if (workspaceId === null) return;
+    void act(() =>
+      createHerdrTab(hostId, { workspaceId, focus: true }, session),
+    );
+  }, [act, hostId, workspaceId, session]);
 
   const closeTab = useCallback(
     (tabId: string) => void act(() => closeHerdrTab(hostId, tabId, session)),
@@ -254,7 +265,10 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
     [hostId],
   );
 
-  const focused = tabs.find(t => t.focused) ?? null;
+  const focusedTabId =
+    tabs.find(t => t.tabId === herdr.focusedTabId)?.tabId ??
+    tabs.find(t => t.focused)?.tabId ??
+    null;
 
   const tabViews = useMemo<SessionTabView[]>(
     () =>
@@ -269,7 +283,7 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
   const strip = (
     <SessionTabs
       tabs={tabViews}
-      activeSessionId={focused?.tabId ?? null}
+      activeSessionId={focusedTabId}
       onSelect={selectTab}
       onClose={closeTab}
       onNew={newTab}
@@ -278,6 +292,9 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
     />
   );
 
+  // Terminal actions only. Everything that manages a workspace or a tab lives
+  // on its own row in the sidebar, which is also the path for anyone who
+  // cannot make the gestures.
   const actions = useMemo<TerminalMenuAction[]>(
     () => [
       { key: 'new-tab', title: 'New tab', icon: 'plus', onPress: newTab },
@@ -303,17 +320,8 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
         key: 'rename',
         title: 'Rename tab',
         icon: 'pencil',
-        disabled: focused === null,
+        disabled: focusedTabId === null,
         onPress: () => setRenameRequest(n => n + 1),
-      },
-      {
-        key: 'close',
-        title: 'Close tab',
-        icon: 'close',
-        disabled: focused === null,
-        onPress: () => {
-          if (focused !== null) closeTab(focused.tabId);
-        },
       },
       {
         key: 'detach',
@@ -327,7 +335,7 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
         },
       },
     ],
-    [newTab, runPlugin, focused, closeTab, sessionId, hostId, navigation],
+    [newTab, runPlugin, focusedTabId, sessionId, hostId, navigation],
   );
 
   const banner = useMemo(() => {
@@ -377,36 +385,55 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
       };
 
   return (
-    <>
-      <TerminalScreen
-        ref={terminal}
-        title={label}
-        subtitle={`${hostName} · ${session ?? 'default'}`}
-        onBack={() => navigation.goBack()}
-        onSend={send}
-        onResize={resize}
-        sessionKey={sessionId ?? ''}
-        {...(sessionId === null ? {} : { sessionId })}
-        fontSize={settings.terminalFontSize}
-        cursorStyle={settings.cursorStyle}
-        autoOpenKeyboard={settings.openKeyboardOnTerminal}
-        showKeyRow={settings.showExtraKeyRow}
-        keyRepeatDelayMs={settings.keyRepeatDelayMs}
-        haptics={settings.hapticFeedback}
-        onFontSizeChange={fontSize => {
-          void update({ terminalFontSize: fontSize });
+    <View style={{ flex: 1, flexDirection: 'row' }}>
+      <HostSidebar
+        hostId={hostId}
+        hostName={hostName}
+        session={session}
+        open={sidebar}
+        onClose={() => setSidebar(false)}
+        permanent={permanent}
+        currentWorkspaceId={workspaceId}
+        onEnterWorkspace={request => {
+          // The terminal follows the session's focus, so entering another
+          // workspace moves this one rather than stacking a second.
+          setHere({ workspaceId: request.workspaceId, label: request.label });
         }}
-        banner={banner}
-        toolbarActions={actions}
-        {...keyboardPrimary}
-        {...(overlay === null ? {} : { overlay })}
-        tabStrip={strip}
-        mux="herdr"
-        onMuxAction={onGesture}
-        onTitle={title => reportSshTerminalTitle(hostId, title)}
-        onNotify={postTerminalNotification}
+        onOpenShells={() => navigation.navigate('SshTerminal', { hostId })}
+        onOpenFiles={() => navigation.navigate('Files', { hostId })}
       />
+      <View style={{ flex: 1 }}>
+        <TerminalScreen
+          ref={terminal}
+          title={label}
+          subtitle={`${hostName}, ${session ?? 'default'}`}
+          onBack={() => navigation.goBack()}
+          {...(permanent ? {} : { onSidebar: () => setSidebar(true) })}
+          onSend={send}
+          onResize={resize}
+          sessionKey={sessionId ?? ''}
+          {...(sessionId === null ? {} : { sessionId })}
+          fontSize={settings.terminalFontSize}
+          cursorStyle={settings.cursorStyle}
+          autoOpenKeyboard={settings.openKeyboardOnTerminal}
+          showKeyRow={settings.showExtraKeyRow}
+          keyRepeatDelayMs={settings.keyRepeatDelayMs}
+          haptics={settings.hapticFeedback}
+          onFontSizeChange={fontSize => {
+            void update({ terminalFontSize: fontSize });
+          }}
+          banner={banner}
+          toolbarActions={actions}
+          {...keyboardPrimary}
+          {...(overlay === null ? {} : { overlay })}
+          tabStrip={strip}
+          mux="herdr"
+          onMuxAction={onGesture}
+          onTitle={title => reportSshTerminalTitle(hostId, title)}
+          onNotify={postTerminalNotification}
+        />
+      </View>
       <Toast message={notice} onDismiss={() => setNotice('')} />
-    </>
+    </View>
   );
 }
