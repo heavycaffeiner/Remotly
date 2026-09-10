@@ -37,13 +37,13 @@ A standalone SSH and SFTP client for Android.
   session state rather than per client; a second session gets a terminal of its
   own. Verified against herdr 0.9.0; the wire format has been stable since
   0.8.2.
-- **Kept current by herdr's events, not a timer.** One SSH connection is held
-  per host and the app subscribes to herdr's control socket over it, so a
-  workspace renamed on the desktop shows up here at once and an idle screen
-  runs no poll. herdr publishes nothing for a move made by its own key
-  bindings, so a tab switched by typing `prefix+n` is caught up when the screen
-  is returned to rather than by an event. A host with no way to run the reader
-  falls back to re-reading every four seconds.
+- **Kept current by herdr's events.** One SSH connection is held per host and
+  the app subscribes to herdr's control socket over it, so a workspace renamed
+  or focused on the desktop shows up here at once. herdr publishes nothing for
+  a move made by its own key bindings, so a tab switched by typing `prefix+n`
+  in the terminal is picked up by a re-read every three seconds while a screen
+  is up and the app is in front. A host with no way to run the reader falls
+  back to re-reading every four seconds.
 - **Herdr plugin.** `plugin/` is a herdr plugin the app drives from the
   workspace terminal's menu: a tab in the focused pane's directory, every pane
   of a tab spread into tabs of their own, and pane zoom. Install it with

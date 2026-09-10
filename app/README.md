@@ -202,16 +202,15 @@ herdr's event confirms the same ids afterwards. Applying an event twice is a
 no-op because the store keys on herdr's ids.
 
 What the events cannot see is a move herdr's own key bindings made: pressing
-`prefix+n` in the terminal changes the focused tab and publishes nothing. That
-is why the app's gestures go over the socket rather than typing the chord, and
-why a snapshot is read again when a screen is focused and when the app returns
-to the foreground: one command, at the moment the user is looking, rather than
-a standing timer.
+`prefix+n` in the terminal changes the focused tab and publishes nothing. The
+app's gestures avoid that by going over the socket, but a chord typed by hand
+still has to reach the strip and the title, so a live host is re-read every
+three seconds while a screen is up and the app is in front, and once more when
+the app returns to the foreground. It costs one command on the connection
+already held, and it stops while the app is away.
 
-The tradeoff is deliberate and worth knowing: a chord typed inside herdr while
-this screen stays open and in front is not caught up until the user navigates
-away and back, or leaves the app and returns. The app's own gestures do not
-need it, because they go over the socket and herdr publishes those.
+That is the price of following what herdr's own keys did. Without it, typing
+`prefix+n` left the strip and the title on the tab the user had just left.
 
 The terminal it attaches lives in the ordinary session store but with
 `kind: 'workspace'`, and SshTerminal filters that kind out of its strip. So the

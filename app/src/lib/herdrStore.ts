@@ -58,6 +58,16 @@ const ACK_TIMEOUT_MS = 4000;
 /** Polls between attempts at the stream, so a retry is bounded. */
 const STREAM_RETRY_POLLS = 5;
 
+/**
+ * How often a live host is re-read anyway, in ms.
+ *
+ * herdr publishes nothing for a move made by its own key bindings, so a tab or
+ * workspace switched by typing `prefix+n` inside the terminal reaches no
+ * event. Following that is what this costs: one command on the connection
+ * already held, while a screen is up and the app is in front.
+ */
+const RECONCILE_MS = 3000;
+
 interface Entry {
   key: string;
   hostId: string;
@@ -176,16 +186,37 @@ function start(entry: Entry): void {
   void openStream(entry);
   void read(entry);
   watchForeground();
+  reconcile(entry);
+}
+
+/**
+ * Re-reads a live host while the app is in front.
+ *
+ * Everything the app does is reported by an event, so this is only for what
+ * was typed inside herdr, which herdr changes without publishing anything.
+ * The fallback poll already re-reads, so this runs only while the stream is
+ * the source, and it stops while the app is away.
+ */
+function reconcile(entry: Entry): void {
+  const epoch = entry.epoch;
+  const tick = (): void => {
+    setTimeout(() => {
+      if (entry.epoch !== epoch) return;
+      // Skipped only when the app says it is away: a platform that reports
+      // nothing yet still has a screen in front of the user.
+      const away = AppState.currentState === 'background';
+      if (entry.state.feed === 'live' && !away) void read(entry);
+      tick();
+    }, RECONCILE_MS);
+  };
+  tick();
 }
 
 /**
  * Re-reads every watched host when the app comes back to the foreground.
  *
- * herdr publishes nothing for a move its own key bindings made, so a tab
- * switched by typing `prefix+n` reaches no event. Rather than a standing
- * timer, which is what this whole change removed, the catch-up happens when
- * the user returns: one read per host, at the moment they are looking.
- * Screens do the same on focus.
+ * The reconcile above stops while the app is away, so this is what catches up
+ * everything that changed in the meantime, at the moment the user returns.
  */
 let foregroundWatched = false;
 function watchForeground(): void {

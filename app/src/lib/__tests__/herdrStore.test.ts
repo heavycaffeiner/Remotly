@@ -191,6 +191,28 @@ describe('a host kept current by events', () => {
     stop();
   });
 
+  // A tab switched by typing `prefix+n` inside herdr publishes nothing, so a
+  // live host is re-read anyway while the app is in front. Without it the
+  // strip keeps showing the tab the user just left.
+  it('re-reads a live host while the app is in front', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+    const stop = subscribeHerdrHost('hB', null, () => undefined);
+    for (let i = 0; i < 10; i += 1) await tick();
+    pushLine({
+      hostId: 'hB',
+      line: '{"result":{"type":"subscription_started"}}',
+    });
+    expect(herdrHostState('hB', null).feed).toBe('live');
+    const reads = snapshotReads();
+
+    jest.advanceTimersByTime(3000);
+    for (let i = 0; i < 5; i += 1) await tick();
+
+    expect(snapshotReads()).toBe(reads + 1);
+    stop();
+    jest.useRealTimers();
+  });
+
   it('adds a created tab from the record the event carries', async () => {
     const stop = await start('h3');
     pushLine({
