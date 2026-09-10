@@ -175,6 +175,28 @@ describe('a host kept current by events', () => {
     stop();
   });
 
+  // herdr publishes nothing for a move its own key bindings made, so a live
+  // host is still reconciled with a snapshot now and then. Without it a tab
+  // switched by typing `prefix+n` would never reach the strip.
+  it('reconciles a live host with a snapshot now and then', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+    const stop = subscribeHerdrHost('hA', null, () => undefined);
+    for (let i = 0; i < 10; i += 1) await tick();
+    pushLine({
+      hostId: 'hA',
+      line: '{"result":{"type":"subscription_started"}}',
+    });
+    expect(herdrHostState('hA', null).feed).toBe('live');
+    const reads = snapshotReads();
+
+    jest.advanceTimersByTime(30000);
+    for (let i = 0; i < 5; i += 1) await tick();
+
+    expect(snapshotReads()).toBe(reads + 1);
+    stop();
+    jest.useRealTimers();
+  });
+
   it('adds a created tab from the record the event carries', async () => {
     const stop = await start('h3');
     pushLine({
@@ -242,6 +264,60 @@ describe('a host kept current by events', () => {
     expect(state.error).not.toBeNull();
     expect(subscribe).not.toHaveBeenCalledWith('h8', expect.any(String));
     stop();
+  });
+
+  // The user accepts the key while the screen is open. Every failed attempt
+  // has to leave the next one possible: the flag that says an attempt is in
+  // flight was once left set, and the host then stayed on the timer for the
+  // life of the screen.
+  it('reaches the stream once the host starts answering', async () => {
+    // The retry rides the poll loop, so the clock is driven rather than waited
+    // on. setImmediate stays real: it is what the store's reads settle on here.
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+    exec.mockImplementation(async () => ({
+      ok: false,
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      code: 'ssh_host_key_rejected',
+      message: 'host key rejected',
+    }));
+    const stop = subscribeHerdrHost('h9', null, () => undefined);
+    for (let i = 0; i < 10; i += 1) await tick();
+    expect(herdrHostState('h9', null).feed).toBe('polling');
+    expect(subscribe).not.toHaveBeenCalled();
+
+    // A retry made while the fallback loop is already running fails too. This
+    // is the case that used to wedge: the attempt was never given back.
+    for (let i = 0; i < 6; i += 1) {
+      jest.advanceTimersByTime(4000);
+      for (let n = 0; n < 5; n += 1) await tick();
+    }
+
+    // The key is accepted: the host answers from here on.
+    exec.mockImplementation(async (_hostId: string, command: string) => ({
+      ok: true,
+      exitCode: 0,
+      stdout: encodeBase64String(answer(command)),
+      stderr: '',
+      code: '',
+      message: '',
+    }));
+    // Six polls at four seconds each carries the loop past the retry it makes
+    // every fifth poll.
+    for (let i = 0; i < 6; i += 1) {
+      jest.advanceTimersByTime(4000);
+      for (let n = 0; n < 5; n += 1) await tick();
+    }
+
+    expect(subscribe).toHaveBeenCalledWith('h9', expect.any(String));
+    pushLine({
+      hostId: 'h9',
+      line: '{"result":{"type":"subscription_started"}}',
+    });
+    expect(herdrHostState('h9', null).feed).toBe('live');
+    stop();
+    jest.useRealTimers();
   });
 
   it('subscribes with the reader command for the session socket', async () => {

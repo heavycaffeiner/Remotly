@@ -57,6 +57,16 @@ const ACK_TIMEOUT_MS = 4000;
 /** Polls between attempts at the stream, so a retry is bounded. */
 const STREAM_RETRY_POLLS = 5;
 
+/**
+ * How often a live host is reconciled with a snapshot, in ms.
+ *
+ * herdr publishes nothing for a move made by its own key bindings, so a user
+ * who types `prefix+n` in the terminal instead of swiping changes the focused
+ * tab with no event. The app's own moves go over the socket and do emit, so
+ * this is only the backstop for what was typed: one command, rarely.
+ */
+const RECONCILE_MS = 30000;
+
 interface Entry {
   key: string;
   hostId: string;
@@ -174,6 +184,27 @@ function start(entry: Entry): void {
   // happens during the snapshot read is lost.
   void openStream(entry);
   void read(entry);
+  reconcile(entry);
+}
+
+/**
+ * Re-reads a live host every so often.
+ *
+ * Everything the app does is reported by an event, so this catches only what
+ * the user typed inside herdr, which herdr's own key bindings change without
+ * publishing anything. The poll fallback already re-reads, so this runs only
+ * while the stream is the source.
+ */
+function reconcile(entry: Entry): void {
+  const epoch = entry.epoch;
+  const tick = (): void => {
+    setTimeout(() => {
+      if (entry.epoch !== epoch) return;
+      if (entry.state.feed === 'live') void read(entry);
+      tick();
+    }, RECONCILE_MS);
+  };
+  tick();
 }
 
 function stop(entry: Entry): void {

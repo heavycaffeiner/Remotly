@@ -101,18 +101,6 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
   const { settings, update } = useSettings();
   const terminal = useRef<TerminalScreenHandle>(null);
 
-  // Which workspace this terminal is on. It starts as the one entered, or as
-  // whichever herdr has focused when the caller named none, and changes when a
-  // gesture or the sidebar moves the session: the terminal follows the
-  // session's focus, so the strip and the title follow it too.
-  const [here, setHere] = useState<{
-    workspaceId: string | null;
-    label: string;
-  }>({
-    workspaceId: params.workspaceId ?? null,
-    label: params.label ?? '',
-  });
-
   const [notice, setNotice] = useState('');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [renameRequest, setRenameRequest] = useState(0);
@@ -127,12 +115,20 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
     useCallback(() => herdrHostState(hostId, session), [hostId, session]),
   );
 
-  // A screen entered without a workspace lands on the focused one, which is
-  // what "open herdr on this host" means.
-  const workspaceId = here.workspaceId ?? herdr.focusedWorkspaceId;
+  // Which workspace this terminal is on is herdr's focus, not a copy of it.
+  // The terminal is a herdr client, so it shows whatever the session has
+  // focused, whether this screen moved it, the sidebar did, or the desktop
+  // did; a local copy could only drift from that. A move made here paints the
+  // store first, so the gesture still answers in its own frame.
+  //
+  // The route's ids are the placeholder for the frames before the first
+  // snapshot arrives, and nothing after it.
+  const workspaceId = herdr.loaded
+    ? herdr.focusedWorkspaceId
+    : params.workspaceId ?? null;
   const workspace =
     herdr.workspaces.find(w => w.workspaceId === workspaceId) ?? null;
-  const label = workspace?.label ?? here.label;
+  const label = workspace?.label ?? params.label ?? '';
   const tabs = useMemo(
     () => (workspaceId === null ? [] : herdr.tabs[workspaceId] ?? []),
     [herdr.tabs, workspaceId],
@@ -233,9 +229,8 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
         setNotice('This session has only one workspace.');
         return;
       }
-      // Painted before the command is sent. The gesture has to answer in the
-      // frame it was made; herdr's own event confirms the same ids after.
-      setHere({ workspaceId: next.workspaceId, label: next.label });
+      // Painted in the store before the command is sent, so the gesture
+      // answers in the frame it was made and herdr's event confirms it after.
       applyHerdrLocal(hostId, session, {
         kind: 'workspace-focused',
         workspaceId: next.workspaceId,
@@ -391,13 +386,16 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
     return null;
   }, [tab, hostId, sessionId]);
 
+  // Named only once the name is known: entering herdr on a host lands on
+  // whichever workspace it has focused, and the first frames have no name to
+  // put in a sentence.
   const overlay =
     sessionId === null ? (
       <Text
         variant="title"
         style={{ textAlign: 'center', color: TERMINAL_FOREGROUND }}
       >
-        Attaching to {label}
+        {label === '' ? 'Attaching' : `Attaching to ${label}`}
       </Text>
     ) : null;
 
@@ -425,7 +423,6 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
           // The terminal follows the session's focus, so entering another
           // workspace moves this one rather than stacking a second. Painted
           // first, then focused on the host, which is one command.
-          setHere({ workspaceId: request.workspaceId, label: request.label });
           applyHerdrLocal(hostId, session, {
             kind: 'workspace-focused',
             workspaceId: request.workspaceId,

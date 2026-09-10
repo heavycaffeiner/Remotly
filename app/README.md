@@ -172,6 +172,12 @@ A chip tap and a workspace move paint before the command is answered, and
 herdr's event confirms the same ids afterwards. Applying an event twice is a
 no-op because the store keys on herdr's ids.
 
+What the events cannot see is a move herdr's own key bindings made: pressing
+`prefix+n` in the terminal changes the focused tab and publishes nothing. That
+is why the app's gestures go over the socket rather than typing the chord, and
+why a live host is still reconciled with a snapshot every thirty seconds: one
+command, for what the user typed rather than swiped.
+
 The terminal it attaches lives in the ordinary session store but with
 `kind: 'workspace'`, and SshTerminal filters that kind out of its strip. So the
 app's SSH tabs and a workspace's tabs never mix, and coming back from a
