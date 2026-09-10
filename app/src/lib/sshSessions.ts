@@ -20,6 +20,7 @@ import {
   setActiveSshTab,
   setSshTabPhase,
   setSshTabTitle,
+  type SshTabKind,
   type SshTabsState,
 } from './sshTabs';
 import { forgetFilesTab } from './filesTabs';
@@ -390,12 +391,12 @@ function stopSession(hostId: string, sessionId: string): void {
 }
 
 /**
- * Opens a tab.
+ * Opens a tab and returns its session id, or null at the cap.
  *
  * `title` names it something other than the next `Shell N`, and `runs` is a
  * command typed into the shell once it is live. The command goes through the
  * login shell rather than being the channel's command, which is what makes it
- * find whatever the user's PATH holds. Does nothing at the cap.
+ * find whatever the user's PATH holds.
  */
 export function openSshTab(
   hostId: string,
@@ -404,10 +405,12 @@ export function openSshTab(
     runs?: string;
     mux?: 'herdr';
     muxSession?: string;
+    kind?: SshTabKind;
+    workspaceId?: string;
   } = {},
-): void {
+): string | null {
   const e = entry(hostId);
-  if (e.state.tabs.length >= MAX_SSH_TABS) return;
+  if (e.state.tabs.length >= MAX_SSH_TABS) return null;
   e.seq += 1;
   const sessionId = mintSessionId(e.seq);
   // Numbered past the highest in use, not by how many are open. Counting open
@@ -417,8 +420,9 @@ export function openSshTab(
     e.state,
     sessionId,
     opts.title ?? `Shell ${nextShellNumber(e.state.tabs)}`,
+    opts.kind ?? 'shell',
   );
-  if (tab === null) return;
+  if (tab === null) return null;
   // A given title is pinned: it names the herdr session the tab is attached
   // to, and herdr repaints the terminal's title on every redraw, which
   // otherwise replaces it with the hostname.
@@ -427,13 +431,21 @@ export function openSshTab(
       ? next
       : setSshTabTitle(next, sessionId, opts.title, true);
   e.state =
-    opts.mux === undefined
+    opts.mux === undefined && opts.workspaceId === undefined
       ? named
       : {
           ...named,
           tabs: named.tabs.map(t =>
             t.sessionId === sessionId
-              ? { ...t, mux: opts.mux, muxSession: opts.muxSession ?? '' }
+              ? {
+                  ...t,
+                  ...(opts.mux === undefined
+                    ? {}
+                    : { mux: opts.mux, muxSession: opts.muxSession ?? '' }),
+                  ...(opts.workspaceId === undefined
+                    ? {}
+                    : { workspaceId: opts.workspaceId }),
+                }
               : t,
           ),
         };
@@ -442,6 +454,7 @@ export function openSshTab(
   }
   notify(e);
   startSession(hostId, sessionId);
+  return sessionId;
 }
 
 /**
@@ -484,35 +497,51 @@ function nextShellNumber(tabs: readonly { title: string }[]): number {
 }
 
 /**
- * Opens, or reveals, the tab attached to a herdr session.
+ * Opens, or reveals, the terminal attached to a herdr session, and returns
+ * its session id.
  *
- * Pressing "Open terminal" twice should land in the session already attached
- * rather than stack a second one, and a tab that has since closed is opened
- * again rather than revealed dead. Matched on which herdr session the tab is
- * attached to, not on its title, so a tab the user renamed is still the
- * attached one, and a second session gets a tab of its own.
+ * One terminal per herdr session, not per workspace: which workspace has
+ * focus is session state rather than per client, so a second terminal on the
+ * same session could only mirror the first. Entering another workspace
+ * therefore retags this one, which is also what the user sees happen.
  */
-export function openSshAttachTab(
+export function openSshWorkspaceTab(
   hostId: string,
-  opts: { title: string; runs: string; session?: string },
-): void {
+  opts: {
+    workspaceId: string;
+    label: string;
+    runs: string;
+    session?: string;
+  },
+): string | null {
   const session = opts.session ?? '';
   const e = entry(hostId);
   const live = e.state.tabs.find(
     t =>
-      t.mux === 'herdr' &&
+      t.kind === 'workspace' &&
       (t.muxSession ?? '') === session &&
       (t.phase === 'active' || t.phase === 'connecting'),
   );
   if (live !== undefined) {
+    e.state = {
+      ...e.state,
+      tabs: e.state.tabs.map(t =>
+        t.sessionId === live.sessionId
+          ? { ...t, workspaceId: opts.workspaceId, title: opts.label }
+          : t,
+      ),
+    };
+    notify(e);
     selectSshTab(hostId, live.sessionId);
-    return;
+    return live.sessionId;
   }
-  openSshTab(hostId, {
-    title: opts.title,
+  return openSshTab(hostId, {
+    title: opts.label,
     runs: opts.runs,
     mux: 'herdr',
     muxSession: session,
+    kind: 'workspace',
+    workspaceId: opts.workspaceId,
   });
 }
 

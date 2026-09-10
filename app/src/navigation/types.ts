@@ -15,4 +15,15 @@ export type RootStackParamList = {
   Files: { hostId: string };
   /** Herdr workspaces on a host. `hostName` is for the header only. */
   HerdrWorkspaces: { hostId: string; hostName: string };
+  /**
+   * One workspace's terminal. `session` is the herdr session it belongs to,
+   * null for the default one; `label` names the workspace in the header.
+   */
+  HerdrWorkspace: {
+    hostId: string;
+    hostName: string;
+    workspaceId: string;
+    label: string;
+    session: string | null;
+  };
 };

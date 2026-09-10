@@ -132,15 +132,33 @@ What the host still has to supply is a running `herdr server`. Without it the
 CLI answers with a `server_not_running` document, which the screen reports as
 such.
 
-"Open terminal" focuses the workspace and attaches a tab that runs `herdr`.
-There is one such tab per session, not per workspace: the focused workspace is
-session state rather than per client, so a second attached terminal would only
-mirror the first. `herdr workspace focus` takes no client scope and the root
-command takes no `--workspace`, so this is herdr's model, not a shortcut here.
-Two workspaces on screen at once means two sessions, each with its own tab.
-The screen's menu creates one: `herdr --session <name>` starts a session that
-is not there yet, so attaching is the creation, and reuse is keyed on which
-session a tab attached to rather than on its title.
+"Open terminal" enters the workspace, which is its own screen
+(`HerdrWorkspaceScreen`). That screen focuses the workspace, attaches a
+terminal running `herdr`, and draws the workspace's herdr tabs as its strip:
+`tab list --workspace` feeds the chips, and select, add, rename, and close are
+`tab focus`, `tab create`, `tab rename`, and `tab close`. The strip is re-read
+on a timer as well as after the app acts, because tabs also change from the
+desktop and from the terminal's own gestures.
+
+The terminal it attaches lives in the ordinary session store but with
+`kind: 'workspace'`, and SshTerminal filters that kind out of its strip. So the
+app's SSH tabs and a workspace's tabs never mix, and coming back from a
+workspace lands on the shell the user last had.
+
+There is one such terminal per session, not per workspace: the focused
+workspace is session state rather than per client, so a second attached
+terminal would only mirror the first. `herdr workspace focus` takes no client
+scope and the root command takes no `--workspace`, so this is herdr's model,
+not a shortcut here. Entering another workspace retags that terminal. Two
+workspaces at once means two sessions, each with its own terminal. The
+Workspaces menu creates one: `herdr --session <name>` starts a session that is
+not there yet, so attaching is the creation.
+
+The workspace terminal's menu also invokes the plugin in `plugin/`:
+`tab-here`, `panes-to-tabs`, and `zoom`. `plugin action invoke` answers that
+the action started, never with its output, so the app re-reads the tab list
+rather than waiting; a host without the plugin answers
+`plugin_action_not_found`, which the screen reports with the install command.
 
 A one-finger sideways swipe across an attached terminal moves between herdr's
 tabs, as the chord herdr binds for it (`prefix+n` and `prefix+p`). Sent as keys

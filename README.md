@@ -30,10 +30,17 @@ A standalone SSH and SFTP client for Android.
   server` is running, its workspaces and tabs are listed, created, renamed,
   focused, and closed from the app over SSH. They keep running on the machine,
   so closing Remotly or losing the connection leaves every workspace where it
-  was. Opening a terminal attaches to the session and follows the workspace in
-  focus, one attached tab per session, because that is what a session shows. A
-  second session, created from the same screen, gets a terminal of its own.
+  was. Entering one opens its own terminal, whose tab strip is that
+  workspace's herdr tabs: a chip selects a herdr tab, and adding, renaming, or
+  closing one goes to the host. The app's own SSH tabs stay in their screen, so
+  a workspace and a plain shell never share a strip. One terminal per herdr
+  session, because the focused workspace is session state rather than per
+  client; a second session gets a terminal of its own.
   Verified against herdr 0.9.0; the wire format has been stable since 0.8.2.
+- **Herdr plugin.** `plugin/` is a herdr plugin the app drives from the
+  workspace terminal's menu: a tab in the focused pane's directory, every pane
+  of a tab spread into tabs of their own, and pane zoom. Install it with
+  `herdr plugin install heavycaffeiner/Remotly/plugin`.
 - **Terminal gestures.** In a terminal attached to herdr, a sideways swipe
   moves between its tabs. Two fingers stay the terminal's pinch, so workspaces
   and panes are moved from its menu, which also lists the tab moves.

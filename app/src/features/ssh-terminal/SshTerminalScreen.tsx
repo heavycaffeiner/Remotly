@@ -13,6 +13,7 @@ import React, {
 } from 'react';
 import { View } from 'react-native';
 import {
+  useFocusEffect,
   useNavigation,
   useRoute,
   type RouteProp,
@@ -56,6 +57,7 @@ import { postTerminalNotification } from '../../lib/terminalNotify';
 import { ensureSftpReady, sftpBridge } from '../../lib/sftp';
 import { SftpTransferBackend } from '../../lib/sftpTransfer';
 import { sshHostDisplayName } from '../../lib/sshHosts';
+import { selectSshTab } from '../../lib/sshSessions';
 import type { SshTabPhase } from '../../lib/sshTabs';
 import type { RootStackParamList } from '../../navigation/types';
 
@@ -100,10 +102,26 @@ export function SshTerminalScreen(): React.ReactElement {
   // rendering a beat behind and as scrollback that would not refresh.
   const sessionIdProp =
     state.activeSessionId === null ? {} : { sessionId: state.activeSessionId };
+  // A workspace terminal is driven by its own screen, so it is not in this
+  // strip and cannot be the tab this screen is showing.
+  const shellTabs = useMemo(
+    () => state.tabs.filter(t => t.kind !== 'workspace'),
+    [state.tabs],
+  );
   const activeTab =
     state.activeSessionId === null
       ? null
-      : state.tabs.find(t => t.sessionId === state.activeSessionId) ?? null;
+      : shellTabs.find(t => t.sessionId === state.activeSessionId) ?? null;
+
+  // Coming back from a workspace leaves that terminal active, which this
+  // screen does not show. Land on the shell the user last had instead.
+  useFocusEffect(
+    useCallback(() => {
+      if (activeTab !== null || shellTabs.length === 0) return;
+      const last = shellTabs[shellTabs.length - 1];
+      if (last !== undefined) selectSshTab(hostId, last.sessionId);
+    }, [activeTab, shellTabs, hostId]),
+  );
 
   // Back leaves the sessions running. Closing a tab or Disconnect ends one.
   const goBack = useCallback(() => {
@@ -133,15 +151,15 @@ export function SshTerminalScreen(): React.ReactElement {
   // wrapping, so the gesture cannot silently jump across the whole strip.
   const switchSession = useCallback(
     (direction: -1 | 1) => {
-      const index = state.tabs.findIndex(
+      const index = shellTabs.findIndex(
         t => t.sessionId === state.activeSessionId,
       );
       if (index < 0) return;
-      const next = state.tabs[index + direction];
+      const next = shellTabs[index + direction];
       if (next === undefined) return;
       handleSelect(next.sessionId);
     },
-    [state.tabs, state.activeSessionId, handleSelect],
+    [shellTabs, state.activeSessionId, handleSelect],
   );
 
   // Picks an image and uploads it to the remote host, then types the path.
@@ -346,7 +364,7 @@ export function SshTerminalScreen(): React.ReactElement {
         </Text>
         <Button onPress={goBack}>Go back</Button>
       </View>
-    ) : state.tabs.length === 0 && ssh.loaded ? (
+    ) : shellTabs.length === 0 && ssh.loaded ? (
       <View style={{ alignItems: 'center', gap: 16 }}>
         <Text
           variant="title"
@@ -374,13 +392,13 @@ export function SshTerminalScreen(): React.ReactElement {
 
   const tabViews = useMemo<SessionTabView[]>(
     () =>
-      state.tabs.map(t => ({
+      shellTabs.map(t => ({
         sessionId: t.sessionId,
         label: t.title,
         status: TAB_STATUS[t.phase],
         ...(t.kind === 'files' ? { icon: 'folder' as const } : {}),
       })),
-    [state.tabs],
+    [shellTabs],
   );
 
   return (
@@ -423,15 +441,15 @@ export function SshTerminalScreen(): React.ReactElement {
         onTitle={ssh.reportTitle}
         onNotify={postTerminalNotification}
         {...(activeTab?.mux === undefined ? {} : { mux: activeTab.mux })}
-        {...(state.tabs.length > 1 ? { onSwitchSession: switchSession } : {})}
-        sessionIndex={state.tabs.findIndex(
+        {...(shellTabs.length > 1 ? { onSwitchSession: switchSession } : {})}
+        sessionIndex={shellTabs.findIndex(
           t => t.sessionId === state.activeSessionId,
         )}
         // Mounted from the first session on, though it draws no bar until the
         // second: it owns the rename dialog and the new-tab sheet, which the
         // overflow menu drives.
         tabStrip={
-          state.tabs.length > 0 ? (
+          shellTabs.length > 0 ? (
             <SessionTabs
               tabs={tabViews}
               activeSessionId={state.activeSessionId}

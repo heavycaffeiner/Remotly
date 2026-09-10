@@ -14,6 +14,7 @@ import { SshTerminalScreen } from '../features/ssh-terminal/SshTerminalScreen';
 import { SshHostEditorScreen } from '../features/hosts/SshHostEditorScreen';
 import { FilesScreen } from '../features/files/FilesScreen';
 import { TransferIndicator } from '../features/files/TransferIndicator';
+import { HerdrWorkspaceScreen } from '../features/herdr/HerdrWorkspaceScreen';
 import { HerdrWorkspacesScreen } from '../features/herdr/HerdrWorkspacesScreen';
 import { TransferSheet } from '../features/files/TransferSheet';
 import type { RootStackParamList } from './types';
@@ -64,6 +65,7 @@ export function RootNavigator(): React.ReactElement {
           name="HerdrWorkspaces"
           component={HerdrWorkspacesScreen}
         />
+        <Stack.Screen name="HerdrWorkspace" component={HerdrWorkspaceScreen} />
       </Stack.Navigator>
       {/* Above the whole stack, not inside a screen. Transfers outlive the
           screen that started them, so an indicator mounted within one

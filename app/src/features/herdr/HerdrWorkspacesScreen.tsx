@@ -65,7 +65,7 @@ import {
   stopHerdrSession,
 } from '../../lib/herdrClient';
 import { joinShell } from '../../lib/shell';
-import { openSshAttachTab } from '../../lib/sshSessions';
+import { openSshTab } from '../../lib/sshSessions';
 import type { RootStackParamList } from '../../navigation/types';
 
 type Phase = 'loading' | 'ready' | 'error';
@@ -235,35 +235,20 @@ export function HerdrWorkspacesScreen(): React.ReactElement {
     [act, hostId, session],
   );
 
-  // Focus, then attach. A session shows one workspace at a time: the focused
-  // one is session state, not per client, so every terminal attached to it
-  // renders the same workspace. The tab is therefore named after the session
-  // and reused, and pressing this on another card moves that one terminal
-  // rather than opening a second that would only mirror the first. Two
-  // workspaces side by side means two sessions.
+  // Entering a workspace is its own screen: the terminal there attaches to
+  // this session and its tab strip is the workspace's tabs, which is what the
+  // workspace is. Focusing and attaching happen there, so this only navigates.
   const attach = useCallback(
     async (workspace: HerdrWorkspace) => {
-      setBusyId(workspace.workspaceId);
-      try {
-        await focusHerdrWorkspace(hostId, workspace.workspaceId, session);
-        const runs =
-          session === null
-            ? 'herdr'
-            : joinShell(['herdr', '--session', session]);
-        const title = session === null ? 'herdr' : `herdr: ${session}`;
-        openSshAttachTab(hostId, {
-          title,
-          runs,
-          ...(session === null ? {} : { session }),
-        });
-        navigation.navigate('SshTerminal', { hostId });
-      } catch (e) {
-        setNotice(message(e));
-      } finally {
-        setBusyId('');
-      }
+      navigation.navigate('HerdrWorkspace', {
+        hostId,
+        hostName,
+        workspaceId: workspace.workspaceId,
+        label: workspace.label,
+        session,
+      });
     },
-    [hostId, session, navigation],
+    [hostId, hostName, session, navigation],
   );
 
   const beginRename = useCallback((subject: Subject) => {
@@ -311,10 +296,11 @@ export function HerdrWorkspacesScreen(): React.ReactElement {
         // A session is created by attaching to it: `herdr --session <name>`
         // starts one that is not there yet. Nothing to ask the server first,
         // and the terminal that opens is the session.
-        openSshAttachTab(hostId, {
+        openSshTab(hostId, {
           title: `herdr: ${trimmed}`,
           runs: joinShell(['herdr', '--session', trimmed]),
-          session: trimmed,
+          mux: 'herdr',
+          muxSession: trimmed,
         });
         setCreateFor(null);
         navigation.navigate('SshTerminal', { hostId });

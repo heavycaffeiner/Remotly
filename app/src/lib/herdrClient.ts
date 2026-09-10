@@ -25,14 +25,19 @@ import {
   parseCliError,
   parseCreatedWorkspace,
   parseHerdrLookup,
+  parsePluginActions,
   parseSessions,
   parseSnapshot,
+  parseTabs,
+  pluginActionInvokeCommand,
+  pluginActionListCommand,
   sessionDeleteCommand,
   sessionListCommand,
   sessionStopCommand,
   tabCloseCommand,
   tabCreateCommand,
   tabFocusCommand,
+  tabListCommand,
   tabRenameCommand,
   withPathPrefix,
   workspaceCloseCommand,
@@ -45,6 +50,7 @@ import {
   type HerdrPaneRead,
   type HerdrSession,
   type HerdrSnapshot,
+  type HerdrTab,
 } from './herdr';
 
 /** The bridge carries bytes as standard base64; empty means no output. */
@@ -231,6 +237,42 @@ export async function closeHerdrTab(
   session: string | null = null,
 ): Promise<void> {
   await execHerdr(hostId, tabCloseCommand(tabId, session));
+}
+
+/** One workspace's tabs. What the app's tab strip is drawn from. */
+export async function listHerdrTabs(
+  hostId: string,
+  workspaceId: string,
+  session: string | null = null,
+): Promise<HerdrTab[]> {
+  return parseTabs(
+    await execHerdr(hostId, tabListCommand(workspaceId, session)),
+  );
+}
+
+/** The plugin actions this host offers, as `plugin.action` ids. */
+export async function listHerdrPluginActions(
+  hostId: string,
+  pluginId: string | null = null,
+  session: string | null = null,
+): Promise<string[]> {
+  return parsePluginActions(
+    await execHerdr(hostId, pluginActionListCommand(pluginId, session)),
+  );
+}
+
+/**
+ * Runs a plugin action.
+ *
+ * Returns once herdr has started it. What it did shows up in the state the
+ * caller reads next, which is why nothing here waits for its output.
+ */
+export async function invokeHerdrPluginAction(
+  hostId: string,
+  actionId: string,
+  session: string | null = null,
+): Promise<void> {
+  await execHerdr(hostId, pluginActionInvokeCommand(actionId, session));
 }
 
 /** Stops a session's server. Its workspaces are gone until it starts again. */

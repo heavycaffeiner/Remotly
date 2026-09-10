@@ -2,7 +2,7 @@ import {
   attachSshSink,
   closeSshHost,
   closeSshTab,
-  openSshAttachTab,
+  openSshWorkspaceTab,
   openSshTab,
   renameSshTab,
   reportSshTerminalTitle,
@@ -571,64 +571,63 @@ describe('a tab opened with a command', () => {
     expect(sshHostState(id).tabs[0].title).toBe('api');
   });
 
-  it('reveals the tab a workspace is already attached in', () => {
+  it('reveals the terminal a session is already attached in', () => {
     const id = freshHost();
-    openSshAttachTab(id, { title: 'api', runs: 'herdr' });
+    openSshWorkspaceTab(id, { workspaceId: 'w1', label: 'api', runs: 'herdr' });
     const first = only(id);
     ssh.__state(id, first, { state: 'active' });
     openSshTab(id);
     selectSshTab(id, sshHostState(id).tabs[1].sessionId);
 
-    openSshAttachTab(id, { title: 'api', runs: 'herdr' });
+    openSshWorkspaceTab(id, { workspaceId: 'w1', label: 'api', runs: 'herdr' });
 
     expect(sshHostState(id).tabs).toHaveLength(2);
     expect(sshHostState(id).activeSessionId).toBe(first);
   });
 
-  it('opens a new one when that tab has since closed', () => {
+  // Which workspace has focus is session state, so entering another workspace
+  // moves this terminal rather than opening a second that would mirror it.
+  it('retags the terminal when another workspace is entered', () => {
     const id = freshHost();
-    openSshAttachTab(id, { title: 'api', runs: 'herdr' });
+    openSshWorkspaceTab(id, { workspaceId: 'w1', label: 'api', runs: 'herdr' });
     const first = only(id);
-    ssh.__state(id, first, { state: 'closed' });
+    ssh.__state(id, first, { state: 'active' });
 
-    openSshAttachTab(id, { title: 'api', runs: 'herdr' });
+    openSshWorkspaceTab(id, {
+      workspaceId: 'w2',
+      label: 'deploy',
+      runs: 'herdr',
+    });
+
+    expect(sshHostState(id).tabs).toHaveLength(1);
+    expect(sshHostState(id).tabs[0].workspaceId).toBe('w2');
+    expect(sshHostState(id).tabs[0].title).toBe('deploy');
+  });
+
+  it('opens a new one when that terminal has since closed', () => {
+    const id = freshHost();
+    openSshWorkspaceTab(id, { workspaceId: 'w1', label: 'api', runs: 'herdr' });
+    ssh.__state(id, only(id), { state: 'closed' });
+
+    openSshWorkspaceTab(id, { workspaceId: 'w1', label: 'api', runs: 'herdr' });
 
     expect(sshHostState(id).tabs).toHaveLength(2);
   });
 
   // Two workspaces at once means two herdr sessions, so each session has to
-  // get a tab of its own rather than reveal the other one's.
-  it('gives a second herdr session its own tab', () => {
+  // get a terminal of its own rather than reveal the other one's.
+  it('gives a second herdr session its own terminal', () => {
     const id = freshHost();
-    openSshAttachTab(id, { title: 'herdr', runs: 'herdr' });
+    openSshWorkspaceTab(id, { workspaceId: 'w1', label: 'api', runs: 'herdr' });
     ssh.__state(id, only(id), { state: 'active' });
 
-    openSshAttachTab(id, {
-      title: 'herdr: work',
+    openSshWorkspaceTab(id, {
+      workspaceId: 'w1',
+      label: 'api',
       runs: "herdr --session 'work'",
       session: 'work',
     });
 
-    expect(sshHostState(id).tabs.map(t => t.title)).toEqual([
-      'herdr',
-      'herdr: work',
-    ]);
-  });
-
-  // The title is the one thing the user can change, so reuse must not depend
-  // on it.
-  it('reveals the attached tab even after it was renamed', () => {
-    const id = freshHost();
-    openSshAttachTab(id, { title: 'herdr', runs: 'herdr' });
-    const attached = only(id);
-    ssh.__state(id, attached, { state: 'active' });
-    renameSshTab(id, attached, 'my terminal');
-    openSshTab(id);
-    selectSshTab(id, sshHostState(id).tabs[1].sessionId);
-
-    openSshAttachTab(id, { title: 'herdr', runs: 'herdr' });
-
     expect(sshHostState(id).tabs).toHaveLength(2);
-    expect(sshHostState(id).activeSessionId).toBe(attached);
   });
 });

@@ -129,6 +129,14 @@ function bridge(): string[] {
 
 const Stack = createNativeStackNavigator();
 
+/** Params the workspace screen was entered with. */
+let entered: unknown[] = [];
+
+function WorkspaceStub(props: { route: { params?: unknown } }): null {
+  entered.push(props.route.params);
+  return null;
+}
+
 async function mount(): Promise<ReactTestRenderer> {
   let tree!: ReactTestRenderer;
   await act(async () => {
@@ -141,6 +149,12 @@ async function mount(): Promise<ReactTestRenderer> {
                 name="HerdrWorkspaces"
                 component={HerdrWorkspacesScreen}
                 initialParams={{ hostId: 'h1', hostName: 'devbox' }}
+              />
+              <Stack.Screen
+                name="HerdrWorkspace"
+                component={
+                  WorkspaceStub as unknown as React.ComponentType<object>
+                }
               />
             </Stack.Navigator>
           </NavigationContainer>
@@ -220,6 +234,7 @@ beforeEach(() => {
   // The session store is module state keyed by host, so a tab one test opened
   // is still there for the next one.
   closeSshHost('h1');
+  entered = [];
 });
 
 describe('HerdrWorkspacesScreen', () => {
@@ -389,20 +404,23 @@ describe('HerdrWorkspacesScreen', () => {
 // A session's focused workspace is session state, not per client, so a second
 // attached terminal could only mirror the first. Opening one from two
 // different cards has to move the one terminal instead of stacking them.
-describe('attaching a terminal', () => {
-  it('keeps one attached tab per session, whichever card asked', async () => {
-    const sent = bridge();
+describe('entering a workspace', () => {
+  it('opens the workspace the card is for, not the focused one', async () => {
+    bridge();
     const tree = await mount();
 
-    await pressLabel(tree, 'Open a terminal on Remotly');
     await pressLabel(tree, 'Open a terminal on Scratch');
 
-    const tabs = sshHostState('h1').tabs;
-    expect(tabs).toHaveLength(1);
-    expect(tabs[0].title).toBe('herdr');
-    expect(sent.filter(c => c.includes('workspace focus'))).toEqual([
-      'herdr workspace focus w2',
-      'herdr workspace focus w9',
+    expect(entered).toEqual([
+      {
+        hostId: 'h1',
+        hostName: 'devbox',
+        workspaceId: 'w9',
+        label: 'Scratch',
+        session: null,
+      },
     ]);
+    // Attaching belongs to that screen, so nothing is connected from here.
+    expect(sshHostState('h1').tabs).toHaveLength(0);
   });
 });

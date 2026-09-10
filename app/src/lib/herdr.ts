@@ -304,6 +304,50 @@ export function tabCloseCommand(
   return joinShell([...herdrPrefix(session), 'tab', 'close', tabId]);
 }
 
+/** List one workspace's tabs. Small enough to poll while a screen is open. */
+export function tabListCommand(
+  workspaceId: string,
+  session: string | null = null,
+): string {
+  return joinShell([
+    ...herdrPrefix(session),
+    'tab',
+    'list',
+    '--workspace',
+    workspaceId,
+  ]);
+}
+
+/** The actions a plugin declares, or every plugin's when none is named. */
+export function pluginActionListCommand(
+  pluginId: string | null = null,
+  session: string | null = null,
+): string {
+  const argv = [...herdrPrefix(session), 'plugin', 'action', 'list'];
+  if (pluginId !== null) argv.push('--plugin', pluginId);
+  return joinShell(argv);
+}
+
+/**
+ * Invoke a plugin action.
+ *
+ * The response says the action started, not what it printed: its stdout is
+ * kept in the plugin log. Callers that need a result read the state the action
+ * changed instead of waiting for output.
+ */
+export function pluginActionInvokeCommand(
+  actionId: string,
+  session: string | null = null,
+): string {
+  return joinShell([
+    ...herdrPrefix(session),
+    'plugin',
+    'action',
+    'invoke',
+    actionId,
+  ]);
+}
+
 export interface HerdrPaneRead {
   paneId: string;
   source?: 'visible' | 'recent' | 'recent-unwrapped';
@@ -473,6 +517,30 @@ function resultOf(doc: Raw): Raw {
     throw new HerdrError('herdr_bad_json', 'herdr output has no result');
   }
   return r as Raw;
+}
+
+/** Parse a `tab list` document into the workspace's tabs, in place order. */
+export function parseTabs(stdout: string): HerdrTab[] {
+  const r = resultOf(parseDoc(stdout));
+  if (!Array.isArray(r.tabs)) {
+    throw new HerdrError('herdr_bad_json', 'tab list: missing tabs');
+  }
+  return (r.tabs as Raw[]).map(parseTab);
+}
+
+/** Parse a `plugin action list` document into qualified action ids. */
+export function parsePluginActions(stdout: string): string[] {
+  const r = resultOf(parseDoc(stdout));
+  if (!Array.isArray(r.actions)) {
+    throw new HerdrError('herdr_bad_json', 'plugin action list: no actions');
+  }
+  const out: string[] = [];
+  for (const a of r.actions as Raw[]) {
+    const plugin = nonEmpty(a.plugin_id);
+    const action = nonEmpty(a.action_id);
+    if (plugin !== null && action !== null) out.push(`${plugin}.${action}`);
+  }
+  return out;
 }
 
 /** Parse a `workspace create` document, keeping the new workspace, its root

@@ -1,0 +1,31 @@
+id = "remotly.bridge"
+name = "Remotly Bridge"
+version = "0.1.0"
+min_herdr_version = "0.9.0"
+description = "Workspace and tab helpers a phone cannot express over one-shot commands"
+platforms = ["linux", "macos"]
+
+# A tab in the directory the focused pane is in. The phone knows the workspace
+# it is looking at but not where its panes are, and that is in the invocation
+# context here.
+[[actions]]
+id = "tab-here"
+title = "New tab here"
+contexts = ["workspace"]
+command = ["sh", "tab-here.sh"]
+
+# Every pane of the focused tab becomes a tab of its own. A tiled layout is
+# unreadable on a phone, and one pane per tab is what the app's tab strip can
+# drive.
+[[actions]]
+id = "panes-to-tabs"
+title = "Panes to tabs"
+contexts = ["workspace"]
+command = ["sh", "panes-to-tabs.sh"]
+
+# Fills the tab with the focused pane, or restores the tiling.
+[[actions]]
+id = "zoom"
+title = "Toggle pane zoom"
+contexts = ["workspace"]
+command = ["sh", "zoom.sh"]

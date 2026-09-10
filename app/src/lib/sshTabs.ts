@@ -23,8 +23,11 @@ export type SshTabPhase =
  * SFTP. They share the strip because they are both views onto one host, and a
  * files tab that lived in its own screen could not be left running while the
  * user worked in a shell.
+ *
+ * A workspace tab is a shell too, but it is attached to one herdr workspace
+ * and is driven by that workspace's own screen, so it stays out of this strip.
  */
-export type SshTabKind = 'shell' | 'files';
+export type SshTabKind = 'shell' | 'files' | 'workspace';
 
 export interface SshTab {
   /** App-minted, stable for the tab's life, and the native session key. */
@@ -46,6 +49,8 @@ export interface SshTab {
   mux?: 'herdr';
   /** Which of the multiplexer's sessions, when it has named ones. */
   muxSession?: string;
+  /** The herdr workspace a workspace tab is attached to. */
+  workspaceId?: string;
 }
 
 export interface SshTabsState {
