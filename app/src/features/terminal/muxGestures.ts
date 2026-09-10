@@ -1,10 +1,11 @@
-// Which multiplexer move a released drag asks for.
+// Which multiplexer move a gesture asks for.
 //
-// One gesture: a single finger sideways moves between the multiplexer's tabs,
-// which is the strip a terminal user reaches for most. Two fingers are the
-// terminal's pinch and are left alone, since a drag and a pinch cannot be told
-// apart reliably enough to share the surface with a font size. Workspaces and
-// panes are moved from the terminal's menu.
+// Two gestures: a single finger sideways moves between the multiplexer's tabs,
+// the strip a terminal user reaches for most, and a double tap moves to the
+// next workspace, the coarser step. Two fingers are the terminal's pinch and
+// are left alone, since a drag and a pinch cannot be told apart reliably
+// enough to share the surface with a font size. Panes are moved from the
+// terminal's menu.
 //
 // Kept apart from the view so the thresholds are testable without a touch.
 
@@ -50,4 +51,26 @@ export function muxAction(swipe: MuxSwipe): MuxAction | null {
     Math.abs(dx) > Math.abs(dy) * SWIPE_AXIS_RATIO && committed(dx, vx);
   if (!sideways) return null;
   return dx < 0 ? 'tab-next' : 'tab-previous';
+}
+
+/** How long after a tap a second one still counts as a double tap, in ms. */
+export const DOUBLE_TAP_MS = 280;
+
+/** How far apart the two taps may land, in px. */
+export const DOUBLE_TAP_SLOP_PX = 40;
+
+/**
+ * Whether a second tap follows the first closely enough to be one gesture.
+ *
+ * Both bounds matter: two taps a second apart are two taps, and two taps at
+ * opposite ends of the screen were aimed at different things.
+ */
+export function isDoubleTap(gap: {
+  elapsedMs: number;
+  dx: number;
+  dy: number;
+}): boolean {
+  const { elapsedMs, dx, dy } = gap;
+  if (elapsedMs < 0 || elapsedMs > DOUBLE_TAP_MS) return false;
+  return Math.hypot(dx, dy) <= DOUBLE_TAP_SLOP_PX;
 }

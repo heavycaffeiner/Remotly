@@ -161,16 +161,27 @@ rather than waiting; a host without the plugin answers
 `plugin_action_not_found`, which the screen reports with the install command.
 
 A one-finger sideways swipe across an attached terminal moves between herdr's
-tabs, as the chord herdr binds for it (`prefix+n` and `prefix+p`). Sent as keys
-rather than as a herdr command, since a gesture has to land in the frame it was
-made and a command is a fresh exec channel plus a snapshot read.
+tabs, as the chord herdr binds for it (`prefix+n` and `prefix+p`). A double tap
+moves to the next workspace, which is the coarser step and has no binding to
+send: it drives herdr's picker, since `next_workspace` and `previous_workspace`
+ship unbound. Both go out as keys rather than as a herdr command, since a
+gesture has to land in the frame it was made and a command is a fresh exec
+channel plus a snapshot read.
+
+The second tap is claimed in the capture phase, which cancels that touch in the
+terminal below, so it opens no keyboard and moves no cursor. A drag clears the
+tap that preceded it: a tap after a swipe is a first tap.
+
+After a gesture the workspace screen re-reads. A tab move only changes which
+chip is current, but a workspace move leaves the screen's title and strip on a
+workspace the terminal is no longer showing, so that path reads the snapshot
+and adopts whichever workspace herdr now has focused.
 
 Two fingers are left to the terminal's pinch. A two-finger drag and a pinch
 cannot be told apart reliably enough to share a surface with the font size, so
-nothing navigates with them. Workspaces and panes are moved from the terminal's
-menu, where the tab moves are also listed for anyone who cannot swipe. A
-workspace move drives herdr's picker, since `next_workspace` and
-`previous_workspace` ship unbound.
+nothing navigates with them. Panes are moved from the terminal's menu, where
+the tab and workspace moves are also listed for anyone who cannot make the
+gesture.
 
 To exercise the screen against a real server, run one in a container with
 herdr installed and `herdr server` started, publish its SSH port, and add a

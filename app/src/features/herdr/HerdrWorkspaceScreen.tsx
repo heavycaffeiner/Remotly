@@ -43,6 +43,7 @@ import {
   focusHerdrWorkspace,
   invokeHerdrPluginAction,
   listHerdrTabs,
+  moveHerdrWorkspace,
   renameHerdrTab,
 } from '../../lib/herdrClient';
 import { HerdrError, type HerdrTab } from '../../lib/herdr';
@@ -58,6 +59,7 @@ import {
 } from '../../lib/sshSessions';
 import { findSshTab } from '../../lib/sshTabs';
 import { postTerminalNotification } from '../../lib/terminalNotify';
+import type { MuxAction } from '../terminal/muxKeys';
 import type { RootStackParamList } from '../../navigation/types';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'HerdrWorkspace'>;
@@ -68,6 +70,9 @@ const PLUGIN = 'remotly.bridge';
 
 /** How often the strip is re-read while the screen is up, in ms. */
 const POLL_MS = 4000;
+
+/** How long a gesture's chord needs before herdr has acted on it, in ms. */
+const GESTURE_SETTLE_MS = 450;
 
 /** A herdr failure, said in the user's terms. */
 function message(e: unknown): string {
@@ -82,10 +87,19 @@ function message(e: unknown): string {
 
 export function HerdrWorkspaceScreen(): React.ReactElement {
   const navigation = useNavigation<Nav>();
-  const { hostId, hostName, workspaceId, label, session } =
-    useRoute<Route>().params;
+  const params = useRoute<Route>().params;
+  const { hostId, hostName, session } = params;
   const { settings, update } = useSettings();
   const terminal = useRef<TerminalScreenHandle>(null);
+
+  // Which workspace this terminal is on. It starts as the one entered and
+  // changes when a gesture moves the session to another: the terminal follows
+  // the session's focus, so the strip and the title have to follow it too.
+  const [here, setHere] = useState({
+    workspaceId: params.workspaceId,
+    label: params.label,
+  });
+  const { workspaceId, label } = here;
 
   const [tabs, setTabs] = useState<HerdrTab[]>([]);
   const [notice, setNotice] = useState('');
@@ -163,6 +177,37 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
     const timer = setInterval(() => void load(), POLL_MS);
     return () => clearInterval(timer);
   }, [load]);
+
+  /**
+   * Finishes a gesture.
+   *
+   * A tab move is a chord the terminal already sent, so this only catches the
+   * strip up. A workspace move has no chord: herdr ships those unbound, so
+   * the move itself is made here, and the title and strip follow it.
+   */
+  const onGesture = useCallback(
+    (action: MuxAction) => {
+      if (action === 'tab-next' || action === 'tab-previous') {
+        // The chord lands in the terminal before herdr has answered it.
+        setTimeout(() => void load(), GESTURE_SETTLE_MS);
+        return;
+      }
+      const direction = action === 'workspace-next' ? 1 : -1;
+      void (async () => {
+        try {
+          const next = await moveHerdrWorkspace(hostId, direction, session);
+          if (next === null) {
+            setNotice('This session has only one workspace.');
+            return;
+          }
+          setHere({ workspaceId: next.workspaceId, label: next.label });
+        } catch (e) {
+          setNotice(message(e));
+        }
+      })();
+    },
+    [hostId, session, load],
+  );
 
   const selectTab = useCallback(
     (tabId: string) => void act(() => focusHerdrTab(hostId, tabId, session)),
@@ -354,6 +399,7 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
         {...(overlay === null ? {} : { overlay })}
         tabStrip={strip}
         mux="herdr"
+        onMuxAction={onGesture}
         onTitle={title => reportSshTerminalTitle(hostId, title)}
         onNotify={postTerminalNotification}
       />

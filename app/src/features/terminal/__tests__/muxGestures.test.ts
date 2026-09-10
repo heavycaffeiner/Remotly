@@ -6,7 +6,7 @@
 // vertical scroll and a two-finger pinch, so what counts and what is ignored
 // is the whole contract here.
 
-import { muxAction } from '../muxGestures';
+import { DOUBLE_TAP_MS, isDoubleTap, muxAction } from '../muxGestures';
 import { herdrKeys } from '../muxKeys';
 
 /** A released drag, with the fields the responder reports. */
@@ -46,32 +46,37 @@ describe('a swipe across an attached terminal', () => {
   });
 });
 
+describe('a double tap on an attached terminal', () => {
+  it('takes a second tap that follows closely, in the same place', () => {
+    expect(isDoubleTap({ elapsedMs: 120, dx: 4, dy: 6 })).toBe(true);
+  });
+
+  // Two taps a moment apart are two taps: one opens the keyboard, and moving
+  // the workspace under the user instead would be wrong.
+  it('ignores a second tap that came too late', () => {
+    expect(isDoubleTap({ elapsedMs: DOUBLE_TAP_MS + 1, dx: 0, dy: 0 })).toBe(
+      false,
+    );
+  });
+
+  // Two taps at opposite ends of the screen were aimed at different things.
+  it('ignores a second tap that landed somewhere else', () => {
+    expect(isDoubleTap({ elapsedMs: 100, dx: 120, dy: 0 })).toBe(false);
+  });
+
+  // Timestamps come from the touch, so a clock that went backwards must not
+  // read as a gesture that has not happened yet.
+  it('ignores a gap that runs backwards', () => {
+    expect(isDoubleTap({ elapsedMs: -1, dx: 0, dy: 0 })).toBe(false);
+  });
+});
+
 describe('the keys a gesture sends to herdr', () => {
   /** Ctrl+B, herdr's prefix. */
   const PREFIX = 0x02;
 
-  // herdr ships next_workspace and previous_workspace unbound, so a workspace
-  // move goes through the picker: open, move the selection, confirm.
-  it('drives the picker for a workspace, which has no binding', () => {
-    expect([...herdrKeys('workspace-next')]).toEqual([
-      PREFIX,
-      0x77,
-      0x1b,
-      0x5b,
-      0x42,
-      0x0d,
-    ]);
-    expect([...herdrKeys('workspace-previous')]).toEqual([
-      PREFIX,
-      0x77,
-      0x1b,
-      0x5b,
-      0x41,
-      0x0d,
-    ]);
-  });
-
-  // The menu moves workspaces and panes as well.
+  // A workspace move is not here: herdr ships those unbound, so the screen
+  // makes them over the socket instead of typing anything.
   it('cycles tabs and panes with the bindings herdr ships', () => {
     expect([...herdrKeys('tab-next')]).toEqual([PREFIX, 0x6e]);
     expect([...herdrKeys('tab-previous')]).toEqual([PREFIX, 0x70]);

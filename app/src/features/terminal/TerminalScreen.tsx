@@ -107,11 +107,17 @@ export interface TerminalScreenProps {
   onSwitchSession?: (direction: -1 | 1) => void;
   /**
    * The multiplexer this session is attached to, when it is attached to one.
-   * Swipes across the terminal are addressed to it: one finger sideways moves
-   * between its tabs, two fingers sideways between panes, and two fingers up
-   * and down between workspaces.
+   * Gestures across the terminal are addressed to it: one finger sideways
+   * moves between its tabs, and a double tap to the next workspace.
    */
   mux?: 'herdr';
+  /**
+   * Called after a gesture's keys have gone out.
+   *
+   * The multiplexer moved, so whatever the owner drew from its state is now a
+   * frame behind: this is where it re-reads.
+   */
+  onMuxAction?: (action: MuxAction) => void;
   /** Position in the tab strip, so the switch animates in the right
    *  direction. Omit where there is only one session. */
   sessionIndex?: number;
@@ -178,6 +184,7 @@ export const TerminalScreen = forwardRef<
     tabStrip,
     onSwitchSession,
     mux,
+    onMuxAction,
     sessionIndex,
     onReady,
     onBell,
@@ -261,11 +268,20 @@ export const TerminalScreen = forwardRef<
   const sendRef = useRef(onSend);
   sendRef.current = onSend;
 
-  // A gesture is a chord the multiplexer already understands, so it goes out
-  // as ordinary input rather than through a herdr command: the round trip a
-  // command needs is longer than the gesture it answers.
+  const muxRef = useRef(onMuxAction);
+  muxRef.current = onMuxAction;
+
+  // A tab or pane move is a chord the multiplexer already understands, so it
+  // goes out as ordinary input: the round trip a command needs is longer than
+  // the gesture it answers. A workspace move has no chord to send, so it is
+  // left to the owner, which reaches the multiplexer over its own connection.
+  // The owner hears about every move either way, because what is on screen
+  // afterwards is its to read.
   const handleMuxAction = useCallback((action: MuxAction) => {
-    sendRef.current(herdrKeys(action));
+    if (action !== 'workspace-next' && action !== 'workspace-previous') {
+      sendRef.current(herdrKeys(action));
+    }
+    muxRef.current?.(action);
   }, []);
 
   const handleInput = useCallback((bytes: Uint8Array) => {

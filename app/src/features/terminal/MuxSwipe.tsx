@@ -1,9 +1,9 @@
 // The gesture layer over an attached multiplexer.
 //
-// Wraps the terminal and claims a one-finger sideways drag, which moves between
-// the multiplexer's tabs. Claimed with the capture responder because the
-// native terminal view handles touches itself; without capturing, the drag
-// never reaches here.
+// Wraps the terminal and claims two gestures, both with the capture responder
+// because the native terminal view handles touches itself: without capturing,
+// neither reaches here. A one-finger sideways drag moves between the
+// multiplexer's tabs; a double tap moves to the next workspace.
 //
 // A second finger down hands the whole gesture back: two fingers are the pinch
 // that sets the font size, and a two-finger drag cannot be told from a pinch
@@ -11,7 +11,7 @@
 
 import React, { useMemo, useRef } from 'react';
 import { PanResponder, View } from 'react-native';
-import { muxAction } from './muxGestures';
+import { isDoubleTap, muxAction } from './muxGestures';
 import type { MuxAction } from './muxKeys';
 import { SWIPE_AXIS_RATIO, SWIPE_CLAIM_PX } from '../../lib/swipeNav';
 
@@ -39,13 +39,44 @@ export function MuxSwipe({
   // so the highest count during the drag is what says whether this was a pinch.
   const fingers = useRef(0);
 
+  // Where and when the last tap landed, so the next one can be measured
+  // against it. A drag clears it: a tap after a swipe is a first tap.
+  const lastTap = useRef({ at: 0, x: 0, y: 0 });
+
+  // Set when a touch was claimed as the second tap of a double tap, so the
+  // release knows which gesture it is completing.
+  const doubleTap = useRef(false);
+
   const responder = useMemo(
     () =>
       PanResponder.create({
-        // A gesture that is never claimed reports no release and no terminate,
-        // so the count is cleared where every gesture begins instead.
         onStartShouldSetPanResponderCapture: e => {
-          if (e.nativeEvent.touches.length <= 1) fingers.current = 0;
+          const touch = e.nativeEvent;
+          if (touch.touches.length > 1) return false;
+          if (!live.current.enabled || live.current.disabled) {
+            fingers.current = 0;
+            return false;
+          }
+          // A gesture that is never claimed reports no release and no
+          // terminate, so the count is cleared where every gesture begins.
+          fingers.current = 0;
+          const previous = lastTap.current;
+          // The clock is read here rather than taken from the event: a touch
+          // start does not always carry a timestamp on Android.
+          const now = Date.now();
+          const second = isDoubleTap({
+            elapsedMs: now - previous.at,
+            dx: touch.pageX - previous.x,
+            dy: touch.pageY - previous.y,
+          });
+          if (second) {
+            // Claimed, which cancels the touch in the terminal below: the
+            // second tap belongs to this gesture, not to the pane under it.
+            lastTap.current = { at: 0, x: 0, y: 0 };
+            doubleTap.current = true;
+            return true;
+          }
+          lastTap.current = { at: now, x: touch.pageX, y: touch.pageY };
           return false;
         },
         onMoveShouldSetPanResponderCapture: (e, g) => {
@@ -68,8 +99,16 @@ export function MuxSwipe({
             fingers.current,
             e.nativeEvent.touches.length,
           );
+          // A drag is not a tap, whichever gesture claimed it.
+          if (fingers.current > 0) lastTap.current = { at: 0, x: 0, y: 0 };
         },
         onPanResponderRelease: (_e, g) => {
+          if (doubleTap.current) {
+            doubleTap.current = false;
+            fingers.current = 0;
+            live.current.onAction('workspace-next');
+            return;
+          }
           const action = muxAction({
             fingers: fingers.current,
             dx: g.dx,
@@ -82,6 +121,7 @@ export function MuxSwipe({
         },
         onPanResponderTerminate: () => {
           fingers.current = 0;
+          doubleTap.current = false;
         },
       }),
     [],

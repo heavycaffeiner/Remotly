@@ -51,6 +51,7 @@ import {
   type HerdrSession,
   type HerdrSnapshot,
   type HerdrTab,
+  type HerdrWorkspace,
 } from './herdr';
 
 /** The bridge carries bytes as standard base64; empty means no output. */
@@ -187,6 +188,31 @@ export async function focusHerdrWorkspace(
   session: string | null = null,
 ): Promise<void> {
   await execHerdr(hostId, workspaceFocusCommand(workspaceId, session));
+}
+
+/**
+ * Moves the session to the workspace beside the focused one.
+ *
+ * herdr ships `next_workspace` and `previous_workspace` unbound, so there is
+ * no chord to send an attached terminal: the move is made over the socket
+ * instead, from the order the snapshot reports. Wraps at both ends, so
+ * repeating the gesture keeps going round. Returns where it landed, or null
+ * when the session has nowhere else to go.
+ */
+export async function moveHerdrWorkspace(
+  hostId: string,
+  direction: 1 | -1,
+  session: string | null = null,
+): Promise<HerdrWorkspace | null> {
+  const snap = await herdrSnapshot(hostId, session);
+  const ordered = [...snap.workspaces].sort((a, b) => a.number - b.number);
+  if (ordered.length < 2) return null;
+  const at = ordered.findIndex(w => w.workspaceId === snap.focusedWorkspaceId);
+  const from = at < 0 ? 0 : at;
+  const next = ordered[(from + direction + ordered.length) % ordered.length];
+  if (next === undefined) return null;
+  await focusHerdrWorkspace(hostId, next.workspaceId, session);
+  return next;
 }
 
 export async function closeHerdrWorkspace(

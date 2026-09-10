@@ -42,8 +42,9 @@ A standalone SSH and SFTP client for Android.
   of a tab spread into tabs of their own, and pane zoom. Install it with
   `herdr plugin install heavycaffeiner/Remotly/plugin`.
 - **Terminal gestures.** In a terminal attached to herdr, a sideways swipe
-  moves between its tabs. Two fingers stay the terminal's pinch, so workspaces
-  and panes are moved from its menu, which also lists the tab moves.
+  moves between its tabs and a double tap moves to the next workspace. Two
+  fingers stay the terminal's pinch, so panes are moved from its menu, which
+  also lists the tab and workspace moves.
 
 ## Layout
 

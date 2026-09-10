@@ -31,7 +31,7 @@ import {
   type SessionTabView,
 } from '../terminal/SessionTabs';
 import { useSshTabs, type SshHostKeyPrompt } from './useSshTabs';
-import { herdrKeys, type MuxAction } from '../terminal/muxKeys';
+import { herdrKeys, type MuxKeyAction } from '../terminal/muxKeys';
 import { FilesScreen } from '../files/FilesScreen';
 import { Toast } from '../../components/Toast';
 import { Button } from '../../components/ui/button';
@@ -56,6 +56,7 @@ import { pasteImage } from '../../lib/imagePaste';
 import { postTerminalNotification } from '../../lib/terminalNotify';
 import { ensureSftpReady, sftpBridge } from '../../lib/sftp';
 import { SftpTransferBackend } from '../../lib/sftpTransfer';
+import { moveHerdrWorkspace } from '../../lib/herdrClient';
 import { sshHostDisplayName } from '../../lib/sshHosts';
 import { selectSshTab } from '../../lib/sshSessions';
 import type { SshTabPhase } from '../../lib/sshTabs';
@@ -204,12 +205,33 @@ export function SshTerminalScreen(): React.ReactElement {
     }
   }, [hostId, ssh]);
 
-  // The same moves the swipes make. A gesture is the fast way to reach them
-  // and the only way for nobody who cannot make one, so they are here too,
-  // where a screen reader and a keyboard can get at them.
+  // herdr ships the workspace moves unbound, so there is no chord to type
+  // into the terminal: this one goes over the host's own connection. Which
+  // herdr session it belongs to is on the tab that attached to it.
+  const moveWorkspace = useCallback(
+    async (direction: 1 | -1) => {
+      const session = activeTab?.muxSession ?? '';
+      try {
+        const next = await moveHerdrWorkspace(
+          hostId,
+          direction,
+          session === '' ? null : session,
+        );
+        setCopyNotice(
+          next === null
+            ? 'This session has only one workspace.'
+            : `Moved to ${next.label}`,
+        );
+      } catch {
+        setCopyNotice('The workspace could not be moved.');
+      }
+    },
+    [activeTab?.muxSession, hostId],
+  );
+
   const muxActions = useMemo<TerminalMenuAction[]>(() => {
     if (activeTab?.mux === undefined) return [];
-    const move = (action: MuxAction) => () => ssh.send(herdrKeys(action));
+    const move = (action: MuxKeyAction) => () => ssh.send(herdrKeys(action));
     return [
       {
         key: 'mux-tab-next',
@@ -239,16 +261,16 @@ export function SshTerminalScreen(): React.ReactElement {
         key: 'mux-workspace-next',
         title: 'Next workspace',
         icon: 'arrow-down',
-        onPress: move('workspace-next'),
+        onPress: () => void moveWorkspace(1),
       },
       {
         key: 'mux-workspace-previous',
         title: 'Previous workspace',
         icon: 'arrow-up',
-        onPress: move('workspace-previous'),
+        onPress: () => void moveWorkspace(-1),
       },
     ];
-  }, [activeTab?.mux, ssh]);
+  }, [activeTab?.mux, ssh, moveWorkspace]);
 
   const actions = useMemo<TerminalMenuAction[]>(
     () => [
@@ -441,6 +463,10 @@ export function SshTerminalScreen(): React.ReactElement {
         onTitle={ssh.reportTitle}
         onNotify={postTerminalNotification}
         {...(activeTab?.mux === undefined ? {} : { mux: activeTab.mux })}
+        onMuxAction={action => {
+          if (action === 'workspace-next') void moveWorkspace(1);
+          if (action === 'workspace-previous') void moveWorkspace(-1);
+        }}
         {...(shellTabs.length > 1 ? { onSwitchSession: switchSession } : {})}
         sessionIndex={shellTabs.findIndex(
           t => t.sessionId === state.activeSessionId,
