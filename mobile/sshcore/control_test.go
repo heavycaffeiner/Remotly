@@ -144,3 +144,33 @@ func TestControlCloseEndsStream(t *testing.T) {
 		t.Fatal("close did not end the stream")
 	}
 }
+
+// A resubscribe must not leave the previous reader running on the host, so
+// starting a second stream ends the first.
+func TestControlStreamReplacesThePrevious(t *testing.T) {
+	ts := startTestServer(t)
+	c := dialControl(t, ts)
+
+	first := &lineSink{closed: make(chan struct{})}
+	if res := c.Stream("sleep", first); res.Code != "" {
+		t.Fatalf("first stream failed: %s", res.Code)
+	}
+	second := &lineSink{closed: make(chan struct{})}
+	if res := c.Stream("stream", second); res.Code != "" {
+		t.Fatalf("second stream failed: %s", res.Code)
+	}
+
+	select {
+	case <-first.closed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the first stream was left running")
+	}
+	select {
+	case <-second.closed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the second stream did not finish")
+	}
+	if got := second.snapshot(); len(got) != 3 {
+		t.Fatalf("second stream lines: %v", got)
+	}
+}

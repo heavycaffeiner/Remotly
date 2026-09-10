@@ -12,7 +12,13 @@
 // What the strip and the sidebar draw comes from the event-fed store, so a
 // change made here, from a gesture, or on the desktop lands without a timer.
 
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   useFocusEffect,
   useNavigation,
@@ -76,8 +82,15 @@ const PLUGIN = 'remotly.bridge';
 
 /** A herdr failure, said in the user's terms. */
 function message(e: unknown): string {
-  if (e instanceof HerdrError) return e.message;
-  return e instanceof Error && e.message !== '' ? e.message : 'herdr failed.';
+  if (e instanceof HerdrError) {
+    // The pane actions in this menu are the plugin's, so a host without it
+    // has to be told how to get it rather than shown herdr's error code.
+    if (e.code === 'plugin_action_not_found') {
+      return 'This host has no Remotly plugin. Install it with: herdr plugin install heavycaffeiner/Remotly/plugin';
+    }
+    return e.message;
+  }
+  return 'The herdr command failed.';
 }
 
 export function HerdrWorkspaceScreen(): React.ReactElement {
@@ -143,41 +156,39 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
     [hostId, session],
   );
 
-  // Focus the workspace, then attach. Focusing first is what makes the
-  // terminal come up on this workspace rather than on whichever one the
-  // session was last left on.
+  // The terminal is opened once and retagged when the workspace changes.
+  // Retagging is local state, so this costs nothing on the host: the focus
+  // command belongs to whoever moved, not to this effect. Without that split
+  // every gesture paid for a second focus of a workspace herdr had already
+  // focused.
+  const attachedFor = useRef<string | null>(null);
   useFocusEffect(
     useCallback(() => {
-      if (workspaceId === null) return;
-      let cancelled = false;
-      void (async () => {
-        try {
-          await focusHerdrWorkspace(hostId, workspaceId, session);
-        } catch (e) {
-          setNotice(message(e));
-        }
-        if (cancelled) return;
-        const runs =
-          session === null
-            ? 'herdr'
-            : joinShell(['herdr', '--session', session]);
-        const opened = openSshWorkspaceTab(hostId, {
-          workspaceId,
-          label,
-          runs,
-          ...(session === null ? {} : { session }),
-        });
-        if (opened === null) {
-          setNotice('This host has no room for another terminal.');
-          return;
-        }
-        setSessionId(opened);
-      })();
-      return () => {
-        cancelled = true;
-      };
+      if (workspaceId === null || attachedFor.current === workspaceId) return;
+      attachedFor.current = workspaceId;
+      const runs =
+        session === null ? 'herdr' : joinShell(['herdr', '--session', session]);
+      const opened = openSshWorkspaceTab(hostId, {
+        workspaceId,
+        label,
+        runs,
+        ...(session === null ? {} : { session }),
+      });
+      if (opened === null) {
+        setNotice('This host has no room for another terminal.');
+        return;
+      }
+      setSessionId(opened);
     }, [hostId, workspaceId, label, session]),
   );
+
+  // A workspace named in the route was chosen somewhere else, so it is the one
+  // case where this screen has to focus it: once, on the way in.
+  const requested = params.workspaceId ?? null;
+  useEffect(() => {
+    if (requested === null) return;
+    void act(() => focusHerdrWorkspace(hostId, requested, session));
+  }, [act, hostId, requested, session]);
 
   /**
    * Finishes a gesture.
@@ -396,8 +407,16 @@ export function HerdrWorkspaceScreen(): React.ReactElement {
         currentWorkspaceId={workspaceId}
         onEnterWorkspace={request => {
           // The terminal follows the session's focus, so entering another
-          // workspace moves this one rather than stacking a second.
+          // workspace moves this one rather than stacking a second. Painted
+          // first, then focused on the host, which is one command.
           setHere({ workspaceId: request.workspaceId, label: request.label });
+          applyHerdrLocal(hostId, session, {
+            kind: 'workspace-focused',
+            workspaceId: request.workspaceId,
+          });
+          void act(() =>
+            focusHerdrWorkspace(hostId, request.workspaceId, session),
+          );
         }}
         onOpenShells={() => navigation.navigate('SshTerminal', { hostId })}
         onOpenFiles={() => navigation.navigate('Files', { hostId })}

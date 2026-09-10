@@ -184,7 +184,12 @@ function stop(entry: Entry): void {
   entry.streaming = false;
   entries.delete(entry.key);
   detachLines(entry);
-  NativeHerdr.release(entry.hostId);
+  // The native connection is per host, and two sessions on one host share it,
+  // so it is only dropped once nothing is watching that host.
+  const stillWatched = [...entries.values()].some(
+    other => other.hostId === entry.hostId,
+  );
+  if (!stillWatched) NativeHerdr.release(entry.hostId);
 }
 
 /**
@@ -196,9 +201,12 @@ function stop(entry: Entry): void {
  * change exists to remove.
  */
 function startPolling(entry: Entry): void {
+  // The attempt is given back first: a host that fails twice reaches here with
+  // the loop already running, and leaving the flag set would stop every later
+  // retry, which is how a host stayed on the timer after its key was accepted.
+  entry.streaming = false;
   if (entry.polling) return;
   entry.polling = true;
-  entry.streaming = false;
   set(entry, { feed: 'polling' });
   const epoch = entry.epoch;
   let ticks = 0;
@@ -236,6 +244,7 @@ async function openStream(entry: Entry): Promise<void> {
   if (entry.streaming) return;
   entry.streaming = true;
   let socketPath: string | null = null;
+  let failure: unknown = null;
   try {
     const sessions = await listHerdrSessions(entry.hostId);
     const wanted =
@@ -244,11 +253,19 @@ async function openStream(entry: Entry): Promise<void> {
         : sessions.find(s => s.name === entry.session);
     socketPath = wanted?.socketPath ?? null;
   } catch (e) {
+    failure = e;
+  }
+  // An entry that has since stopped or restarted has nobody to tell, and its
+  // attempt has to be given back or no retry will ever run again.
+  if (entry.epoch !== epoch) {
+    entry.streaming = false;
+    return;
+  }
+  if (failure !== null) {
     // A host whose key is not accepted yet answers nothing. The poll loop
     // retries this, so it is a warning rather than a failure.
-    log.warn('herdr: session list failed', { error: String(e) });
+    log.warn('herdr: session list failed', { error: String(failure) });
   }
-  if (entry.epoch !== epoch) return;
   if (socketPath === null || socketPath === '') {
     startPolling(entry);
     return;
@@ -287,7 +304,10 @@ async function openStream(entry: Entry): Promise<void> {
   // A reader that never acknowledges is a host with none of the interpreters,
   // or a herdr too old for the subscription. Either way, polling.
   setTimeout(() => {
-    if (entry.epoch !== epoch) return;
+    if (entry.epoch !== epoch) {
+      entry.streaming = false;
+      return;
+    }
     if (entry.state.feed !== 'live') startPolling(entry);
   }, ACK_TIMEOUT_MS);
 }

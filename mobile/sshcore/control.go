@@ -46,6 +46,9 @@ type Control struct {
 
 	mu     sync.Mutex
 	client *ssh.Client
+	// The one running stream, kept so a resubscribe can end the reader the
+	// previous attempt left on the host.
+	stream *ssh.Session
 }
 
 // NewControl creates a handle without connecting.
@@ -184,6 +187,11 @@ func (c *Control) Run(command string, timeoutMs int) (result *ExecResult) {
 // Stream starts a command whose stdout is delivered to l line by line, and
 // returns as soon as it has started. An empty Code means the command is
 // running; l.OnClosed reports how it ended, once.
+//
+// One stream at a time per connection: starting a second ends the first. A
+// stream runs a reader process on the host, and a caller that resubscribes
+// (after a reader that never answered, say) must not leave the previous one
+// running there.
 func (c *Control) Stream(command string, l ControlLines) (result *ExecResult) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -195,6 +203,8 @@ func (c *Control) Stream(command string, l ControlLines) (result *ExecResult) {
 	if client == nil {
 		return &ExecResult{Code: CodeRemoteClosed, Message: "control: not connected"}
 	}
+
+	c.StopStream()
 
 	sess, err := client.NewSession()
 	if err != nil {
@@ -210,6 +220,9 @@ func (c *Control) Stream(command string, l ControlLines) (result *ExecResult) {
 		return failCode(CodeRemoteClosed, err)
 	}
 
+	c.mu.Lock()
+	c.stream = sess
+	c.mu.Unlock()
 	go func() {
 		defer sess.Close()
 		// Closing the handle has to end a stream that is blocked on a read,
@@ -245,9 +258,23 @@ func (c *Control) Stream(command string, l ControlLines) (result *ExecResult) {
 	return &ExecResult{}
 }
 
+// StopStream ends the running stream, if there is one. Its ControlLines gets
+// its single OnClosed from the reader goroutine, as it would for any other
+// end.
+func (c *Control) StopStream() {
+	c.mu.Lock()
+	sess := c.stream
+	c.stream = nil
+	c.mu.Unlock()
+	if sess != nil {
+		sess.Close()
+	}
+}
+
 // Close ends every command on the connection and drops it.
 func (c *Control) Close() {
 	c.closeOnce.Do(func() { close(c.closeCh) })
+	c.StopStream()
 	c.mu.Lock()
 	client := c.client
 	c.client = nil

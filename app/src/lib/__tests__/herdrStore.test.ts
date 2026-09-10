@@ -223,6 +223,27 @@ describe('a host kept current by events', () => {
     stop();
   });
 
+  // A host answers nothing until its key is accepted, and the fallback has to
+  // be the state a screen sees rather than an error.
+  it('falls back when the host answers nothing at all', async () => {
+    exec.mockImplementation(async () => ({
+      ok: false,
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      code: 'ssh_host_key_rejected',
+      message: 'host key rejected',
+    }));
+    const stop = subscribeHerdrHost('h8', null, () => undefined);
+    for (let i = 0; i < 10; i += 1) await tick();
+
+    const state = herdrHostState('h8', null);
+    expect(state.feed).toBe('polling');
+    expect(state.error).not.toBeNull();
+    expect(subscribe).not.toHaveBeenCalledWith('h8', expect.any(String));
+    stop();
+  });
+
   it('subscribes with the reader command for the session socket', async () => {
     const stop = await start('h6');
     expect(subscribe).toHaveBeenCalledWith(

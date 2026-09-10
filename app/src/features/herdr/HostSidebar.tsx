@@ -217,12 +217,20 @@ export function HostSidebar({
     );
   }, [act, draft, hostId, viewSession]);
 
+  // A new tab in the workspace on screen is what the user is looking at, so it
+  // takes focus. A new tab in another workspace must not: herdr focuses a new
+  // tab by default, and that would move the session out from under a terminal
+  // nobody asked to leave.
   const newTab = React.useCallback(
     (workspaceId: string) =>
       void act(() =>
-        createHerdrTab(hostId, { workspaceId, focus: true }, viewSession),
+        createHerdrTab(
+          hostId,
+          { workspaceId, focus: workspaceId === currentWorkspaceId },
+          viewSession,
+        ),
       ),
-    [act, hostId, viewSession],
+    [act, currentWorkspaceId, hostId, viewSession],
   );
 
   const body = (

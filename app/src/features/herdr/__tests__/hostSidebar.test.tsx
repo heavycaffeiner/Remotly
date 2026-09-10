@@ -233,6 +233,21 @@ describe('the host sidebar', () => {
     ]);
   });
 
+  // herdr focuses a new tab by default, and the session's focus is what the
+  // attached terminal is showing, so a tab added to another workspace must
+  // not drag the terminal there.
+  it('leaves the session where it is when the tab is for elsewhere', async () => {
+    const sent = bridge();
+    const tree = await mount();
+
+    await pressLabel(tree, /Show tabs in deploy/);
+    await pressLabel(tree, 'New tab in deploy');
+
+    expect(sent.filter(c => c.includes('tab create'))).toEqual([
+      'herdr tab create --workspace w2 --no-focus',
+    ]);
+  });
+
   it('says which workspace is showing in words, not by colour alone', async () => {
     bridge();
     const tree = await mount();
