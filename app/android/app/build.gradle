@@ -1,6 +1,8 @@
-apply plugin: "com.android.application"
-apply plugin: "org.jetbrains.kotlin.android"
-apply plugin: "com.facebook.react"
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
+}
 
 /**
  * Release signing credentials, or null when none are configured.
@@ -32,100 +34,16 @@ def remotlyReleaseSigning = {
     ]
 }()
 
-/**
- * This is the configuration block to customize your React Native Android app.
- * By default you don't need to apply any configuration, just uncomment the lines you need.
- */
-react {
-    /* Folders */
-    //   The root of your project, i.e. where "package.json" lives. Default is '../..'
-    // root = file("../../")
-    //   The folder where the react-native NPM package is. Default is ../../node_modules/react-native
-    // reactNativeDir = file("../../node_modules/react-native")
-    //   The folder where the react-native Codegen package is. Default is ../../node_modules/@react-native/codegen
-    // codegenDir = file("../../node_modules/@react-native/codegen")
-    //   The cli.js file which is the React Native CLI entrypoint. Default is ../../node_modules/react-native/cli.js
-    // cliFile = file("../../node_modules/react-native/cli.js")
-
-    /* Variants */
-    //   The list of variants to that are debuggable. For those we're going to
-    //   skip the bundling of the JS bundle and the assets. Default is "debug", "debugOptimized".
-    //   If you add flavors like lite, prod, etc. you'll have to list your debuggableVariants.
-    // debuggableVariants = ["liteDebug", "liteDebugOptimized", "prodDebug", "prodDebugOptimized"]
-
-    /* Bundling */
-    //   A list containing the node command and its flags. Default is just 'node'.
-    // nodeExecutableAndArgs = ["node"]
-    //
-    //   The command to run when bundling. By default is 'bundle'
-    // bundleCommand = "ram-bundle"
-    //
-    //   The path to the CLI configuration file. Default is empty.
-    // bundleConfig = file(../rn-cli.config.js)
-    //
-    //   The name of the generated asset file containing your JS bundle
-    // bundleAssetName = "MyApplication.android.bundle"
-    //
-    //   The entry file for bundle generation. Default is 'index.android.js' or 'index.js'
-    // entryFile = file("../js/MyApplication.android.js")
-    //
-    //   A list of extra flags to pass to the 'bundle' commands.
-    //   See https://github.com/react-native-community/cli/blob/main/docs/commands.md#bundle
-    // extraPackagerArgs = []
-
-    /* Hermes Commands */
-    //   The hermes compiler command to run. By default it is 'hermesc'
-    // hermesCommand = "$rootDir/my-custom-hermesc/bin/hermesc"
-    //
-    //   The list of flags to pass to the Hermes compiler. By default is "-O", "-output-source-map"
-    // hermesFlags = ["-O", "-output-source-map"]
-
-    /* Autolinking */
-    autolinkLibrariesWithApp()
-}
-
-/**
- * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
- */
-def enableProguardInReleaseBuilds = true
-
-/**
- * The preferred build flavor of JavaScriptCore (JSC)
- *
- * For example, to use the international variant, you can use:
- * `def jscFlavor = io.github.react-native-community:jsc-android-intl:2026004.+`
- *
- * The international variant includes ICU i18n library and necessary data
- * allowing to use e.g. `Date.toLocaleString` and `String.localeCompare` that
- * give correct results when using with locales other than en-US. Note that
- * this variant is about 6MiB larger per architecture than default.
- */
-def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
-
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
-
-    // Paper v6 renders Material Community Icons through the maintained
-    // Material Design Icons package. Android resolves the font by its
-    // `MaterialDesignIcons` basename from assets/fonts.
-    sourceSets {
-        main {
-            assets.srcDirs += ['../../node_modules/@react-native-vector-icons/material-design-icons/fonts']
-        }
-    }
 
     namespace "com.remotly.app"
     defaultConfig {
         applicationId "com.remotly.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // One version source: app/package.json. CI overrides both through
-        // -PremotlyVersionName and -PremotlyVersionCode. Reading the package
-        // file keeps the Android metadata from drifting away from the JS
-        // package, which is how the tree ended up shipping 1.0 against a
-        // package that still said 0.0.1.
         versionCode project.hasProperty('remotlyVersionCode')
                 ? project.property('remotlyVersionCode').toInteger()
                 : rootProject.ext.remotlyVersionCode
@@ -164,8 +82,34 @@ android {
         }
         release {
             signingConfig remotlyReleaseSigning != null ? signingConfigs.release : null
-            minifyEnabled enableProguardInReleaseBuilds
+            minifyEnabled true
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+        }
+    }
+
+    buildFeatures {
+        compose true
+        // TerminalView gates its debug overlay on BuildConfig.DEBUG.
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlin {
+        // Named rather than inherited: the machine default may be a JRE,
+        // which has no compiler and fails only once javac is invoked.
+        jvmToolchain(17)
+        compilerOptions {
+            jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+        }
+    }
+
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
 
@@ -177,16 +121,12 @@ android {
             returnDefaultValues = true
         }
     }
-
-    // React loads custom fonts from assets/fonts/. The vector icon fonts are
-    // copied there by copyVectorIconsFonts (see below).
 }
 
-// Local AAR repository: the Go sshcore engine (RN-05) is a build output, built
-// by scripts/build-sshcore.sh into app/libs.
-repositories {
-    flatDir { dirs 'libs' }
-}
+// The sshcore flatDir repository is declared in settings.gradle beside
+// google() and mavenCentral(). A project-level repositories block would
+// replace them all under Gradle's PREFER_PROJECT default, leaving the AAR
+// resolvable and every androidx coordinate not.
 
 // The AAR is not in version control, so a fresh clone has none until the
 // script runs. Checked here rather than in a task: dependency resolution fails
@@ -200,31 +140,34 @@ if (!file('libs/sshcore.aar').exists()) {
 }
 
 dependencies {
-    // The version of react-native is set by the React Native Gradle Plugin
-    implementation("com.facebook.react:react-android")
+    implementation libs.androidx.core.ktx
+    implementation libs.kotlinx.coroutines.android
+    implementation libs.gson
+    implementation libs.material
 
-    if (hermesEnabled.toBoolean()) {
-        implementation("com.facebook.react:hermes-android")
-    } else {
-        implementation jscFlavor
-    }
+    implementation platform(libs.androidx.compose.bom)
+    implementation libs.androidx.compose.ui
+    implementation libs.androidx.compose.material3
+    implementation libs.androidx.compose.material.icons.extended
+    implementation libs.androidx.compose.ui.tooling.preview
+    implementation libs.androidx.activity.compose
+    implementation libs.androidx.lifecycle.runtime.compose
+    implementation libs.androidx.lifecycle.viewmodel.compose
+    implementation libs.androidx.navigation.compose
+    debugImplementation libs.androidx.compose.ui.tooling
 
-    // Versions come from gradle/libs.versions.toml (catalog "remotly").
-    implementation remotly.androidx.core.ktx
-    implementation remotly.androidx.fragment
-    implementation remotly.gson
-
-    // Material You (dynamic color) reads. The library supplies the MD3
-    // dynamic themes and the support gate; the color extraction lives in
-    // RemotlyDynamicColorsModule.
-    implementation remotly.material
-
-    // Go sshcore engine (RN-05): SSH/SFTP via golang.org/x/crypto + pkg/sftp,
-    // bound with gomobile. Shipped as a local AAR (scripts/build-sshcore.sh).
+    // Go sshcore engine: SSH/SFTP via golang.org/x/crypto + pkg/sftp, bound
+    // with gomobile. Shipped as a local AAR (scripts/build-sshcore.sh).
     implementation(name: 'sshcore', ext: 'aar')
-    testImplementation remotly.junit
-    testImplementation remotly.gson
-    androidTestImplementation remotly.androidx.test.runner
-    androidTestImplementation remotly.androidx.test.rules
-    androidTestImplementation remotly.androidx.test.ext.junit
+
+    testImplementation libs.junit
+    testImplementation libs.gson
+    testImplementation libs.kotlinx.coroutines.test
+
+    androidTestImplementation platform(libs.androidx.compose.bom)
+    androidTestImplementation libs.androidx.test.runner
+    androidTestImplementation libs.androidx.test.rules
+    androidTestImplementation libs.androidx.test.ext.junit
+    androidTestImplementation libs.androidx.compose.ui.test.junit4
+    debugImplementation libs.androidx.compose.ui.test.manifest
 }

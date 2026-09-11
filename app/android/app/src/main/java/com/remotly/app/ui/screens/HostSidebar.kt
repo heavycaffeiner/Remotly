@@ -1,0 +1,651 @@
+package com.remotly.app.ui.screens
+
+// One host's herdr tree: sessions, their workspaces, and each workspace's tabs.
+//
+// This is the app's management surface: workspace and tab navigation live
+// here, on the row they belong to, so the terminal's own overflow menu carries
+// only actions that act on its own content.
+//
+// State comes from the event-fed HerdrStore, so a change made on the desktop
+// or from a gesture in the attached terminal shows up here without this
+// composable asking for it.
+//
+// No edge swipe opens this drawer. A horizontal swipe over an attached
+// terminal moves a herdr tab, and a drawer that also claimed the left edge
+// would fight it on every attempt; it opens only from the app bar's menu
+// button, via [open] and [onClose].
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PermanentDrawerSheet
+import androidx.compose.material3.PermanentNavigationDrawer
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.remotly.app.herdr.HerdrClient
+import com.remotly.app.herdr.HerdrCreateTab
+import com.remotly.app.herdr.HerdrCreateWorkspace
+import com.remotly.app.herdr.HerdrError
+import com.remotly.app.herdr.HerdrEvent
+import com.remotly.app.herdr.HerdrFeed
+import com.remotly.app.herdr.HerdrHostState
+import com.remotly.app.herdr.HerdrSession
+import com.remotly.app.herdr.HerdrStore
+import com.remotly.app.herdr.HerdrTab
+import com.remotly.app.herdr.HerdrWorkspace
+import com.remotly.app.ui.components.LoadingState
+import com.remotly.app.ui.components.NoticeBar
+import com.remotly.app.ui.components.NoticeTone
+import kotlinx.coroutines.launch
+
+/** Where a workspace's terminal is asked for. */
+data class HerdrEnterRequest(val workspaceId: String, val label: String, val session: String?)
+
+/** What a rename or close dialog is acting on. */
+private sealed interface Subject {
+    data class Workspace(val id: String, val label: String) : Subject
+    data class Tab(val id: String, val label: String, val workspaceId: String) : Subject
+}
+
+/** A herdr failure, said in the user's terms. */
+private fun sidebarFailureMessage(e: Throwable): String =
+    if (e is HerdrError) e.detail else "herdr failed."
+
+/**
+ * A [ModalNavigationDrawer] on compact widths, a [PermanentNavigationDrawer]
+ * on wide ones. [content] is the screen's terminal area, laid out beside or
+ * under the drawer depending on [permanent].
+ *
+ * [session] is only the starting point: a sidebar viewing a host with more
+ * than one named herdr session can browse another one without moving the
+ * caller's own terminal, which is why entering a workspace reports the
+ * session it was found under.
+ */
+@Composable
+fun HostSidebar(
+    hostId: String,
+    hostName: String,
+    session: String?,
+    open: Boolean,
+    onClose: () -> Unit,
+    client: HerdrClient,
+    store: HerdrStore,
+    permanent: Boolean = false,
+    currentWorkspaceId: String? = null,
+    onEnterWorkspace: (HerdrEnterRequest) -> Unit,
+    onOpenShells: () -> Unit,
+    onOpenFiles: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    var viewSession by remember(hostId) { mutableStateOf(session) }
+    var sessions by remember { mutableStateOf<List<HerdrSession>>(emptyList()) }
+    // The workspace on screen shows its tabs, held as state so a row can be
+    // opened or closed by hand and reset when the terminal moves elsewhere.
+    var expanded by remember { mutableStateOf(currentWorkspaceId) }
+    var notice by remember { mutableStateOf("") }
+    var renameFor by remember { mutableStateOf<Subject?>(null) }
+    var closeFor by remember { mutableStateOf<Subject?>(null) }
+    var createOpen by remember { mutableStateOf(false) }
+    var draft by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentWorkspaceId) {
+        if (currentWorkspaceId != null) expanded = currentWorkspaceId
+    }
+
+    // Acquired synchronously in `remember`, not `DisposableEffect`: the
+    // entry has to exist before `hostState` is read below, on this same
+    // composition, or the first frame observes the static empty flow and
+    // nothing forces a later recomposition onto the real one.
+    val subscription = remember(hostId, viewSession) { store.subscribe(hostId, viewSession) }
+    DisposableEffect(subscription) { onDispose { subscription.close() } }
+    val state by store.hostState(hostId, viewSession).collectAsStateWithLifecycle()
+
+    // The session list changes rarely and has no event, so it is read when
+    // the sidebar comes up rather than kept live.
+    LaunchedEffect(hostId, viewSession, open, permanent) {
+        if (!open && !permanent) return@LaunchedEffect
+        sessions = runCatching { client.listHerdrSessions(hostId) }.getOrDefault(sessions)
+    }
+
+    val scope = rememberCoroutineScope()
+    fun act(run: suspend () -> Unit) {
+        notice = ""
+        scope.launch {
+            busy = true
+            try {
+                run()
+            } catch (e: Exception) {
+                notice = sidebarFailureMessage(e)
+                // The optimistic paint has to be undone by the truth, not left.
+                store.refresh(hostId, viewSession)
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    fun focusTab(tab: HerdrTab) {
+        // Painted now and confirmed by the event: the row has to answer the
+        // finger, not the round trip.
+        store.applyLocal(hostId, viewSession, HerdrEvent.TabFocused(tab.tabId, tab.workspaceId))
+        act { client.focusHerdrTab(hostId, tab.tabId, viewSession) }
+    }
+
+    fun commitRename() {
+        val subject = renameFor ?: return
+        val label = draft.trim()
+        if (label.isEmpty()) return
+        renameFor = null
+        when (subject) {
+            is Subject.Workspace -> {
+                store.applyLocal(hostId, viewSession, HerdrEvent.WorkspaceRenamed(subject.id, label))
+                act { client.renameHerdrWorkspace(hostId, subject.id, label, viewSession) }
+            }
+            is Subject.Tab -> {
+                store.applyLocal(hostId, viewSession, HerdrEvent.TabRenamed(subject.id, subject.workspaceId, label))
+                act { client.renameHerdrTab(hostId, subject.id, label, viewSession) }
+            }
+        }
+    }
+
+    fun commitClose() {
+        val subject = closeFor ?: return
+        closeFor = null
+        when (subject) {
+            is Subject.Workspace -> act { client.closeHerdrWorkspace(hostId, subject.id, viewSession) }
+            is Subject.Tab -> act { client.closeHerdrTab(hostId, subject.id, viewSession) }
+        }
+    }
+
+    fun commitCreate() {
+        val label = draft.trim()
+        if (label.isEmpty()) return
+        createOpen = false
+        act {
+            client.createHerdrWorkspace(hostId, HerdrCreateWorkspace(label = label), viewSession)
+            expanded = null
+        }
+    }
+
+    // A new tab in the workspace on screen is what the user is looking at, so
+    // it takes focus. A new tab in another workspace must not: herdr focuses
+    // a new tab by default, and that would move the session out from under a
+    // terminal nobody asked to leave.
+    fun newTab(workspaceId: String) {
+        act {
+            client.createHerdrTab(
+                hostId,
+                HerdrCreateTab(workspaceId = workspaceId, focus = workspaceId == currentWorkspaceId),
+                viewSession,
+            )
+        }
+    }
+
+    val drawerContent: @Composable () -> Unit = {
+        HostSidebarBody(
+            hostName = hostName,
+            state = state,
+            sessions = sessions,
+            viewSession = viewSession,
+            onSelectSession = { viewSession = it },
+            currentWorkspaceId = currentWorkspaceId,
+            expanded = expanded,
+            busy = busy,
+            notice = notice,
+            onToggle = { id -> expanded = if (expanded == id) null else id },
+            onEnter = { workspace ->
+                onEnterWorkspace(HerdrEnterRequest(workspace.workspaceId, workspace.label, viewSession))
+                if (!permanent) onClose()
+            },
+            onRenameWorkspace = { workspace ->
+                draft = workspace.label
+                renameFor = Subject.Workspace(workspace.workspaceId, workspace.label)
+            },
+            onCloseWorkspace = { workspace -> closeFor = Subject.Workspace(workspace.workspaceId, workspace.label) },
+            onFocusTab = ::focusTab,
+            onRenameTab = { tab ->
+                draft = tab.label
+                renameFor = Subject.Tab(tab.tabId, tab.label, tab.workspaceId)
+            },
+            onCloseTab = { tab -> closeFor = Subject.Tab(tab.tabId, tab.label, tab.workspaceId) },
+            onNewTab = ::newTab,
+            onNewWorkspace = { draft = ""; createOpen = true },
+            onOpenShells = { onOpenShells(); if (!permanent) onClose() },
+            onOpenFiles = { onOpenFiles(); if (!permanent) onClose() },
+        )
+    }
+
+    if (permanent) {
+        PermanentNavigationDrawer(
+            drawerContent = { PermanentDrawerSheet { drawerContent() } },
+            content = content,
+        )
+    } else {
+        val drawerState = rememberDrawerState(initialValue = if (open) DrawerValue.Open else DrawerValue.Closed)
+        LaunchedEffect(open) { if (open) drawerState.open() else drawerState.close() }
+        LaunchedEffect(drawerState) {
+            snapshotFlow { drawerState.currentValue }.collect { value ->
+                if (value == DrawerValue.Closed && open) onClose()
+            }
+        }
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            gesturesEnabled = false,
+            drawerContent = { ModalDrawerSheet { drawerContent() } },
+            content = content,
+        )
+    }
+
+    if (renameFor != null) {
+        val subject = renameFor
+        AlertDialog(
+            onDismissRequest = { renameFor = null },
+            title = { Text(if (subject is Subject.Tab) "Rename tab" else "Rename workspace") },
+            text = {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    label = { Text("Label") },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = ::commitRename, enabled = draft.isNotBlank()) { Text("Rename") }
+            },
+            dismissButton = { TextButton(onClick = { renameFor = null }) { Text("Cancel") } },
+        )
+    }
+
+    if (createOpen) {
+        AlertDialog(
+            onDismissRequest = { createOpen = false },
+            title = { Text("New workspace") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = draft,
+                        onValueChange = { draft = it },
+                        label = { Text("Label") },
+                        singleLine = true,
+                    )
+                    Text(
+                        "Shown in herdr and here.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = ::commitCreate, enabled = draft.isNotBlank()) { Text("Create") }
+            },
+            dismissButton = { TextButton(onClick = { createOpen = false }) { Text("Cancel") } },
+        )
+    }
+
+    val closing = closeFor
+    if (closing != null) {
+        AlertDialog(
+            onDismissRequest = { closeFor = null },
+            title = { Text("Close ${closing.label}?") },
+            text = {
+                Text(
+                    if (closing is Subject.Tab) {
+                        "The tab and its panes are closed on the host. Anything still running in them is ended."
+                    } else {
+                        "The workspace and its panes are closed on the host. Anything still running in them is ended."
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = ::commitClose,
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
+                ) { Text("Close") }
+            },
+            dismissButton = { TextButton(onClick = { closeFor = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+private val Subject.label: String
+    get() = when (this) {
+        is Subject.Workspace -> label
+        is Subject.Tab -> label
+    }
+
+@Composable
+private fun HostSidebarBody(
+    hostName: String,
+    state: HerdrHostState,
+    sessions: List<HerdrSession>,
+    viewSession: String?,
+    onSelectSession: (String?) -> Unit,
+    currentWorkspaceId: String?,
+    expanded: String?,
+    busy: Boolean,
+    notice: String,
+    onToggle: (String) -> Unit,
+    onEnter: (HerdrWorkspace) -> Unit,
+    onRenameWorkspace: (HerdrWorkspace) -> Unit,
+    onCloseWorkspace: (HerdrWorkspace) -> Unit,
+    onFocusTab: (HerdrTab) -> Unit,
+    onRenameTab: (HerdrTab) -> Unit,
+    onCloseTab: (HerdrTab) -> Unit,
+    onNewTab: (String) -> Unit,
+    onNewWorkspace: () -> Unit,
+    onOpenShells: () -> Unit,
+    onOpenFiles: () -> Unit,
+) {
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
+        Column(Modifier.padding(horizontal = 16.dp)) {
+            Text(hostName, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+            Text(
+                when (state.feed) {
+                    HerdrFeed.LIVE -> "Live from herdr"
+                    HerdrFeed.POLLING -> "Re-reading on a timer"
+                    HerdrFeed.STARTING -> "Connecting"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        if (notice.isNotEmpty()) {
+            NoticeBar(notice, NoticeTone.Danger, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+        }
+
+        if (sessions.size > 1) {
+            SectionHeader("Sessions")
+            Column(Modifier.padding(horizontal = 8.dp)) {
+                for (s in sessions) {
+                    val value = if (s.default) null else s.name
+                    val current = value == viewSession
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .clip(MaterialTheme.shapes.small)
+                            .clickable(role = Role.Button) { onSelectSession(value) }
+                            .semantics {
+                                contentDescription = "Session ${s.name}" + if (s.running) "" else ", not running"
+                                selected = current
+                            }
+                            .padding(horizontal = 8.dp),
+                    ) {
+                        Icon(
+                            if (current) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+                            contentDescription = null,
+                            modifier = Modifier.width(24.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(s.name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                        if (!s.running) {
+                            Text(
+                                "stopped",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        SectionHeader("Workspaces")
+        if (!state.loaded && state.error == null) {
+            LoadingState(label = "Loading workspaces", modifier = Modifier.padding(16.dp))
+        }
+        if (state.error != null && state.workspaces.isEmpty()) {
+            NoticeBar(state.error, NoticeTone.Danger, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+        }
+
+        Column(Modifier.padding(horizontal = 8.dp)) {
+            for (workspace in state.workspaces) {
+                WorkspaceRow(
+                    workspace = workspace,
+                    tabs = state.tabs[workspace.workspaceId].orEmpty(),
+                    current = workspace.workspaceId == currentWorkspaceId,
+                    focusedTabId = state.focusedTabId,
+                    expanded = expanded == workspace.workspaceId,
+                    busy = busy,
+                    onToggle = { onToggle(workspace.workspaceId) },
+                    onEnter = { onEnter(workspace) },
+                    onRename = { onRenameWorkspace(workspace) },
+                    onCloseRequest = { onCloseWorkspace(workspace) },
+                    onFocusTab = onFocusTab,
+                    onRenameTab = onRenameTab,
+                    onCloseTab = onCloseTab,
+                    onNewTab = { onNewTab(workspace.workspaceId) },
+                )
+            }
+        }
+
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+            TextButton(onClick = onNewWorkspace, enabled = !busy) {
+                Icon(Icons.Filled.Add, contentDescription = null)
+                Spacer(Modifier.width(4.dp))
+                Text("New workspace")
+            }
+        }
+
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        SectionHeader("This host")
+        Column(Modifier.padding(horizontal = 8.dp)) {
+            PlainRow(icon = Icons.Filled.Terminal, label = "Shells", hint = "The app's own SSH tabs", onClick = onOpenShells)
+            PlainRow(icon = Icons.Filled.Folder, label = "Files", hint = "Browse and transfer over SFTP", onClick = onOpenFiles)
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+    )
+}
+
+@Composable
+private fun WorkspaceRow(
+    workspace: HerdrWorkspace,
+    tabs: List<HerdrTab>,
+    current: Boolean,
+    focusedTabId: String?,
+    expanded: Boolean,
+    busy: Boolean,
+    onToggle: () -> Unit,
+    onEnter: () -> Unit,
+    onRename: () -> Unit,
+    onCloseRequest: () -> Unit,
+    onFocusTab: (HerdrTab) -> Unit,
+    onRenameTab: (HerdrTab) -> Unit,
+    onCloseTab: (HerdrTab) -> Unit,
+    onNewTab: () -> Unit,
+) {
+    val tabWord = if (tabs.size == 1) "1 tab" else "${tabs.size} tabs"
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            IconButton(
+                onClick = onToggle,
+                modifier = Modifier.semantics {
+                    contentDescription = "${if (expanded) "Hide" else "Show"} tabs in ${workspace.label}"
+                    selected = expanded
+                },
+            ) {
+                Icon(if (expanded) Icons.Filled.ExpandMore else Icons.Filled.ChevronRight, contentDescription = null)
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 48.dp)
+                    .clip(MaterialTheme.shapes.small)
+                    .clickable(enabled = !busy, role = Role.Button, onClick = onEnter)
+                    .semantics {
+                        contentDescription = "Open a terminal on ${workspace.label}" +
+                            (if (current) ", showing now" else "") +
+                            (if (workspace.focused) ", focused in herdr" else "")
+                        selected = current
+                    }
+                    .padding(vertical = 4.dp),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            workspace.label,
+                            maxLines = 1,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            fontWeight = if (current) FontWeight.SemiBold else null,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        // Said in words as well as marked, so the state does not
+                        // live in the colour alone.
+                        if (current) {
+                            Spacer(Modifier.width(6.dp))
+                            Text("showing", style = MaterialTheme.typography.bodySmall)
+                        } else if (workspace.focused) {
+                            Spacer(Modifier.width(6.dp))
+                            Text("focused", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    Text(
+                        tabWord,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            IconButton(onClick = onRename, enabled = !busy) {
+                Icon(Icons.Filled.Edit, contentDescription = "Rename ${workspace.label}")
+            }
+            IconButton(onClick = onCloseRequest, enabled = !busy) {
+                Icon(Icons.Filled.Close, contentDescription = "Close ${workspace.label}")
+            }
+        }
+
+        if (expanded) {
+            Column(Modifier.padding(start = 28.dp)) {
+                for (tab in tabs) {
+                    val tabLabel = tab.label.ifEmpty { tab.number.toString() }
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .clip(MaterialTheme.shapes.small)
+                                .clickable(enabled = !busy, role = Role.Button) { onFocusTab(tab) }
+                                .semantics {
+                                    contentDescription = "Focus tab $tabLabel"
+                                    selected = tab.tabId == focusedTabId
+                                }
+                                .padding(horizontal = 8.dp),
+                        ) {
+                            Icon(
+                                if (tab.tabId == focusedTabId) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+                                contentDescription = null,
+                                modifier = Modifier.width(20.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(tabLabel, maxLines = 1, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                            if (tab.agentStatus == "working") {
+                                Text(
+                                    "working",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        IconButton(onClick = { onRenameTab(tab) }, enabled = !busy) {
+                            Icon(Icons.Filled.Edit, contentDescription = "Rename tab $tabLabel")
+                        }
+                        IconButton(onClick = { onCloseTab(tab) }, enabled = !busy) {
+                            Icon(Icons.Filled.Close, contentDescription = "Close tab $tabLabel")
+                        }
+                    }
+                }
+                TextButton(onClick = onNewTab, enabled = !busy) {
+                    Icon(Icons.Filled.Add, contentDescription = null)
+                    Spacer(Modifier.width(4.dp))
+                    Text("New tab")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlainRow(icon: ImageVector, label: String, hint: String, onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clip(MaterialTheme.shapes.small)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = "$label. $hint" }
+            .padding(horizontal = 8.dp),
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.width(24.dp))
+        Spacer(Modifier.width(10.dp))
+        Column {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}

@@ -5,16 +5,22 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import java.io.File
 
-// Global app settings, schema version 3:
+// Global app settings, schema version 4:
 //
 //   {
-//     "v": 3,
+//     "v": 4,
 //     "themeMode": "system" | "light" | "dark",
 //     "dynamicColor": <bool>,
 //     "terminalFontSize": <int, 8..32>,
 //     "openKeyboardOnTerminal": <bool>,
 //     "showExtraKeyRow": <bool>,
-//     "cursorStyle": "block" | "bar" | "underline"
+//     "cursorStyle": "block" | "bar" | "underline",
+//     "hapticFeedback": <bool>,
+//     "keyRepeatDelayMs": <int, 150..1000>,
+//     "downloadFolderUri": <string>,
+//     "filesShowHidden": <bool>,
+//     "filesSortKey": "name" | "size" | "mtime" | "kind",
+//     "filesSortDirection": "asc" | "desc"
 //   }
 //
 // A file at an older version is missing fields this version added (or, for
@@ -31,6 +37,11 @@ data class AppSettings(
     val cursorStyle: String = CURSOR_BLOCK,
     val hapticFeedback: Boolean = true,
     val keyRepeatDelayMs: Int = DEFAULT_KEY_REPEAT_DELAY,
+    /** Tree URI the file browser saves downloads into, or empty when unset. */
+    val downloadFolderUri: String = "",
+    val filesShowHidden: Boolean = false,
+    val filesSortKey: String = SORT_NAME,
+    val filesSortDirection: String = SORT_ASC,
 ) {
     companion object {
         const val THEME_SYSTEM = "system"
@@ -49,8 +60,17 @@ data class AppSettings(
         const val MAX_FONT_SIZE = 32
         const val DEFAULT_FONT_SIZE = 14
 
+        const val SORT_NAME = "name"
+        const val SORT_SIZE = "size"
+        const val SORT_MTIME = "mtime"
+        const val SORT_KIND = "kind"
+        const val SORT_ASC = "asc"
+        const val SORT_DESC = "desc"
+
         val THEME_MODES = setOf(THEME_SYSTEM, THEME_LIGHT, THEME_DARK)
         val CURSOR_STYLES = setOf(CURSOR_BLOCK, CURSOR_BAR, CURSOR_UNDERLINE)
+        val SORT_KEYS = setOf(SORT_NAME, SORT_SIZE, SORT_MTIME, SORT_KIND)
+        val SORT_DIRECTIONS = setOf(SORT_ASC, SORT_DESC)
     }
 }
 
@@ -86,6 +106,10 @@ class SettingsStore(private val file: File) {
             addProperty("hapticFeedback", normalized.hapticFeedback)
             addProperty("keyRepeatDelayMs", normalized.keyRepeatDelayMs)
             addProperty("cursorStyle", normalized.cursorStyle)
+            addProperty("downloadFolderUri", normalized.downloadFolderUri)
+            addProperty("filesShowHidden", normalized.filesShowHidden)
+            addProperty("filesSortKey", normalized.filesSortKey)
+            addProperty("filesSortDirection", normalized.filesSortDirection)
         }
         writeAtomic(GSON.toJson(obj).toByteArray())
     }
@@ -106,6 +130,12 @@ class SettingsStore(private val file: File) {
                 AppSettings.MIN_KEY_REPEAT_DELAY,
                 AppSettings.MAX_KEY_REPEAT_DELAY,
             ),
+            filesSortKey =
+                if (s.filesSortKey in AppSettings.SORT_KEYS) s.filesSortKey
+                else AppSettings.SORT_NAME,
+            filesSortDirection =
+                if (s.filesSortDirection in AppSettings.SORT_DIRECTIONS) s.filesSortDirection
+                else AppSettings.SORT_ASC,
         )
 
     private fun parse(text: String): AppSettings {
@@ -138,6 +168,11 @@ class SettingsStore(private val file: File) {
                 hapticFeedback = bool(o, "hapticFeedback") ?: defaults.hapticFeedback,
                 keyRepeatDelayMs = int(o, "keyRepeatDelayMs") ?: defaults.keyRepeatDelayMs,
                 cursorStyle = string(o, "cursorStyle") ?: defaults.cursorStyle,
+                downloadFolderUri = string(o, "downloadFolderUri") ?: defaults.downloadFolderUri,
+                filesShowHidden = bool(o, "filesShowHidden") ?: defaults.filesShowHidden,
+                filesSortKey = string(o, "filesSortKey") ?: defaults.filesSortKey,
+                filesSortDirection =
+                    string(o, "filesSortDirection") ?: defaults.filesSortDirection,
             ),
         )
     }
@@ -182,7 +217,7 @@ class SettingsStore(private val file: File) {
         const val FILE_NAME = "settings.json"
 
         private const val TMP_SUFFIX = ".tmp"
-        private const val VERSION = 3
+        private const val VERSION = 4
         private const val VERSION_1 = 1
 
         private val GSON = Gson()

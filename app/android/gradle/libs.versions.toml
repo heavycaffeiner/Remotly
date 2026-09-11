@@ -1,20 +1,53 @@
 # Shared version catalog for the Android app.
 [versions]
+agp = "9.2.1"
+kotlin = "2.2.0"
+coroutines = "1.11.0"
+
 junit = "4.13.2"
-coreKtx = "1.10.1"
-fragmentKtx = "1.5.6"
+coreKtx = "1.19.0"
 gson = "2.10.1"
 materialComponents = "1.12.0"
+
+activityCompose = "1.13.0"
+composeBom = "2026.09.00"
+lifecycle = "2.11.0"
+navigationCompose = "2.10.1"
+
 androidxTestRunner = "1.6.2"
 androidxTestRules = "1.6.1"
 androidxTestExtJunit = "1.2.1"
 
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+
 [libraries]
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
-androidx-fragment = { group = "androidx.fragment", name = "fragment", version.ref = "fragmentKtx" }
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
+
+# Material You dynamic color reads. The Compose UI is Material 3; this library
+# supplies the platform dynamic-color support gate and the palette extraction
+# the Compose theme feeds from.
 material = { group = "com.google.android.material", name = "material", version.ref = "materialComponents" }
+
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
+androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
+androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }
+androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
+
 androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTestRunner" }
 androidx-test-rules = { group = "androidx.test", name = "rules", version.ref = "androidxTestRules" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExtJunit" }
