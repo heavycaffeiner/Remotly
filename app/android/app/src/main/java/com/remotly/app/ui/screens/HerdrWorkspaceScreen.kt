@@ -77,10 +77,12 @@ import androidx.compose.ui.platform.LocalContext
 import com.remotly.app.notify.TerminalNotifications
 import kotlin.math.abs
 import kotlin.math.hypot
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 
 /** The plugin that carries the actions herdr's own CLI cannot express. */
@@ -235,6 +237,10 @@ fun HerdrWorkspaceScreen(
             lifecycleOwner.lifecycle.addObserver(observer)
             awaitClose { lifecycleOwner.lifecycle.removeObserver(observer) }
         }
+            // The store collects on Dispatchers.Default, and a callbackFlow
+            // body runs in the collector's context. Registering a lifecycle
+            // observer off the main thread throws.
+            .flowOn(Dispatchers.Main.immediate)
     }
 
     val client = remember { HerdrClient() }

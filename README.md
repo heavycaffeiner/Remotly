@@ -2,9 +2,9 @@
 
 A standalone SSH and SFTP client for Android.
 
-| Hosts | Terminal | Herdr workspaces |
-| --- | --- | --- |
-| ![Hosts screen](docs/images/hosts.png) | ![SSH terminal](docs/images/terminal.png) | ![Herdr workspaces](docs/images/workspaces.png) |
+| Hosts | Terminal | Files | Herdr workspaces |
+| --- | --- | --- | --- |
+| ![Hosts screen](docs/images/hosts.png) | ![SSH terminal](docs/images/terminal.png) | ![File browser](docs/images/files.png) | ![Herdr workspaces](docs/images/workspaces.png) |
 
 ## What it does
 
@@ -14,12 +14,16 @@ A standalone SSH and SFTP client for Android.
 - **A file browser that holds the whole folder.** A directory is read once and
   kept, so search covers every entry in it rather than the part that happened
   to be on screen, sorting is instant, and a folder already visited is redrawn
-  on the way back up while it refreshes behind the list.
-- **Transfers that stay off the JS thread.** Both directions move between the
+  on the way back up while it refreshes behind the list. It opens as a tab
+  beside the shells and keeps its directory, so copying between two places on
+  one host does not mean leaving the terminal.
+- **Transfers that never buffer the file.** Both directions move between the
   content URI and the server in native code, with SFTP requests pipelined
-  rather than one round trip at a time. A resumed upload rewinds past anything
-  the server cannot vouch for instead of appending to whatever length it
-  reports.
+  rather than one round trip at a time, and progress throttled so a transfer
+  does not repaint the screen thousands of times. A resumed upload rewinds
+  past anything the server cannot vouch for instead of appending to whatever
+  length it reports. A name collision asks Keep both or Replace rather than
+  picking one.
 - **Full shell environment.** Every session starts from a login shell, so
   PATH, aliases, functions, and version managers (nvm, pyenv, asdf) are all
   present.
@@ -86,7 +90,9 @@ Requires JDK 17 or later, the Android SDK with an NDK, and Go 1.26.
 
 The app links a Go SSH/SFTP core built with gomobile. It is a build output
 rather than a checked-in binary, so a fresh clone builds it once before Gradle
-can resolve it:
+can resolve it. gomobile runs `javac` and reads `ANDROID_HOME` itself, so a
+JRE on `PATH` or an SDK found only through `ANDROID_SDK_ROOT` fails there
+while Gradle's own toolchain is fine:
 
 ```sh
 # Produces app/android/app/libs/sshcore.aar. Needed again only after a change
@@ -157,8 +163,20 @@ Pushing a `v*` tag builds and attaches to the GitHub release:
 | --- | --- |
 | `app-release.apk` | Signed Android app |
 
-`scripts/release.sh` builds the same signed APK locally, alongside a
-`SHA256SUMS` file for verification.
+`scripts/release.sh` builds the same APK locally into `dist/`, with a
+`SHA256SUMS` file and the signing identity beside it. It reads its keystore
+from a different set of variables than Gradle does:
+
+```sh
+export ANDROID_KEYSTORE=/absolute/path/to/release.jks
+export ANDROID_KEYSTORE_PASSWORD=...
+export ANDROID_KEY_ALIAS=...
+export ANDROID_KEY_PASSWORD=...   # only when the key has its own password
+scripts/release.sh
+```
+
+Without `ANDROID_KEYSTORE` it produces `remotly-android-development.apk`,
+signed with the debug key and named so nobody mistakes it for a release.
 
 ## License
 
