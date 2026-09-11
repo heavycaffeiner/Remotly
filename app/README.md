@@ -246,6 +246,17 @@ drawn immediately and refreshed behind the list. A refresh never blanks what
 is on screen, and a listing that arrives after the user has navigated on is
 dropped by a generation counter.
 
+The browser opens as a tab in the session strip, beside the shells, so
+copying between two places on one host does not mean leaving the terminal.
+It owns no SSH session: the SFTP connection is per host and the bridge owns
+it, so opening one connects nothing and closing one must not tear down a
+channel it never had (`SshSessions.closeTab`). Each tab keeps its directory
+in `FilesTabs`, outside composition, because an unselected tab is not
+composed and would otherwise come back at the root of a tree the user had
+walked into. The terminal underneath stays composed while a browser is in
+front, since it is what measures the grid every session is opened against.
+The host row's badge counts a host's open tabs, browsers included.
+
 Both transfer directions have a native path that never copies file bytes
 through an intermediate buffer: the app moves between the content URI and the
 server inside Kotlin, and only throttled progress events reach the screen. The

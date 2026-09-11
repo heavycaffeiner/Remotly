@@ -361,6 +361,30 @@ class SshSessionsTest {
     }
 
     @Test
+    fun `a files tab opens no connection and is usable at once`() {
+        val id = freshHost()
+        SshSessions.openTab(id, kind = SshTabKind.Files)
+
+        assertTrue(ssh.connectCalls.isEmpty())
+        assertEquals(SshTabPhase.Active, tabsOf(id).tabs.single().phase)
+        assertEquals("Files", tabsOf(id).tabs.single().title)
+    }
+
+    @Test
+    fun `closing a files tab never closes a channel it never opened`() {
+        val id = freshHost()
+        SshSessions.openTab(id)
+        val shell = tabsOf(id).tabs.single().sessionId
+        SshSessions.openTab(id, kind = SshTabKind.Files)
+        val files = tabsOf(id).tabs.first { it.sessionId != shell }.sessionId
+
+        SshSessions.closeTab(id, files)
+
+        assertTrue(ssh.closeCalls.isEmpty())
+        assertEquals(shell, tabsOf(id).tabs.single().sessionId)
+    }
+
+    @Test
     fun `writes input under the active tab's bare session id`() {
         val id = freshHost()
         SshSessions.openTab(id)

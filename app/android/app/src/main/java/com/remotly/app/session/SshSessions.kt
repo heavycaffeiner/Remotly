@@ -138,7 +138,10 @@ object SshSessions {
             if (surfaceCount(current.tabs, kind) >= MAX_SSH_TABS) return null
             e.seq += 1
             val sessionId = mintSessionId(e.seq)
-            val resolvedTitle = title ?: "Shell ${nextShellNumber(current.tabs.tabs)}"
+            val resolvedTitle = title ?: when (kind) {
+                SshTabKind.Files -> nextFilesTitle(current.tabs.tabs)
+                else -> "Shell ${nextShellNumber(current.tabs.tabs)}"
+            }
             val (afterAdd, tab) = addSshTab(current.tabs, sessionId, resolvedTitle, kind)
             if (tab == null) return null
             // A given title is pinned: it names the workspace this tab attaches
@@ -159,6 +162,12 @@ object SshSessions {
                         }
                     },
                 )
+            }
+            if (kind == SshTabKind.Files) {
+                // Nothing to connect, so the tab is usable at once rather
+                // than sitting in the connecting phase a shell starts in.
+                e.flow.value = current.copy(tabs = setSshTabPhase(next, sessionId, SshTabPhase.Active, ""))
+                return sessionId
             }
             e.flow.value = current.copy(tabs = next)
             if (!runs.isNullOrEmpty()) pendingRuns[hostId to sessionId] = runs
@@ -257,8 +266,10 @@ object SshSessions {
         val e = entry(hostId)
         synchronized(e) {
             val current = e.flow.value
-            if (findSshTab(current.tabs, sessionId) == null) return
-            transport.close(hostId, sessionId)
+            val tab = findSshTab(current.tabs, sessionId) ?: return
+            // A files tab owns no SSH session; closing one must not tear down
+            // a channel that was never opened for it.
+            if (tab.kind == SshTabKind.Files) FilesTabs.forget(sessionId) else transport.close(hostId, sessionId)
             val nextPrompt = if (current.hostKeyPrompt?.sessionId == sessionId) null else current.hostKeyPrompt
             e.flow.value = current.copy(tabs = removeSshTab(current.tabs, sessionId), hostKeyPrompt = nextPrompt)
         }

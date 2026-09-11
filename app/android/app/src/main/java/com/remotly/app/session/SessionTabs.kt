@@ -21,12 +21,14 @@ enum class SshTabPhase { Connecting, HostKey, Active, Closed, Failed }
 /**
  * What a tab holds.
  *
- * A shell tab owns a live SSH session. A workspace tab is a shell too, but it
- * is attached to one herdr workspace and is driven by that workspace's own
- * screen, so it is budgeted apart from the shell tabs and never appears in
- * their strip.
+ * A shell tab owns a live SSH session. A files tab owns none: the SFTP
+ * connection is per host and the bridge owns it, so the tab is only a place
+ * to render the browser, and it sits in the shell strip beside them. A
+ * workspace tab is a shell too, but it is attached to one herdr workspace and
+ * is driven by that workspace's own screen, so it is budgeted apart from the
+ * shell tabs and never appears in their strip.
  */
-enum class SshTabKind { Shell, Workspace }
+enum class SshTabKind { Shell, Files, Workspace }
 
 /** The one multiplexer a tab can be addressed to; a swipe gesture targets it. */
 const val MUX_HERDR = "herdr"
@@ -161,6 +163,19 @@ fun nextShellNumber(tabs: List<SshTab>): Int {
     var n = 1
     while (used.contains(n)) n += 1
     return n
+}
+
+private val FILES_TITLE = Regex("^Files(?: (\\d+))?\$")
+
+/** The next free browser title: "Files", then "Files 2", as tabs come and go. */
+fun nextFilesTitle(tabs: List<SshTab>): String {
+    val used = tabs
+        .mapNotNull { FILES_TITLE.matchEntire(it.title)?.groupValues?.get(1) }
+        .map { if (it.isEmpty()) 1 else it.toIntOrNull() ?: 1 }
+        .toHashSet()
+    var n = 1
+    while (used.contains(n)) n += 1
+    return if (n == 1) "Files" else "Files $n"
 }
 
 private val GENERIC_SHELL_TITLE = Regex("^Shell \\d+$")

@@ -191,8 +191,18 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
     }
     val host = lookup?.host
 
-    val shellTabs = hostState.tabs.tabs.filter { it.kind == SshTabKind.Shell }
+    // A files tab sits in this strip beside the shells: the browser is a
+    // place on the host, not a screen to leave the terminal for.
+    val shellTabs = hostState.tabs.tabs.filter { it.kind != SshTabKind.Workspace }
     val activeTab: SshTab? = shellTabs.firstOrNull { it.sessionId == hostState.tabs.activeSessionId }
+    val filesTab = activeTab?.takeIf { it.kind == SshTabKind.Files }
+
+    // The shell the terminal keeps showing while a files tab is in front.
+    var lastShellId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(activeTab?.sessionId, activeTab?.kind) {
+        val shell = activeTab?.takeIf { it.kind == SshTabKind.Shell } ?: return@LaunchedEffect
+        lastShellId = shell.sessionId
+    }
 
     // Coming back from a workspace tab leaves that terminal active, which
     // this screen does not show. Land on the shell tab that was last open.
@@ -323,7 +333,7 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
             icon = Icons.Filled.Folder,
             title = "Files",
             enabled = hostId.isNotEmpty(),
-            onClick = { nav.navigate(Routes.files(hostId)) },
+            onClick = { SshSessions.openTab(hostId, kind = SshTabKind.Files) },
         ),
         ScreenAction(
             key = "new",
@@ -432,9 +442,24 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
             keyRepeatDelayMs = settings.keyRepeatDelayMs,
             haptics = settings.hapticFeedback,
             onKeyboard = { requestKeyboard.value() },
+            pane = if (filesTab == null) {
+                null
+            } else {
+                {
+                    FilesScreen(
+                        hostId = hostId,
+                        onBack = { SshSessions.closeTab(hostId, filesTab.sessionId) },
+                        tabId = filesTab.sessionId,
+                        bare = true,
+                    )
+                }
+            },
         ) { paneModifier ->
             TerminalPane(
-                sessionKey = hostState.tabs.activeSessionId ?: "",
+                // A files tab owns no session, so the terminal underneath
+                // stays on the shell that was last in front instead of being
+                // rekeyed to an id with nothing behind it.
+                sessionKey = (if (filesTab == null) hostState.tabs.activeSessionId else lastShellId) ?: "",
                 fontSizeSp = settings.terminalFontSize,
                 cursorStyle = settings.cursorStyle,
                 onInput = { bytes ->
@@ -459,7 +484,7 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
                 handle = terminal,
                 // The setting is honoured here rather than on a timer: this
                 // is the first moment the terminal can actually take input.
-                onReady = { if (settings.openKeyboardOnTerminal) requestKeyboard.value() },
+                onReady = { if (settings.openKeyboardOnTerminal && filesTab == null) requestKeyboard.value() },
                 onNotify = ::notifyFromTerminal,
             )
         }

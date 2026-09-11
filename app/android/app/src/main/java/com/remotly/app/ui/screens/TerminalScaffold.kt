@@ -179,6 +179,10 @@ fun TerminalScaffold(
     keyRepeatDelayMs: Int = REPEAT_DELAY_MS,
     haptics: Boolean = false,
     onKeyboard: () -> Unit = {},
+    // Drawn over the terminal, for a tab that shows something else. The
+    // terminal underneath stays composed because it is what measures the
+    // grid every session is opened against.
+    pane: (@Composable () -> Unit)? = null,
     content: @Composable (Modifier) -> Unit,
 ) {
     // Edge to edge is on for the window, so this consumes the system bars
@@ -193,7 +197,7 @@ fun TerminalScaffold(
             onMenu = onMenu,
             actions = actions,
             onActionsMenuOpen = onActionsMenuOpen,
-            showKeyboardAction = !showKeyRow,
+            showKeyboardAction = !showKeyRow && pane == null,
             onKeyboard = onKeyboard,
         )
 
@@ -220,6 +224,9 @@ fun TerminalScaffold(
             // screen that waits for a real grid before opening its first
             // session would never get one if the card could unmount it.
             content(Modifier.fillMaxSize())
+            if (pane != null) {
+                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) { pane() }
+            }
             if (failure != null) {
                 TerminalFailureCard(failure)
             }
@@ -228,7 +235,7 @@ fun TerminalScaffold(
             }
         }
 
-        if (showKeyRow) {
+        if (showKeyRow && pane == null) {
             TerminalKeyRow(
                 onKey = onKey,
                 onModifier = onModifier,

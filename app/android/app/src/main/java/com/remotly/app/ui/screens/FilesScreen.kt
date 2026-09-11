@@ -94,6 +94,7 @@ import com.remotly.app.files.nameExists
 import com.remotly.app.files.orderEntries
 import com.remotly.app.files.parentPath
 import com.remotly.app.files.parseBreadcrumbs
+import com.remotly.app.session.FilesTabs
 import com.remotly.app.settings.AppSettings
 import com.remotly.app.settings.SettingsState
 import com.remotly.app.ssh.SftpBridge
@@ -186,10 +187,15 @@ private fun queryPickedUpload(context: Context, uri: Uri): PickedUpload {
  * server had already sent, and asking for the next one re-read the directory
  * from the start. Ordering and search run over the full list and the lazy
  * column virtualizes the rows.
+ *
+ * Embedded in a session tab it draws no app bar of its own, since the
+ * terminal screen owns the title and the strip, and it remembers its
+ * directory under [tabId] so switching away and back does not drop the user
+ * at the root. [onBack] closes the tab there rather than popping a route.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FilesScreen(hostId: String, onBack: () -> Unit) {
+fun FilesScreen(hostId: String, onBack: () -> Unit, tabId: String = "", bare: Boolean = false) {
     val scope = rememberCoroutineScope()
     val settings by SettingsState.settings.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -201,7 +207,7 @@ fun FilesScreen(hostId: String, onBack: () -> Unit) {
     // settled and never reports anything.
     var pollEpoch by remember { mutableIntStateOf(0) }
     var keyAnswered by remember { mutableStateOf(false) }
-    var cwd by remember { mutableStateOf("/") }
+    var cwd by remember { mutableStateOf(FilesTabs.remembered(tabId) ?: "/") }
     var entries by remember { mutableStateOf<List<FileEntry>?>(null) }
     var error by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
@@ -261,6 +267,7 @@ fun FilesScreen(hostId: String, onBack: () -> Unit) {
 
     fun openDir(path: String) {
         cwd = path
+        FilesTabs.setCwd(tabId, path)
         // Navigating abandons a pull refresh of the old directory; its load
         // is dropped by the generation check and would never clear the control.
         refreshing = false
@@ -391,7 +398,9 @@ fun FilesScreen(hostId: String, onBack: () -> Unit) {
                     val home = withContext(Dispatchers.IO) {
                         runCatching { SftpBridge.realPath(hostId, ".") }.getOrDefault("/")
                     }
-                    openDir(home.ifEmpty { "/" })
+                    // A tab that has been here before goes back to where it
+                    // was, not to the home directory it first landed in.
+                    openDir(FilesTabs.remembered(tabId) ?: home.ifEmpty { "/" })
                     return@LaunchedEffect
                 }
 
@@ -486,9 +495,10 @@ fun FilesScreen(hostId: String, onBack: () -> Unit) {
 
     RemotlyScreen(
         title = "Files",
-        onBack = onBack,
+        onBack = if (bare) null else onBack,
         actions = actions,
         snackbarHostState = snackbar,
+        bare = bare,
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             when (phase) {

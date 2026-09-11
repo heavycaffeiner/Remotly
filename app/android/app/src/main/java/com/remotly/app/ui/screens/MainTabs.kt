@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -71,6 +72,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
+import com.remotly.app.session.SshSessions
 import com.remotly.app.ssh.SshHost
 import com.remotly.app.ssh.SshHostStoreException
 import com.remotly.app.ssh.SshModule
@@ -203,17 +205,22 @@ private data class HostRow(
     val name: String,
     val detail: String,
     val accessibilityLabel: String,
+    /** Open tabs for this host. Zero draws no badge. */
+    val sessions: Int = 0,
 )
 
-private fun SshHost.toRow(): HostRow {
+private fun SshHost.toRow(sessions: Int): HostRow {
     val name = displayName.ifBlank { "$username@$host" }
     val authLabel = if (authKind == SshHost.AUTH_KEY) "key" else "password"
     val endpoint = "$username@$host:$port"
+    val base = "$name, SSH host $endpoint, $authLabel authentication"
+    val open = if (sessions <= 0) "" else ", $sessions open ${if (sessions == 1) "session" else "sessions"}"
     return HostRow(
         host = this,
         name = name,
         detail = "$endpoint ($authLabel)",
-        accessibilityLabel = "$name, SSH host $endpoint, $authLabel authentication",
+        accessibilityLabel = base + open,
+        sessions = sessions,
     )
 }
 
@@ -245,7 +252,8 @@ private fun HostsContent(nav: NavHostController) {
             }
             if (generation.get() != gen) return@launch
             result.onSuccess { list ->
-                hosts = list.map { it.toRow() }
+                val counts = SshSessions.sessionCounts()
+                hosts = list.map { it.toRow(counts[it.id] ?: 0) }
                 phase = HostsPhase.Ready
             }.onFailure {
                 errorMessage = it.message ?: "The host store could not be read."
@@ -475,6 +483,17 @@ private fun HostRowCard(row: HostRow, onOpen: (HostRow) -> Unit, onMenu: (HostRo
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+            if (row.sessions > 0) {
+                // A count, not a coloured dot: the number is the information,
+                // and a mark alone would carry it for nobody who cannot see it.
+                Badge(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ) {
+                    Text("${row.sessions}")
+                }
+                Spacer(Modifier.width(4.dp))
             }
             // The visible way into the same menu long press opens: a hidden
             // long press is undiscoverable and unusable with a screen reader.

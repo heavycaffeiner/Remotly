@@ -258,4 +258,22 @@ class SessionTabsTest {
         )
         assertTrue(shouldShowTabStrip(tabs))
     }
+
+    @Test
+    fun `browser titles fill the lowest free slot as tabs come and go`() {
+        assertEquals("Files", nextFilesTitle(emptyList()))
+
+        val first = listOf(SshTab("f1", "Files", SshTabPhase.Active, "", SshTabKind.Files))
+        assertEquals("Files 2", nextFilesTitle(first))
+
+        val gap = listOf(
+            SshTab("f1", "Files", SshTabPhase.Active, "", SshTabKind.Files),
+            SshTab("f3", "Files 3", SshTabPhase.Active, "", SshTabKind.Files),
+        )
+        assertEquals("Files 2", nextFilesTitle(gap))
+
+        // A shell called "Filesystem" is not a browser slot.
+        val other = listOf(SshTab("s1", "Filesystem", SshTabPhase.Active, "", SshTabKind.Shell))
+        assertEquals("Files", nextFilesTitle(other))
+    }
 }
