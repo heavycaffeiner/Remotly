@@ -19,7 +19,6 @@ object Routes {
 
     const val HOST_EDITOR = "hostEditor?$ARG_HOST_ID={$ARG_HOST_ID}"
     const val SSH_TERMINAL = "sshTerminal/{$ARG_HOST_ID}"
-    const val FILES = "files/{$ARG_HOST_ID}"
     const val HERDR_WORKSPACE =
         "herdr/{$ARG_HOST_ID}?$ARG_HOST_NAME={$ARG_HOST_NAME}" +
             "&$ARG_WORKSPACE_ID={$ARG_WORKSPACE_ID}" +
@@ -32,7 +31,6 @@ object Routes {
 
     fun sshTerminal(hostId: String): String = "sshTerminal/$hostId"
 
-    fun files(hostId: String): String = "files/$hostId"
 
     fun herdrWorkspace(
         hostId: String,

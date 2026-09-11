@@ -20,7 +20,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.remotly.app.settings.SettingsState
 import com.remotly.app.ui.components.TransferBar
-import com.remotly.app.ui.screens.FilesScreen
+import com.remotly.app.ui.screens.SettingsContent
 import com.remotly.app.ui.screens.HerdrWorkspaceScreen
 import com.remotly.app.ui.screens.HostEditorScreen
 import com.remotly.app.ui.screens.MainTabs
@@ -65,6 +65,7 @@ private fun RemotlyNavHost() {
     val nav = rememberNavController()
     NavHost(navController = nav, startDestination = Routes.HOSTS) {
         composable(Routes.HOSTS) { MainTabs(nav) }
+        composable(Routes.SETTINGS) { MainTabs(nav) { SettingsContent() } }
 
         composable(
             Routes.HOST_EDITOR,
@@ -92,15 +93,6 @@ private fun RemotlyNavHost() {
             )
         }
 
-        composable(
-            Routes.FILES,
-            arguments = listOf(navArgument(Routes.ARG_HOST_ID) { type = NavType.StringType }),
-        ) { entry ->
-            FilesScreen(
-                hostId = entry.arguments?.getString(Routes.ARG_HOST_ID).orEmpty(),
-                onBack = { nav.popBackStack() },
-            )
-        }
 
         composable(
             Routes.HERDR_WORKSPACE,

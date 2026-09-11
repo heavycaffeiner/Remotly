@@ -143,7 +143,7 @@ and `tab close`.
 Everything that manages a host lives in the sidebar (`HostSidebar`): its
 sessions, their workspaces, and each workspace's tabs, with rename, close, and
 new-tab on the row they belong to. It opens from the bar and, where the window
-is at least 720dp wide, it is simply always there. It never takes an edge
+is at least 840dp wide, it is simply always there. It never takes an edge
 swipe: a horizontal swipe over an attached terminal moves a herdr tab, and a
 drawer on that edge would fight it. The sidebar is also the whole non-gesture
 path, which is why the terminal's menu no longer carries tab and workspace

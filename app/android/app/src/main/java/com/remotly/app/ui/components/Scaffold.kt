@@ -31,6 +31,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 /**
@@ -155,11 +157,11 @@ private fun ScreenActions(
 @Composable
 private fun BarTitle(title: String, subtitle: String?) {
     if (subtitle == null) {
-        Text(title, maxLines = 1)
+        Text(title, maxLines = 1, modifier = Modifier.semantics { heading() })
         return
     }
     Column {
-        Text(title, maxLines = 1)
+        Text(title, maxLines = 1, modifier = Modifier.semantics { heading() })
         Text(
             subtitle,
             maxLines = 1,

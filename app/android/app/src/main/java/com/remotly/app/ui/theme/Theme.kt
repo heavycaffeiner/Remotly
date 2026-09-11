@@ -15,17 +15,12 @@ import androidx.compose.ui.unit.dp
 import com.remotly.app.settings.AppSettings
 
 /**
- * Rounder than Material's own scale, which is what carries the look here.
- *
- * The app is lists of cards and chips, and 12dp on a card reads as a
- * rectangle with the corners taken off. Only the two tokens the app actually
- * renders through are moved: cards take medium, chips take small. Buttons are
- * left alone because 20dp against a 40dp button is already the full round,
- * and dialogs sit at 28dp.
+ * Compact corners keep list rows and control groups visually lighter while
+ * preserving the full touch bounds of their components.
  */
 private val RemotlyShapes = Shapes(
-    small = RoundedCornerShape(12.dp),
-    medium = RoundedCornerShape(18.dp),
+    small = RoundedCornerShape(8.dp),
+    medium = RoundedCornerShape(12.dp),
 )
 
 /** True when the platform can derive a palette from the wallpaper. */

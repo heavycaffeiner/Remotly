@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -30,6 +32,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -49,13 +53,9 @@ import com.remotly.app.transfers.TransferRegistry
  */
 
 /**
- * Clearance under the bar, matching the height of the shell's navigation
- * bar.
- *
- * The bar floats over the whole navigation graph, so it cannot measure the
- * tab bar beneath it. Sitting on the tabs covers them; this keeps it just
- * above. A screen with no tab bar shows it a little higher than it strictly
- * needs to be, which reads as a margin rather than as a defect.
+ * Clearance under the bar, matching the bottom controls already reserved by
+ * the shell. The existing 80dp keeps the terminal's 56dp key row clear; it is
+ * placement only and does not intercept terminal input.
  */
 private val TAB_BAR_HEIGHT = 80.dp
 
@@ -70,16 +70,17 @@ val TRANSFER_BAR_HEIGHT = 52.dp
 /** [TRANSFER_BAR_HEIGHT] while the bar is on screen, zero while it is not. */
 @Composable
 fun transferBarClearance(): Dp {
-    val transfers by TransferRegistry.transfers.collectAsStateWithLifecycle()
-    return if (transfers.any(TransferRegistry::raisesBar)) TRANSFER_BAR_HEIGHT else 0.dp
+    val raised by TransferRegistry.barRaised.collectAsStateWithLifecycle()
+    return if (raised) TRANSFER_BAR_HEIGHT else 0.dp
 }
 
 @Composable
 fun TransferBar(modifier: Modifier = Modifier) {
     val transfers by TransferRegistry.transfers.collectAsStateWithLifecycle()
+    val barRaised by TransferRegistry.barRaised.collectAsStateWithLifecycle()
     var sheetOpen by remember { mutableStateOf(false) }
 
-    val raised = transfers.filter(TransferRegistry::raisesBar)
+    val raised = if (barRaised) transfers.filter(TransferRegistry::raisesBar) else emptyList()
     if (raised.isNotEmpty()) {
         BarSurface(raised, onOpen = { sheetOpen = true }, modifier = modifier)
     }
@@ -97,11 +98,14 @@ private fun BarSurface(
 ) {
     val running = raised.count { it.phase == TransferPhase.Active }
     val failed = raised.count { it.phase == TransferPhase.Error }
-    val summary = when {
-        running > 0 && failed > 0 -> "$running running, $failed failed"
-        running > 0 -> if (running == 1) "1 transfer running" else "$running transfers running"
-        else -> if (failed == 1) "1 transfer failed" else "$failed transfers failed"
-    }
+    val completed = raised.count { it.phase == TransferPhase.Done }
+    val summary = buildList {
+        if (running > 0) add(if (running == 1) "1 transfer running" else "$running transfers running")
+        if (failed > 0) add(if (failed == 1) "1 transfer failed" else "$failed transfers failed")
+        if (completed > 0) {
+            add(if (completed == 1) "1 transfer complete" else "$completed transfers complete")
+        }
+    }.joinToString(", ")
     // The tone follows the worst state, and the summary says which in words,
     // so the state is never carried by colour alone.
     val container =
@@ -167,7 +171,11 @@ private fun TransferSheet(transfers: List<TransferRecord>, onDismiss: () -> Unit
             Modifier.fillMaxWidth().padding(start = 24.dp, end = 8.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Transfers", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            Text(
+                "Transfers",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f).semantics { heading() },
+            )
             if (transfers.any { it.phase != TransferPhase.Active }) {
                 TextButton(onClick = { TransferRegistry.clearSettled() }) { Text("Clear finished") }
             }
@@ -180,13 +188,15 @@ private fun TransferSheet(transfers: List<TransferRecord>, onDismiss: () -> Unit
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
             )
         }
-        for (record in transfers) {
-            TransferRow(record)
+        // Bounded and scrollable: history keeps twenty settled rows, which at
+        // a large font scale is taller than the sheet.
+        LazyColumn(Modifier.weight(1f, fill = false)) {
+            items(transfers, key = { it.id }) { record -> TransferRow(record) }
         }
         // SFTP carries no whole-file hash, so a finished transfer is not a
         // verified one. Saying so is cheaper than implying otherwise.
         Text(
-            "Transfers can be resumed. SFTP carries no whole-file checksum, so none is shown.",
+            "Failed transfers can be resumed. SFTP carries no whole-file checksum, so none is shown.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),

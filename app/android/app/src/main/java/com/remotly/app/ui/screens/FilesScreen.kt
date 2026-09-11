@@ -19,13 +19,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -46,7 +46,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -71,8 +70,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -85,9 +88,9 @@ import com.remotly.app.files.FileOrder
 import com.remotly.app.files.SftpTransferOps
 import com.remotly.app.files.SortDirection
 import com.remotly.app.files.SortKey
-import com.remotly.app.files.entryAccessibilityLabel
 import com.remotly.app.files.entryDescription
 import com.remotly.app.files.filterEntries
+import com.remotly.app.files.isHidden
 import com.remotly.app.files.isPlainName
 import com.remotly.app.files.joinPath
 import com.remotly.app.files.nameExists
@@ -95,15 +98,13 @@ import com.remotly.app.files.orderEntries
 import com.remotly.app.files.parentPath
 import com.remotly.app.files.parseBreadcrumbs
 import com.remotly.app.session.FilesTabs
-import com.remotly.app.settings.AppSettings
 import com.remotly.app.settings.SettingsState
 import com.remotly.app.ssh.SftpBridge
 import com.remotly.app.ssh.SftpEntry
+import com.remotly.app.ui.ScreenHorizontalPadding
 import com.remotly.app.ui.components.EmptyState
 import com.remotly.app.ui.components.ErrorState
 import com.remotly.app.ui.components.LoadingState
-import com.remotly.app.ui.components.NoticeBar
-import com.remotly.app.ui.components.NoticeTone
 import com.remotly.app.ui.components.RemotlyScreen
 import com.remotly.app.ui.components.ScreenAction
 import kotlinx.coroutines.Dispatchers
@@ -180,22 +181,16 @@ private fun queryPickedUpload(context: Context, uri: Uri): PickedUpload {
 }
 
 /**
- * The SFTP file browser.
+ * The SFTP file browser. A directory is read once and held whole, since SFTP
+ * readdir has no resumable cursor; sorting and search run over the full list.
  *
- * A directory is read once and held whole. SFTP readdir has no cursor a
- * client can resume from, so a page was only ever a slice of a listing the
- * server had already sent, and asking for the next one re-read the directory
- * from the start. Ordering and search run over the full list and the lazy
- * column virtualizes the rows.
- *
- * Embedded in a session tab it draws no app bar of its own, since the
- * terminal screen owns the title and the strip, and it remembers its
- * directory under [tabId] so switching away and back does not drop the user
- * at the root. [onBack] closes the tab there rather than popping a route.
+ * The terminal screen owns the app bar and tab strip. This screen remembers
+ * its directory under [tabId] and closes the tab through [onClose] when a
+ * host key is rejected.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FilesScreen(hostId: String, onBack: () -> Unit, tabId: String = "", bare: Boolean = false) {
+fun FilesScreen(hostId: String, onClose: () -> Unit, tabId: String) {
     val scope = rememberCoroutineScope()
     val settings by SettingsState.settings.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -206,6 +201,9 @@ fun FilesScreen(hostId: String, onBack: () -> Unit, tabId: String = "", bare: Bo
     // poll below. Without it the screen waits for a session that already
     // settled and never reports anything.
     var pollEpoch by remember { mutableIntStateOf(0) }
+    // A retry sets this before bumping [pollEpoch]. Accepting a host key does
+    // not reconnect: the paused connection continues with the decision.
+    var connectRequested by remember { mutableStateOf(true) }
     var keyAnswered by remember { mutableStateOf(false) }
     var cwd by remember { mutableStateOf(FilesTabs.remembered(tabId) ?: "/") }
     var entries by remember { mutableStateOf<List<FileEntry>?>(null) }
@@ -216,6 +214,7 @@ fun FilesScreen(hostId: String, onBack: () -> Unit, tabId: String = "", bare: Bo
     // lives here rather than in settings.
     var query by remember { mutableStateOf("") }
     var searchOpen by remember { mutableStateOf(false) }
+    var addMenuOpen by remember { mutableStateOf(false) }
     var menuFor by remember { mutableStateOf<FileEntry?>(null) }
     var prompt by remember { mutableStateOf<Prompt?>(null) }
     var promptText by remember { mutableStateOf("") }
@@ -378,6 +377,15 @@ fun FilesScreen(hostId: String, onBack: () -> Unit, tabId: String = "", bare: Bo
             }
         }
     }
+    fun reconnect() {
+        connectRequested = true
+        phase = Phase.Connecting
+        hostKey = null
+        keyAnswered = false
+        error = ""
+        pollEpoch++
+    }
+
 
     LaunchedEffect(hostId, pollEpoch) {
         if (hostId.isEmpty()) {
@@ -385,9 +393,10 @@ fun FilesScreen(hostId: String, onBack: () -> Unit, tabId: String = "", bare: Bo
             error = "No host to open. Open the file browser from a host."
             return@LaunchedEffect
         }
-        // Only the first pass opens the connection. Reconnecting after a key
-        // decision would close the session that decision just approved.
-        if (pollEpoch == 0) {
+        // A host-key decision resumes the paused connection. A retry, on the
+        // other hand, explicitly requests a fresh connection here.
+        if (connectRequested) {
+            connectRequested = false
             withContext(Dispatchers.IO) { runCatching { SftpBridge.connect(hostId) } }
         }
         repeat(SFTP_POLL_MAX) {
@@ -441,6 +450,16 @@ fun FilesScreen(hostId: String, onBack: () -> Unit, tabId: String = "", bare: Bo
     // what made the search box lag.
     val ordered = remember(entries, order) { orderEntries(entries.orEmpty(), order) }
     val shown = remember(ordered, query) { filterEntries(ordered, query) }
+    // Keep this second match set before the hidden-file filter. It lets the
+    // empty state explain whether the query found only dotfiles.
+    val allMatches = remember(entries, query) { filterEntries(entries.orEmpty(), query) }
+    val hiddenOnly = !order.showHidden && allMatches.isNotEmpty() && allMatches.all(::isHidden)
+
+    fun openMkdir() {
+        promptText = ""
+        promptError = ""
+        prompt = Prompt.Mkdir
+    }
 
     val actions = buildList {
         add(
@@ -471,23 +490,10 @@ fun FilesScreen(hostId: String, onBack: () -> Unit, tabId: String = "", bare: Bo
         )
         add(
             ScreenAction(
-                key = "mkdir",
+                key = "add",
                 icon = Icons.Filled.Add,
-                title = "New folder",
-                onClick = {
-                    promptText = ""
-                    promptError = ""
-                    prompt = Prompt.Mkdir
-                },
-                enabled = phase == Phase.Ready,
-            ),
-        )
-        add(
-            ScreenAction(
-                key = "upload",
-                icon = Icons.Filled.Upload,
-                title = "Upload a file",
-                onClick = { uploadPicker.launch(arrayOf("*/*")) },
+                title = "Add",
+                onClick = { addMenuOpen = true },
                 enabled = phase == Phase.Ready,
             ),
         )
@@ -495,10 +501,10 @@ fun FilesScreen(hostId: String, onBack: () -> Unit, tabId: String = "", bare: Bo
 
     RemotlyScreen(
         title = "Files",
-        onBack = if (bare) null else onBack,
+        onBack = null,
         actions = actions,
         snackbarHostState = snackbar,
-        bare = bare,
+        bare = true,
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             when (phase) {
@@ -507,13 +513,12 @@ fun FilesScreen(hostId: String, onBack: () -> Unit, tabId: String = "", bare: Bo
                 Phase.Error -> ErrorState(
                     title = "Could not open files",
                     message = error.ifEmpty { "The connection could not be opened." },
-                    retryLabel = "Close",
-                    onRetry = onBack,
+                    retryLabel = "Reconnect",
+                    onRetry = ::reconnect,
                 )
-
                 Phase.HostKey -> HostKeyApproval(
                     prompt = hostKey,
-                    onReject = onBack,
+                    onReject = onClose,
                     onAccept = {
                         phase = Phase.Connecting
                         hostKey = null
@@ -529,24 +534,20 @@ fun FilesScreen(hostId: String, onBack: () -> Unit, tabId: String = "", bare: Bo
 
                 Phase.Ready -> {
                     Breadcrumbs(parseBreadcrumbs(cwd, "/"), onNavigate = { openDir(it) })
-                    if (error.isNotEmpty()) NoticeBar(error, NoticeTone.Danger)
-                    if (searchOpen) {
-                        OutlinedTextField(
-                            value = query,
-                            onValueChange = { query = it },
-                            label = { Text("Search this folder") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 4.dp),
-                        )
+                    if (error.isNotEmpty() && entries != null) {
+                        ConnectionNotice(error, onReconnect = ::reconnect)
                     }
+                    // Search stays inside the sort row so the browser never
+                    // grows a third control row when the field is open.
                     SortBar(
                         order = order,
                         shown = shown.size,
                         total = ordered.size,
                         loading = loading,
+                        searchOpen = searchOpen,
+                        query = query,
+                        onQueryChange = { query = it },
+                        onClearSearch = { query = "" },
                         onOrderChange = { next ->
                             SettingsState.update {
                                 it.copy(
@@ -568,18 +569,50 @@ fun FilesScreen(hostId: String, onBack: () -> Unit, tabId: String = "", bare: Bo
                         when {
                             loading && entries == null -> LoadingState("Reading this folder")
 
-                            entries != null && shown.isEmpty() && entries!!.isNotEmpty() ->
-                                EmptyState(
-                                    icon = Icons.Filled.Search,
-                                    title = "Nothing matches",
-                                    message = "No entry in this folder matches the search " +
-                                        "and hidden-file settings.",
-                                )
+                            entries == null -> ErrorState(
+                                title = "Could not read this folder",
+                                message = error.ifEmpty { "The SFTP session is unavailable." },
+                                retryLabel = "Reconnect",
+                                onRetry = ::reconnect,
+                            )
 
-                            entries != null && entries!!.isEmpty() -> EmptyState(
+                            entries!!.isEmpty() -> EmptyState(
                                 icon = Icons.Filled.FolderOpen,
                                 title = "This folder is empty",
-                                message = "Upload a file to get started.",
+                                message = "Upload a file or create a folder to get started.",
+                                action = "Upload file" to {
+                                    uploadPicker.launch(arrayOf("*/*"))
+                                },
+                                secondaryAction = "New folder" to ::openMkdir,
+                            )
+
+                            hiddenOnly -> EmptyState(
+                                icon = Icons.Filled.VisibilityOff,
+                                title = if (query.isEmpty()) {
+                                    "Only hidden files"
+                                } else {
+                                    "Only hidden matches"
+                                },
+                                message = if (query.isEmpty()) {
+                                    "This folder contains files hidden by the current setting."
+                                } else {
+                                    "The search matches hidden files, which are currently hidden."
+                                },
+                                action = "Show hidden files" to {
+                                    SettingsState.update { it.copy(filesShowHidden = true) }
+                                },
+                                secondaryAction = if (query.isEmpty()) {
+                                    null
+                                } else {
+                                    "Clear search" to { query = "" }
+                                },
+                            )
+
+                            shown.isEmpty() -> EmptyState(
+                                icon = Icons.Filled.Search,
+                                title = "No search results",
+                                message = "No visible entry in this folder matches \"$query\".",
+                                action = "Clear search" to { query = "" },
                             )
 
                             else -> LazyColumn(Modifier.fillMaxSize()) {
@@ -604,6 +637,24 @@ fun FilesScreen(hostId: String, onBack: () -> Unit, tabId: String = "", bare: Bo
                         }
                     }
                 }
+            }
+        }
+    }
+
+    if (addMenuOpen) {
+        ModalBottomSheet(onDismissRequest = { addMenuOpen = false }) {
+            Text(
+                "Add",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+            )
+            MenuRow(Icons.Filled.Folder, "New folder") {
+                addMenuOpen = false
+                openMkdir()
+            }
+            MenuRow(Icons.Filled.Upload, "Upload file") {
+                addMenuOpen = false
+                uploadPicker.launch(arrayOf("*/*"))
             }
         }
     }
@@ -811,13 +862,36 @@ private fun HostKeyApproval(
 }
 
 @Composable
+private fun ConnectionNotice(message: String, onReconnect: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = ScreenHorizontalPadding, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                message,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f),
+                maxLines = 2,
+            )
+            TextButton(onClick = onReconnect) { Text("Reconnect") }
+        }
+    }
+}
+
+@Composable
 private fun Breadcrumbs(crumbs: List<Breadcrumb>, onNavigate: (String) -> Unit) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Row(
             Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 8.dp, vertical = 4.dp),
+                .padding(horizontal = ScreenHorizontalPadding, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             crumbs.forEachIndexed { i, crumb ->
@@ -840,57 +914,89 @@ private fun SortBar(
     shown: Int,
     total: Int,
     loading: Boolean,
+    searchOpen: Boolean,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onClearSearch: () -> Unit,
     onOrderChange: (FileOrder) -> Unit,
 ) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        // Keep every folder control in one horizontally scrollable row. At
+        // normal widths this is the second compact row after breadcrumbs,
+        // while narrow screens can still reach every control.
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = ScreenHorizontalPadding, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Row(
-                Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                for (key in SortKey.entries) {
-                    val active = key == order.sortKey
-                    FilterChip(
-                        selected = active,
-                        // The direction belongs in the name so it is
-                        // announced, not only drawn as an arrow.
-                        label = { Text(key.name) },
-                        onClick = {
-                            onOrderChange(
-                                if (active) {
-                                    order.copy(
-                                        direction = if (order.direction == SortDirection.Asc) {
-                                            SortDirection.Desc
-                                        } else {
-                                            SortDirection.Asc
-                                        },
-                                    )
-                                } else {
-                                    order.copy(sortKey = key, direction = SortDirection.Asc)
-                                },
-                            )
-                        },
-                        modifier = Modifier.clearAndSetSemantics {
-                            contentDescription = if (active) {
-                                val dir = if (order.direction == SortDirection.Desc) {
-                                    "descending"
-                                } else {
-                                    "ascending"
-                                }
-                                "Sort by ${key.name}, $dir"
-                            } else {
-                                "Sort by ${key.name}"
-                            }
-                        },
-                    )
+            if (searchOpen) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    label = { Text("Search") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    modifier = Modifier.width(220.dp),
+                )
+                if (query.isNotEmpty()) {
+                    TextButton(onClick = onClearSearch) { Text("Clear") }
                 }
+            }
+            for (key in SortKey.entries) {
+                val active = key == order.sortKey
+                val label = sortLabel(key)
+                val direction = if (order.direction == SortDirection.Desc) {
+                    "descending"
+                } else {
+                    "ascending"
+                }
+                FilterChip(
+                    selected = active,
+                    label = { Text(label) },
+                    onClick = {
+                        onOrderChange(
+                            if (active) {
+                                order.copy(
+                                    direction = if (order.direction == SortDirection.Asc) {
+                                        SortDirection.Desc
+                                    } else {
+                                        SortDirection.Asc
+                                    },
+                                )
+                            } else {
+                                order.copy(sortKey = key, direction = SortDirection.Asc)
+                            },
+                        )
+                    },
+                    // Do not clear semantics here: FilterChip supplies the
+                    // role and click action. These additions retain those
+                    // semantics while making selection and direction explicit.
+                    modifier = Modifier.semantics {
+                        role = Role.Checkbox
+                        selected = active
+                        stateDescription = if (active) {
+                            "Selected, $direction"
+                        } else {
+                            "Not selected"
+                        }
+                        contentDescription = if (active) {
+                            "Sort by $label, $direction"
+                        } else {
+                            "Sort by $label"
+                        }
+                    },
+                )
             }
             IconButton(
                 onClick = { onOrderChange(order.copy(showHidden = !order.showHidden)) },
+                modifier = Modifier.semantics {
+                    stateDescription = if (order.showHidden) "Showing hidden files" else {
+                        "Hiding hidden files"
+                    }
+                },
             ) {
                 Icon(
                     if (order.showHidden) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
@@ -907,6 +1013,13 @@ private fun SortBar(
             )
         }
     }
+}
+
+private fun sortLabel(key: SortKey): String = when (key) {
+    SortKey.Name -> "Name"
+    SortKey.Size -> "Size"
+    SortKey.Mtime -> "Modified"
+    SortKey.Kind -> "Type"
 }
 
 /**

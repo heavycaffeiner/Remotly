@@ -16,18 +16,21 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -44,12 +47,14 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.StopCircle
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -72,6 +77,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.error
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -79,16 +85,14 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.remotly.app.ui.components.EmptyState
-import com.remotly.app.ui.components.ErrorState
 import com.remotly.app.ui.components.ScreenAction
 import com.remotly.app.ui.terminal.ModifierKey
 import com.remotly.app.ui.terminal.REPEAT_DELAY_MS
 import com.remotly.app.ui.terminal.TerminalKeyRow
 import kotlinx.coroutines.launch
 
-/** Height of the compact top bar. Every dp here is a terminal row the user does not get. */
-private val BAR_HEIGHT = 40.dp
+/** Minimum height of the compact top bar; text can grow it for large font scales. */
+private val BAR_MIN_HEIGHT = 56.dp
 
 /** Touch target every icon-only control meets, however tall its visual row is. */
 private val TOUCH_TARGET = 48.dp
@@ -127,12 +131,21 @@ data class TerminalBanner(
 )
 
 /**
+ * Groups related terminal actions under a visible heading in the overflow
+ * menu. Keys not named by any group remain in an "Other" section.
+ */
+data class TerminalActionGroup(
+    val title: String,
+    val actionKeys: Set<String>,
+)
+
+/**
  * Replaces the terminal body entirely: there is no session to show, or
  * nothing has connected yet.
  *
- * An [icon] renders it with [EmptyState]; without one it renders with
- * [ErrorState], whose single retry-shaped action fits a fatal failure better
- * than an empty list does.
+ * Failure details are kept separate from the short human-readable message so
+ * a caller can offer the complete raw reason without forcing it into a
+ * two-line banner.
  */
 data class TerminalFailure(
     val icon: ImageVector? = null,
@@ -140,6 +153,9 @@ data class TerminalFailure(
     val message: String? = null,
     val actionLabel: String? = null,
     val onAction: (() -> Unit)? = null,
+    val secondaryActionLabel: String? = null,
+    val onSecondaryAction: (() -> Unit)? = null,
+    val details: String? = null,
 )
 
 /**
@@ -147,12 +163,7 @@ data class TerminalFailure(
  *
  * [content] receives a [Modifier] already sized to fill the clipped terminal
  * body; the caller chains its own gesture modifiers onto it before handing it
- * to its `TerminalPane`. It is shown only while [failure] is null.
- *
- * When [showKeyRow] is false the bar grows a "Show the keyboard" action wired
- * to [onKeyboard], because the key row's own pinned keyboard button is what
- * makes the keyboard reachable once dismissed; without the row, the bar is
- * the only other way back to it.
+ * to its `TerminalPane`.
  */
 @Composable
 fun TerminalScaffold(
@@ -162,6 +173,7 @@ fun TerminalScaffold(
     modifier: Modifier = Modifier,
     onMenu: (() -> Unit)? = null,
     actions: List<ScreenAction> = emptyList(),
+    actionGroups: List<TerminalActionGroup> = emptyList(),
     onActionsMenuOpen: () -> Unit = {},
     tabs: List<TerminalTab> = emptyList(),
     activeTabId: String? = null,
@@ -196,6 +208,7 @@ fun TerminalScaffold(
             onBack = onBack,
             onMenu = onMenu,
             actions = actions,
+            actionGroups = actionGroups,
             onActionsMenuOpen = onActionsMenuOpen,
             showKeyboardAction = !showKeyRow && pane == null,
             onKeyboard = onKeyboard,
@@ -255,6 +268,7 @@ private fun TerminalTopBar(
     onBack: () -> Unit,
     onMenu: (() -> Unit)?,
     actions: List<ScreenAction>,
+    actionGroups: List<TerminalActionGroup>,
     onActionsMenuOpen: () -> Unit,
     showKeyboardAction: Boolean,
     onKeyboard: () -> Unit,
@@ -269,8 +283,8 @@ private fun TerminalTopBar(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(BAR_HEIGHT)
-                    .padding(horizontal = 4.dp),
+                    .heightIn(min = BAR_MIN_HEIGHT)
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
             ) {
                 if (onMenu != null) {
                     CompactIconAction(icon = Icons.Filled.Menu, label = "Workspaces and tabs", onClick = onMenu)
@@ -279,23 +293,22 @@ private fun TerminalTopBar(
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(horizontal = 4.dp),
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
                 ) {
                     Text(
                         title,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleSmall,
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.semantics { heading() },
                     )
-                    if (subtitle != null) {
-                        Text(
-                            subtitle,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    subtitle
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let {
+                            Text(
+                                it,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                 }
                 if (showKeyboardAction) {
                     CompactIconAction(icon = Icons.Filled.Keyboard, label = "Show the keyboard", onClick = onKeyboard)
@@ -310,25 +323,37 @@ private fun TerminalTopBar(
                         },
                     )
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        for ((index, action) in actions.withIndex()) {
-                            if (action.destructive && index > 0 && !actions[index - 1].destructive) {
-                                HorizontalDivider()
-                            }
-                            DropdownMenuItem(
-                                text = { Text(action.title) },
-                                enabled = action.enabled,
-                                leadingIcon = {
-                                    Icon(
-                                        action.icon,
-                                        contentDescription = null,
-                                        tint = if (action.destructive) MaterialTheme.colorScheme.error else defaultActionTint(),
-                                    )
-                                },
-                                onClick = {
-                                    menuOpen = false
-                                    action.onClick()
-                                },
+                        val sections = terminalActionSections(actions, actionGroups)
+                        for ((sectionIndex, section) in sections.withIndex()) {
+                            if (sectionIndex > 0) HorizontalDivider()
+                            Text(
+                                section.title,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                             )
+                            for (action in section.actions) {
+                                DropdownMenuItem(
+                                    text = { Text(action.title) },
+                                    enabled = action.enabled,
+                                    leadingIcon = {
+                                        Icon(
+                                            action.icon,
+                                            contentDescription = null,
+                                            tint = if (action.destructive) {
+                                                MaterialTheme.colorScheme.error
+                                            } else {
+                                                defaultActionTint()
+                                            },
+                                        )
+                                    },
+                                    onClick = {
+                                        menuOpen = false
+                                        action.onClick()
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -338,16 +363,54 @@ private fun TerminalTopBar(
     }
 }
 
+private data class TerminalActionSection(
+    val title: String,
+    val actions: List<ScreenAction>,
+)
+
+/**
+ * Applies declared task groups while keeping every destructive action in its
+ * own final section, even when a caller accidentally places it in another
+ * group.
+ */
+private fun terminalActionSections(
+    actions: List<ScreenAction>,
+    declaredGroups: List<TerminalActionGroup>,
+): List<TerminalActionSection> {
+    if (actions.isEmpty()) return emptyList()
+    val remaining = actions.toMutableList()
+    val sections = mutableListOf<TerminalActionSection>()
+
+    fun addSection(title: String, candidates: List<ScreenAction>) {
+        val ordinary = candidates.filterNot { it.destructive }
+        val destructive = candidates.filter { it.destructive }
+        if (ordinary.isNotEmpty()) sections += TerminalActionSection(title, ordinary)
+        if (destructive.isNotEmpty()) sections += TerminalActionSection("Destructive actions", destructive)
+    }
+
+    if (declaredGroups.isEmpty()) {
+        addSection("Terminal actions", actions)
+        return sections
+    }
+
+    for (group in declaredGroups) {
+        val matching = remaining.filter { it.key in group.actionKeys }
+        if (matching.isEmpty()) continue
+        remaining.removeAll(matching.toSet())
+        addSection(group.title, matching)
+    }
+    if (remaining.isNotEmpty()) addSection("Other actions", remaining)
+    return sections
+}
+
 /** The overflow menu item's default tint, matching ordinary (non-destructive) menu text. */
 @Composable
 private fun defaultActionTint() = MaterialTheme.colorScheme.onSurface
 
 /**
- * An icon-only control with a real touch target of at least [TOUCH_TARGET],
- * even inside a bar shorter than that. [requiredSize] ignores the bar's own
- * height constraint rather than being compressed by it; Compose hit-tests
- * each node's actual placed bounds, so the extra reach works even though it
- * draws past the bar's edge.
+ * An icon-only control with a real touch target of at least [TOUCH_TARGET].
+ * The surrounding bar grows with its text, so this control never relies on
+ * clipping or a visually oversized hit area.
  */
 @Composable
 private fun CompactIconAction(
@@ -549,25 +612,87 @@ private fun TerminalBannerOverlay(banner: TerminalBanner, modifier: Modifier = M
 
 @Composable
 private fun TerminalFailureCard(failure: TerminalFailure) {
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-        if (failure.icon != null) {
-            EmptyState(
-                icon = failure.icon,
-                title = failure.title,
-                message = failure.message,
-                action = if (failure.actionLabel != null && failure.onAction != null) {
-                    failure.actionLabel to failure.onAction
-                } else {
-                    null
-                },
-            )
-        } else {
-            ErrorState(
-                title = failure.title,
-                message = failure.message ?: "",
-                retryLabel = failure.actionLabel ?: "Retry",
-                onRetry = failure.onAction,
-            )
+    var detailsExpanded by remember(failure.details) { mutableStateOf(false) }
+    val details = failure.details?.takeIf { it.isNotBlank() }
+    Surface(
+        modifier = Modifier
+            .fillMaxSize()
+            .semantics {
+                liveRegion = LiveRegionMode.Assertive
+                error(failure.message ?: failure.title)
+            },
+        color = MaterialTheme.colorScheme.surface,
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.TopCenter,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 640.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(
+                    failure.icon ?: Icons.Filled.ErrorOutline,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(48.dp),
+                )
+                Text(
+                    failure.title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.semantics { heading() },
+                )
+                if (!failure.message.isNullOrBlank()) {
+                    Text(
+                        failure.message,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (failure.actionLabel != null && failure.onAction != null) {
+                    Button(
+                        onClick = failure.onAction,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(failure.actionLabel)
+                    }
+                }
+                if (failure.secondaryActionLabel != null && failure.onSecondaryAction != null) {
+                    OutlinedButton(
+                        onClick = failure.onSecondaryAction,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(failure.secondaryActionLabel)
+                    }
+                }
+                if (details != null) {
+                    TextButton(
+                        onClick = { detailsExpanded = !detailsExpanded },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (detailsExpanded) "Hide connection details" else "Show connection details")
+                    }
+                    if (detailsExpanded) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                details,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(12.dp),
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

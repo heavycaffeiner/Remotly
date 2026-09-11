@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -18,6 +19,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -28,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -44,8 +49,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -60,6 +67,8 @@ private const val SAVE_FAILED = "That setting could not be saved."
 
 /** Offered repeat delays: short enough to feel instant, long enough to tap. */
 private val REPEAT_DELAY_CHOICES = listOf(200, 400, 700)
+
+private val REPEAT_DELAY_OPTIONS = REPEAT_DELAY_CHOICES.map { it to "$it ms" }
 
 private val THEME_OPTIONS = listOf(
     AppSettings.THEME_SYSTEM to "System",
@@ -138,16 +147,11 @@ fun SettingsContent() {
 
             SettingsGroup {
                 Text("Theme", style = MaterialTheme.typography.labelLarge)
-                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                    THEME_OPTIONS.forEachIndexed { index, (value, label) ->
-                        SegmentedButton(
-                            selected = settings.themeMode == value,
-                            onClick = { apply { it.copy(themeMode = value) } },
-                            shape = SegmentedButtonDefaults.itemShape(index = index, count = THEME_OPTIONS.size),
-                            label = { Text(label) },
-                        )
-                    }
-                }
+                SettingsSingleChoice(
+                    options = THEME_OPTIONS,
+                    selected = settings.themeMode,
+                    onSelected = { value -> apply { it.copy(themeMode = value) } },
+                )
             }
 
             SettingsSwitchRow(
@@ -178,11 +182,7 @@ fun SettingsContent() {
                     }
                     Text(
                         "${settings.terminalFontSize} sp",
-                        modifier = Modifier
-                            .width(64.dp)
-                            .semantics {
-                                contentDescription = "Terminal font size, ${settings.terminalFontSize} sp"
-                            },
+                        modifier = Modifier.padding(horizontal = 8.dp),
                         textAlign = TextAlign.Center,
                     )
                     IconButton(
@@ -199,16 +199,11 @@ fun SettingsContent() {
 
             SettingsGroup {
                 Text("Cursor", style = MaterialTheme.typography.labelLarge)
-                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                    CURSOR_OPTIONS.forEachIndexed { index, (value, label) ->
-                        SegmentedButton(
-                            selected = settings.cursorStyle == value,
-                            onClick = { apply { it.copy(cursorStyle = value) } },
-                            shape = SegmentedButtonDefaults.itemShape(index = index, count = CURSOR_OPTIONS.size),
-                            label = { Text(label) },
-                        )
-                    }
-                }
+                SettingsSingleChoice(
+                    options = CURSOR_OPTIONS,
+                    selected = settings.cursorStyle,
+                    onSelected = { value -> apply { it.copy(cursorStyle = value) } },
+                )
             }
 
             SettingsSwitchRow(
@@ -227,16 +222,11 @@ fun SettingsContent() {
 
             SettingsGroup {
                 Text("Hold an extra key to repeat after", style = MaterialTheme.typography.labelLarge)
-                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                    REPEAT_DELAY_CHOICES.forEachIndexed { index, ms ->
-                        SegmentedButton(
-                            selected = settings.keyRepeatDelayMs == ms,
-                            onClick = { apply { it.copy(keyRepeatDelayMs = ms) } },
-                            shape = SegmentedButtonDefaults.itemShape(index = index, count = REPEAT_DELAY_CHOICES.size),
-                            label = { Text("$ms ms") },
-                        )
-                    }
-                }
+                SettingsSingleChoice(
+                    options = REPEAT_DELAY_OPTIONS,
+                    selected = settings.keyRepeatDelayMs,
+                    onSelected = { value -> apply { it.copy(keyRepeatDelayMs = value) } },
+                )
             }
 
             SettingsSwitchRow(
@@ -283,7 +273,7 @@ fun SettingsContent() {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             )
         }
     }
@@ -319,23 +309,78 @@ private fun SettingsSectionHeader(title: String) {
         title,
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = Modifier
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .semantics { heading() },
     )
 }
 
 @Composable
 private fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
     Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
         content = content,
     )
 }
 
 /**
- * A Switch's thumb position alone tells a screen reader nothing about what
- * it controls, so the accessible name carries the setting's title and its
- * current state together.
+ * Three options fit comfortably in one row at the default text size. At
+ * accessibility text sizes, equal-width segments force labels to wrap and
+ * produce uneven controls, so use a full-width radio list instead.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun <T> SettingsSingleChoice(
+    options: List<Pair<T, String>>,
+    selected: T,
+    onSelected: (T) -> Unit,
+) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val stacked = LocalDensity.current.fontScale >= 1.3f || maxWidth < 300.dp
+        if (stacked) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .selectableGroup(),
+            ) {
+                options.forEach { (value, label) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .selectable(
+                                selected = selected == value,
+                                onClick = { onSelected(value) },
+                                role = Role.RadioButton,
+                            )
+                            .padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = selected == value, onClick = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(label, modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+        } else {
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                options.forEachIndexed { index, (value, label) ->
+                    SegmentedButton(
+                        selected = selected == value,
+                        onClick = { onSelected(value) },
+                        shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                        label = { Text(label) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The row owns the toggle semantics so its title and description are read
+ * together with the native switch role and checked state.
  */
 @Composable
 private fun SettingsSwitchRow(
@@ -349,7 +394,14 @@ private fun SettingsSwitchRow(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Switch,
+                onValueChange = onCheckedChange,
+            )
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .semantics(mergeDescendants = true) {},
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -366,10 +418,8 @@ private fun SettingsSwitchRow(
         Switch(
             checked = checked,
             enabled = enabled,
-            onCheckedChange = onCheckedChange,
-            modifier = Modifier.semantics {
-                contentDescription = "$title, ${if (checked) "on" else "off"}"
-            },
+            onCheckedChange = null,
+            modifier = Modifier.clearAndSetSemantics {},
         )
     }
 }
@@ -393,7 +443,7 @@ private fun SettingRow(
             }
         }
         .heightIn(min = 48.dp)
-        .padding(horizontal = 16.dp, vertical = 8.dp)
+        .padding(horizontal = 16.dp, vertical = 4.dp)
     Row(modifier = rowModifier, verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
             Text(title, color = titleColor)

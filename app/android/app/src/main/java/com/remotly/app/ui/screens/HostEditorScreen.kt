@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,6 +37,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -48,6 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
@@ -137,10 +142,10 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
 
     var busy by remember { mutableStateOf(false) }
     var formError by remember { mutableStateOf("") }
+    var saveAttempted by rememberSaveable { mutableStateOf(false) }
     var fileError by remember { mutableStateOf("") }
     var test by remember { mutableStateOf(TestOutcome()) }
     var confirmEndpoint by remember { mutableStateOf(false) }
-
     LaunchedEffect(hostId) {
         if (!editing) return@LaunchedEffect
         val id = requireNotNull(hostId)
@@ -181,9 +186,20 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
     val hostValid = host.trim().isNotEmpty()
     val userValid = username.trim().isNotEmpty()
     val secretValid = if (auth == AuthMethod.Password) password.isNotEmpty() else keyBytes != null
-    // Editing without replacing the credential leaves the stored one in place.
-    val credentialValid = if (replaceCredential) secretValid else true
-    val formValid = hostValid && userValid && portValid && credentialValid
+    val formIssues = buildList {
+        if (!hostValid) add(if (host.trim().isEmpty()) "host (required)" else "host")
+        if (!portValid) add(if (port.trim().isEmpty()) "port (required)" else "port")
+        if (!userValid) add(if (username.trim().isEmpty()) "username (required)" else "username")
+        if (replaceCredential && !secretValid) {
+            add(if (auth == AuthMethod.Key) "private key (required)" else "password (required)")
+        }
+    }
+    val formValid = formIssues.isEmpty()
+    val formSummary = if (formIssues.isEmpty()) {
+        ""
+    } else {
+        "Complete or correct: ${formIssues.joinToString()}."
+    }
     val endpointChanged = existing != null &&
         (host.trim() != existing?.host || portNum != existing?.port)
     val fallbackName = if (displayName.trim().isEmpty() && username.trim().isNotEmpty() && host.trim().isNotEmpty()) {
@@ -191,10 +207,15 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
     } else {
         ""
     }
+    val canTest = !test.running &&
+        hostValid &&
+        userValid &&
+        portValid &&
+        (if (replaceCredential) secretValid else editing && existing != null)
 
     fun buildCredential(): SshCredential = if (auth == AuthMethod.Key) {
         SshCredential.Key(
-            privateKey = keyBytes ?: ByteArray(0),
+            privateKey = keyBytes?.copyOf() ?: ByteArray(0),
             passphrase = passphrase.ifEmpty { null }?.toByteArray(Charsets.UTF_8),
         )
     } else {
@@ -202,16 +223,31 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
     }
 
     fun runTest() {
-        if (test.running || !hostValid || !userValid || !portValid || !secretValid) return
+        if (!canTest) return
         test = TestOutcome(running = true)
         val probeHost = host.trim()
         val probeUser = username.trim()
         val probePort = requireNotNull(portNum)
-        val credential = buildCredential()
+        val useReplacement = replaceCredential
+        val replacementCredential = if (useReplacement) buildCredential() else null
         val knownKeys = existing?.knownKeys ?: emptyList()
+        val storedHostId = hostId
         scope.launch {
             test = withContext(Dispatchers.IO) {
-                testConnection(probeHost, probePort, probeUser, credential, knownKeys)
+                try {
+                    val credential = replacementCredential
+                        ?: store.credential(requireNotNull(storedHostId))
+                    try {
+                        testConnection(probeHost, probePort, probeUser, credential, knownKeys)
+                    } finally {
+                        clearCredential(credential)
+                    }
+                } catch (e: Exception) {
+                    TestOutcome(
+                        ok = false,
+                        message = e.message ?: "The connection did not succeed.",
+                    )
+                }
             }
         }
     }
@@ -265,7 +301,10 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
     }
 
     fun save() {
-        if (!formValid || busy) return
+        if (busy) return
+        saveAttempted = true
+        formError = ""
+        if (!formValid) return
         // Changing the endpoint drops the accepted host keys, so it is
         // confirmed rather than done silently.
         if (endpointChanged) {
@@ -282,41 +321,73 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
         return
     }
 
-    val currentLoadError = loadError
-    if (currentLoadError != null) {
-        RemotlyScreenShell(editing = editing, onBack = onDone) { padding ->
-            ErrorState(
-                title = "Can't open host",
-                message = currentLoadError,
-                modifier = Modifier.padding(padding),
-            )
-        }
-        return
-    }
-
     RemotlyScreen(
         title = if (editing) "Edit SSH host" else "Add SSH host",
         subtitle = existing?.let { sshHostDisplayName(it) },
         onBack = onDone,
+        bottomBar = {
+            Surface(
+                tonalElevation = 2.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .imePadding()
+                    .navigationBarsPadding(),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                ) {
+                    OutlinedButton(
+                        onClick = onDone,
+                        enabled = !busy,
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) { Text("Cancel") }
+                    Button(
+                        onClick = { save() },
+                        enabled = !busy,
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) {
+                        if (busy) {
+                            CircularProgressIndicator(
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .semantics { liveRegion = LiveRegionMode.Polite },
+                                strokeWidth = 2.dp,
+                                color = LocalContentColor.current,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        Text("Save")
+                    }
+                }
+            }
+        },
     ) { padding ->
         Column(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            if (saveAttempted && !formValid) {
+                NoticeBar(message = formSummary, tone = NoticeTone.Danger)
+            }
             if (formError.isNotEmpty()) {
                 NoticeBar(message = formError, tone = NoticeTone.Danger)
             }
 
-            FormSection(title = "Identity") {
+            FormSection(
+                title = "Identity",
+                description = "Label is optional.",
+            ) {
                 OutlinedTextField(
                     value = displayName,
                     onValueChange = { displayName = it },
-                    label = { Text("Label") },
-                    placeholder = { Text("Optional") },
+                    label = { Text("Label (optional)") },
                     supportingText = if (fallbackName.isNotEmpty()) {
                         { Text("Shown as $fallbackName") }
                     } else {
@@ -327,12 +398,15 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                 )
             }
 
-            FormSection(title = "Connection") {
-                val hostError = host.isNotEmpty() && !hostValid
+            FormSection(
+                title = "Connection",
+                description = "Host, port, and username are required.",
+            ) {
+                val hostError = saveAttempted && !hostValid
                 OutlinedTextField(
                     value = host,
                     onValueChange = { host = it },
-                    label = { Text("Host") },
+                    label = { Text("Host (required)") },
                     placeholder = { Text("server.example.com") },
                     // A hostname is not prose. Left to the keyboard's
                     // suggestions it gets capitalized and autocorrected into
@@ -344,35 +418,50 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                     ),
                     isError = hostError,
                     supportingText = if (hostError) {
-                        { AnnouncedError("Enter a valid hostname or address.") }
+                        {
+                            AnnouncedError(
+                                if (host.trim().isEmpty()) {
+                                    "Enter a hostname or address."
+                                } else {
+                                    "Enter a valid hostname or address."
+                                },
+                            )
+                        }
                     } else {
                         null
                     },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                val portError = port.isNotEmpty() && !portValid
+                val portError = saveAttempted && !portValid
                 OutlinedTextField(
                     value = port,
                     onValueChange = { port = it },
-                    label = { Text("Port") },
+                    label = { Text("Port (required)") },
                     placeholder = { Text("22") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     isError = portError,
                     supportingText = if (portError) {
-                        { AnnouncedError("The port must be between 1 and 65535.") }
+                        {
+                            AnnouncedError(
+                                if (port.trim().isEmpty()) {
+                                    "Enter a port from 1 to 65535."
+                                } else {
+                                    "The port must be between 1 and 65535."
+                                },
+                            )
+                        }
                     } else {
                         null
                     },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                val userError = username.isNotEmpty() && !userValid
+                val userError = saveAttempted && !userValid
                 OutlinedTextField(
                     value = username,
                     onValueChange = { username = it },
-                    label = { Text("Username") },
-                    placeholder = { Text("alice") },
+                    label = { Text("Username (required)") },
                     keyboardOptions = KeyboardOptions(
                         capitalization = KeyboardCapitalization.None,
                         autoCorrectEnabled = false,
@@ -395,7 +484,14 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                 }
             }
 
-            FormSection(title = "Authentication") {
+            FormSection(
+                title = "Authentication",
+                description = if (editing && !replaceCredential) {
+                    "Using the saved credential. Replace it only if needed."
+                } else {
+                    "Choose a method and provide the required credential."
+                },
+            ) {
                 if (editing && !replaceCredential) {
                     val savedKind = if (existing?.authKind == SshHost.AUTH_KEY) {
                         "A private key is saved for this host."
@@ -403,7 +499,10 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                         "A password is saved for this host."
                     }
                     Text(savedKind, style = MaterialTheme.typography.bodyMedium)
-                    OutlinedButton(onClick = { replaceCredential = true }) {
+                    OutlinedButton(
+                        onClick = { replaceCredential = true },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) {
                         Text("Replace credential")
                     }
                 } else {
@@ -412,6 +511,7 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                             SegmentedButton(
                                 selected = auth == method,
                                 onClick = { auth = method },
+                                modifier = Modifier.heightIn(min = 48.dp),
                                 shape = SegmentedButtonDefaults.itemShape(
                                     index = index,
                                     count = AuthMethod.entries.size,
@@ -421,7 +521,10 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                         }
                     }
                     if (auth == AuthMethod.Key) {
-                        OutlinedButton(onClick = { keyPicker.launch(arrayOf("*/*")) }) {
+                        OutlinedButton(
+                            onClick = { keyPicker.launch(arrayOf("*/*")) },
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) {
                             Icon(Icons.Filled.Upload, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
                             Text(if (keyFileName.isNotEmpty()) "Imported $keyFileName" else "Import a key file")
@@ -429,10 +532,13 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                         if (fileError.isNotEmpty()) {
                             NoticeBar(message = fileError, tone = NoticeTone.Danger)
                         }
+                        if (saveAttempted && keyBytes == null) {
+                            AnnouncedError("Import a private key.")
+                        }
                         OutlinedTextField(
                             value = passphrase,
                             onValueChange = { passphrase = it },
-                            label = { Text("Passphrase") },
+                            label = { Text("Passphrase (optional)") },
                             visualTransformation = PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(
                                 keyboardType = KeyboardType.Password,
@@ -442,15 +548,22 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                             modifier = Modifier.fillMaxWidth(),
                         )
                     } else {
+                        val passwordError = saveAttempted && password.isEmpty()
                         OutlinedTextField(
                             value = password,
                             onValueChange = { password = it },
-                            label = { Text("Password") },
+                            label = { Text("Password (required)") },
                             visualTransformation = PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(
                                 keyboardType = KeyboardType.Password,
                                 capitalization = KeyboardCapitalization.None,
                             ),
+                            isError = passwordError,
+                            supportingText = if (passwordError) {
+                                { AnnouncedError("Enter a password.") }
+                            } else {
+                                null
+                            },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -460,11 +573,16 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
 
             FormSection(
                 title = "Verification",
-                description = "Connects once to check the address and credential. Nothing is saved.",
+                description = if (editing && !replaceCredential) {
+                    "Uses the saved credential to check the address. Nothing is saved."
+                } else {
+                    "Connects once to check the address and credential. Nothing is saved."
+                },
             ) {
                 OutlinedButton(
                     onClick = { runTest() },
-                    enabled = !test.running && hostValid && userValid && portValid && secretValid,
+                    enabled = canTest,
+                    modifier = Modifier.heightIn(min = 48.dp),
                 ) {
                     Icon(Icons.Filled.Wifi, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
@@ -533,25 +651,6 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-            ) {
-                OutlinedButton(onClick = onDone, enabled = !busy) { Text("Cancel") }
-                Button(onClick = { save() }, enabled = formValid && !busy) {
-                    if (busy) {
-                        CircularProgressIndicator(
-                            modifier = Modifier
-                                .size(16.dp)
-                                .semantics { liveRegion = LiveRegionMode.Polite },
-                            strokeWidth = 2.dp,
-                            color = LocalContentColor.current,
-                        )
-                        Spacer(Modifier.width(8.dp))
-                    }
-                    Text("Save")
-                }
-            }
         }
     }
 
@@ -603,9 +702,10 @@ private fun FormSection(
     description: String? = null,
     content: @Composable () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
             title,
+            modifier = Modifier.semantics { heading() },
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary,
         )
@@ -630,6 +730,18 @@ private fun AnnouncedError(message: String) {
 
 private fun sshHostDisplayName(host: SshHost): String =
     host.displayName.ifBlank { "${host.username}@${host.host}" }
+
+// Probe credentials are short-lived copies. Clear their bytes as soon as the
+// connection attempt has closed without touching the form's in-memory input.
+private fun clearCredential(credential: SshCredential) {
+    when (credential) {
+        is SshCredential.Password -> credential.value.fill(0)
+        is SshCredential.Key -> {
+            credential.privateKey.fill(0)
+            credential.passphrase?.fill(0)
+        }
+    }
+}
 
 // Reads a private key through the Storage Access Framework. The picker can
 // point at anything, so the read is bounded and the name comes from the
