@@ -31,7 +31,9 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PowerOff
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import com.remotly.app.ui.components.RemotlyTextField
 import androidx.compose.material3.SnackbarHost
@@ -201,7 +203,12 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
     }
 
     fun goBack() {
-        nav.popBackStack()
+        val files = filesTab
+        if (files != null) {
+            SshSessions.closeTab(hostId, files.sessionId)
+        } else {
+            nav.popBackStack()
+        }
     }
 
     fun selectSession(sessionId: String) {
@@ -247,13 +254,12 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
     }
 
     // The latched Ctrl/Alt modifier for the extra key row. Owned here, not
-    // inside the row, so committed IME input can consume it too: a Ctrl+C
-    // typed as "hold Ctrl, tap c" latches on the row and applies to the next
-    // character the keyboard commits, not just to another row key.
+    // inside the row, so committed IME input can consume it too.
     var latchedModifier by remember { mutableStateOf<ModifierKey?>(null) }
     var hasSelection by remember { mutableStateOf(false) }
-
     var renameTargetId by remember(hostId) { mutableStateOf<String?>(null) }
+    var confirmDisconnect by remember { mutableStateOf(false) }
+    var closeTargetId by remember { mutableStateOf<String?>(null) }
 
     val title = host?.let(::hostDisplayName) ?: "SSH"
     // The header already names the host. The second line identifies the
@@ -306,14 +312,22 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
             icon = Icons.Filled.Folder,
             title = "Files",
             enabled = hostId.isNotEmpty(),
-            onClick = { SshSessions.openTab(hostId, kind = SshTabKind.Files) },
+            onClick = {
+                if (SshSessions.openTab(hostId, kind = SshTabKind.Files) == null) {
+                    notify("This host has no room for another files tab")
+                }
+            },
         ),
         ScreenAction(
             key = "new",
             icon = Icons.Filled.Add,
             title = "New session",
             enabled = canAdd,
-            onClick = { SshSessions.openTab(hostId, kind = SshTabKind.Shell) },
+            onClick = {
+                if (SshSessions.openTab(hostId, kind = SshTabKind.Shell) == null) {
+                    notify("This host has no room for another session")
+                }
+            },
         ),
         ScreenAction(
             key = "rename",
@@ -325,9 +339,17 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
         ScreenAction(
             key = "close",
             icon = Icons.Filled.Close,
-            title = "Close session",
+            title = if (activeTab?.kind == SshTabKind.Files) "Close files tab" else "Close session",
             enabled = activeTab != null,
-            onClick = { activeTab?.let { SshSessions.closeTab(hostId, it.sessionId) } },
+            onClick = {
+                activeTab?.let { active ->
+                    if (active.kind == SshTabKind.Files) {
+                        SshSessions.closeTab(hostId, active.sessionId)
+                    } else {
+                        closeTargetId = active.sessionId
+                    }
+                }
+            },
         ),
         ScreenAction(
             key = "selectAll",
@@ -375,10 +397,7 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
             icon = Icons.Filled.PowerOff,
             title = "Disconnect",
             destructive = true,
-            onClick = {
-                SshSessions.closeHost(hostId)
-                goBack()
-            },
+            onClick = { confirmDisconnect = true },
         ),
     )
 
@@ -402,6 +421,7 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
                     actionKeys = setOf("disconnect"),
                 ),
             ),
+            onActionsMenuOpen = { terminal.hideKeyboard() },
             tabs = if (shouldShowTabStrip(shellTabs)) {
                 shellTabs.map { TerminalTab(it.sessionId, it.title, tabPhase(it.phase)) }
             } else {
@@ -409,9 +429,20 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
             },
             activeTabId = hostState.tabs.activeSessionId,
             onSelectTab = ::selectSession,
-            onCloseTab = { sessionId -> SshSessions.closeTab(hostId, sessionId) },
+            onCloseTab = { closedId ->
+                val closed = shellTabs.firstOrNull { it.sessionId == closedId }
+                if (closed?.kind == SshTabKind.Files) {
+                    SshSessions.closeTab(hostId, closedId)
+                } else {
+                    closeTargetId = closedId
+                }
+            },
             onRenameTab = { sessionId -> renameTargetId = sessionId },
-            onAddTab = { SshSessions.openTab(hostId, kind = SshTabKind.Shell) },
+            onAddTab = {
+                if (SshSessions.openTab(hostId, kind = SshTabKind.Shell) == null) {
+                    notify("This host has no room for another session")
+                }
+            },
             canAddTab = canAdd,
             banner = banner,
             failure = failure,
@@ -433,9 +464,7 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
             keyRepeatDelayMs = settings.keyRepeatDelayMs,
             haptics = settings.hapticFeedback,
             onKeyboard = { requestKeyboard.value() },
-            pane = if (filesTab == null) {
-                null
-            } else {
+            pane = if (filesTab == null) null else {
                 {
                     FilesScreen(
                         hostId = hostId,
@@ -490,6 +519,45 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
         }
 
         SnackbarHost(snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
+    }
+
+    val closeTarget = shellTabs.firstOrNull { it.sessionId == closeTargetId }
+    if (closeTarget != null) {
+        AlertDialog(
+            onDismissRequest = { closeTargetId = null },
+            title = { Text("Close ${closeTarget.title}?") },
+            text = { Text("The remote shell and anything still running in it will end.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        SshSessions.closeTab(hostId, closeTarget.sessionId)
+                        closeTargetId = null
+                    },
+                ) { Text("Close", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { closeTargetId = null }) { Text("Keep open") } },
+        )
+    }
+
+    if (confirmDisconnect) {
+        AlertDialog(
+            onDismissRequest = { confirmDisconnect = false },
+            icon = { Icon(Icons.Filled.Warning, contentDescription = null) },
+            title = { Text("Disconnect this host?") },
+            text = { Text("All open terminal sessions for this host will be closed.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDisconnect = false
+                        SshSessions.closeHost(hostId)
+                        goBack()
+                    },
+                ) { Text("Disconnect", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDisconnect = false }) { Text("Keep connected") }
+            },
+        )
     }
 
     val activeHostKeyPrompt = hostState.hostKeyPrompt?.takeIf { it.sessionId == hostState.tabs.activeSessionId }

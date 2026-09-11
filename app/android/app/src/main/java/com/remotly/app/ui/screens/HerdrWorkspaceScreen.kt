@@ -12,6 +12,10 @@ package com.remotly.app.ui.screens
 // herdr's own event stream, so a change made here, from a gesture, or on the
 // desktop lands without a timer.
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -21,7 +25,9 @@ import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.LinkOff
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.AlertDialog
 import com.remotly.app.ui.components.RemotlyTextField
 import androidx.compose.material3.Text
@@ -48,6 +54,7 @@ import com.remotly.app.herdr.HerdrError
 import com.remotly.app.herdr.HerdrEvent
 import com.remotly.app.herdr.HerdrStore
 import com.remotly.app.herdr.HerdrWorkspaceOrder
+import com.remotly.app.files.ImagePaste
 import com.remotly.app.herdr.joinShell
 import com.remotly.app.herdr.nextHerdrTab
 import com.remotly.app.herdr.nextHerdrWorkspace
@@ -107,6 +114,7 @@ fun HerdrWorkspaceScreen(
     nav: NavHostController,
 ) {
     val settings by SettingsState.settings.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     // ProcessLifecycleOwner is not on this module's classpath (only
     // lifecycle-runtime-compose and lifecycle-viewmodel-compose are
@@ -155,11 +163,13 @@ fun HerdrWorkspaceScreen(
     // Null lets wide screens start with their permanent sidebar visible while
     // keeping compact screens closed until the user explicitly opens them.
     var sidebarOpen by remember { mutableStateOf<Boolean?>(null) }
-    var notice by remember { mutableStateOf<String?>(null) }
+    var notice by remember { mutableStateOf<TerminalBanner?>(null) }
     var renameTabId by remember { mutableStateOf<String?>(null) }
     var renameDraft by remember { mutableStateOf("") }
     var activeModifier by remember { mutableStateOf<ModifierKey?>(null) }
     var hasSelection by remember { mutableStateOf(false) }
+    var confirmDetach by remember { mutableStateOf(false) }
+    var closeTabId by remember { mutableStateOf<String?>(null) }
 
     val hostState by SshSessions.state(hostId).collectAsStateWithLifecycle()
     val terminal = rememberTerminalHandle()
@@ -183,9 +193,28 @@ fun HerdrWorkspaceScreen(
             try {
                 run()
             } catch (e: Exception) {
-                notice = herdrFailureMessage(e)
+                notice = TerminalBanner(TerminalBannerTone.Error, herdrFailureMessage(e))
                 // The optimistic paint has to be undone by the truth, not left.
                 store.refresh(hostId, session)
+            }
+        }
+    }
+
+    val imagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri: Uri? ->
+        if (uri != null && hostId.isNotEmpty()) {
+            scope.launch {
+                notice = TerminalBanner(TerminalBannerTone.Busy, "Uploading the image")
+                when (val result = ImagePaste.paste(context, hostId, uri)) {
+                    is ImagePaste.Result.Ok -> {
+                        ImagePaste.typeResult(hostId, result.path)
+                        notice = TerminalBanner(TerminalBannerTone.Info, "Pasted the image path")
+                    }
+                    is ImagePaste.Result.Failed -> {
+                        notice = TerminalBanner(TerminalBannerTone.Error, result.message)
+                    }
+                }
             }
         }
     }
@@ -215,7 +244,7 @@ fun HerdrWorkspaceScreen(
         val runs = if (session == null) "herdr" else joinShell(listOf("herdr", "--session", session))
         val opened = SshSessions.openWorkspaceTab(hostId, wsId, effectiveLabel, runs, session)
         if (opened == null) {
-            notice = "This host has no room for another terminal."
+            notice = TerminalBanner(TerminalBannerTone.Error, "This host has no room for another terminal.")
             return@LaunchedEffect
         }
         sessionId = opened
@@ -270,7 +299,7 @@ fun HerdrWorkspaceScreen(
                 val inWorkspace = herdr.tabs[workspaceIdCurrent].orEmpty()
                 val next = nextHerdrTab(inWorkspace, herdr.focusedTabId, step)
                 if (next == null) {
-                    notice = "This workspace has only one tab."
+                    notice = TerminalBanner(TerminalBannerTone.Error, "This workspace has only one tab.")
                     return
                 }
                 store.applyLocal(hostId, session, HerdrEvent.TabFocused(next.tabId, next.workspaceId))
@@ -280,7 +309,7 @@ fun HerdrWorkspaceScreen(
             MuxAction.WorkspaceNext -> {
                 val next = nextHerdrWorkspace(HerdrWorkspaceOrder(herdr.workspaces, workspaceIdCurrent), 1)
                 if (next == null) {
-                    notice = "This session has only one workspace."
+                    notice = TerminalBanner(TerminalBannerTone.Error, "This session has only one workspace.")
                     return
                 }
                 store.applyLocal(hostId, session, HerdrEvent.WorkspaceFocused(next.workspaceId))
@@ -294,7 +323,7 @@ fun HerdrWorkspaceScreen(
         val result = transformKey(key, activeModifier) ?: return
         SshSessions.sendInput(hostId, result.bytes)
         if (result.clearModifier) activeModifier = null
-        result.notice?.let { notice = it }
+        result.notice?.let { notice = TerminalBanner(TerminalBannerTone.Error, it) }
     }
 
     // Terminal content actions only. Everything that manages a workspace or a
@@ -313,15 +342,19 @@ fun HerdrWorkspaceScreen(
             onClick = { focusedTabId?.let(::startRenameTab) },
         ),
         ScreenAction(
+            key = "paste-image",
+            icon = Icons.Filled.Image,
+            title = "Paste an image",
+            enabled = hostId.isNotEmpty(),
+            onClick = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+        ),
+        ScreenAction(
             key = "detach",
             icon = Icons.Filled.LinkOff,
             title = "Close this terminal",
             destructive = true,
             enabled = sessionId != null,
-            onClick = {
-                sessionId?.let { SshSessions.closeTab(hostId, it) }
-                nav.popBackStack()
-            },
+            onClick = { confirmDetach = true },
         ),
     )
 
@@ -338,7 +371,7 @@ fun HerdrWorkspaceScreen(
         )
         else -> null
     }
-    val banner = notice?.let { TerminalBanner(TerminalBannerTone.Error, it) } ?: phaseBanner
+    val banner = notice ?: phaseBanner
 
     val tabViews = tabs.map { herdrTab ->
         TerminalTab(
@@ -374,12 +407,26 @@ fun HerdrWorkspaceScreen(
             TerminalScaffold(
                 title = effectiveLabel,
                 subtitle = "$hostName, ${session ?: "default"}",
-                onBack = { nav.popBackStack() },
+                onBack = {
+                    if (drawerOpen && !permanent) sidebarOpen = false else nav.popBackStack()
+                },
                 onMenu = { sidebarOpen = true },
+                actions = actions,
+                actionGroups = listOf(
+                    TerminalActionGroup(
+                        title = "Workspace tab",
+                        actionKeys = setOf("new-tab", "tab-here", "panes-to-tabs", "zoom", "rename"),
+                    ),
+                    TerminalActionGroup(
+                        title = "Clipboard",
+                        actionKeys = setOf("paste-image"),
+                    ),
+                ),
+                onActionsMenuOpen = { terminal.hideKeyboard() },
                 tabs = tabViews,
                 activeTabId = focusedTabId,
                 onSelectTab = ::selectTab,
-                onCloseTab = { tabId -> act { client.closeHerdrTab(hostId, tabId, session) } },
+                onCloseTab = { tabId -> closeTabId = tabId },
                 onRenameTab = ::startRenameTab,
                 onAddTab = if (workspaceIdCurrent != null) ::newTab else null,
                 banner = banner,
@@ -395,7 +442,6 @@ fun HerdrWorkspaceScreen(
                 onKeyboard = { terminal.openKeyboard() },
                 content = { modifier ->
                     val activeSessionId = sessionId
-                    val context = LocalContext.current
                     if (activeSessionId == null) {
                         Box(modifier.background(TerminalBackground))
                     } else {
@@ -440,6 +486,43 @@ fun HerdrWorkspaceScreen(
             )
         }
     }
+
+    if (confirmDetach) {
+        AlertDialog(
+            onDismissRequest = { confirmDetach = false },
+            title = { Text("Close this terminal?") },
+            text = { Text("The Herdr workspace keeps running on the host, but this terminal connection will close.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDetach = false
+                        sessionId?.let { SshSessions.closeTab(hostId, it) }
+                        nav.popBackStack()
+                    },
+                ) { Text("Close", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDetach = false }) { Text("Keep open") } },
+        )
+    }
+    val closeTab = tabs.firstOrNull { it.tabId == closeTabId }
+    if (closeTab != null) {
+        val closeLabel = closeTab.label.ifEmpty { closeTab.number.toString() }
+        AlertDialog(
+            onDismissRequest = { closeTabId = null },
+            title = { Text("Close $closeLabel?") },
+            text = { Text("The tab and its panes will close on the host. Anything still running in them will end.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        closeTabId = null
+                        act { client.closeHerdrTab(hostId, closeTab.tabId, session) }
+                    },
+                ) { Text("Close", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { closeTabId = null }) { Text("Keep open") } },
+        )
+    }
+
 
     if (renameTabId != null) {
         AlertDialog(

@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -21,10 +22,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -144,6 +148,7 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
     var fileError by remember { mutableStateOf("") }
     var test by remember { mutableStateOf(TestOutcome()) }
     var confirmEndpoint by remember { mutableStateOf(false) }
+    var confirmDiscard by remember { mutableStateOf(false) }
     LaunchedEffect(hostId) {
         if (!editing) return@LaunchedEffect
         val id = requireNotNull(hostId)
@@ -210,6 +215,22 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
         userValid &&
         portValid &&
         (if (replaceCredential) secretValid else editing && existing != null)
+    val dirty = existing?.let { saved ->
+        displayName != saved.displayName ||
+            host != saved.host ||
+            port != saved.port.toString() ||
+            username != saved.username ||
+            auth != (if (saved.authKind == SshHost.AUTH_KEY) AuthMethod.Key else AuthMethod.Password) ||
+            replaceCredential
+    } ?: listOf(displayName, host, username, password, passphrase, keyFileName).any { it.isNotEmpty() } ||
+        port != "22" || auth != AuthMethod.Key
+
+    fun requestClose() {
+        if (busy) return
+        if (dirty) confirmDiscard = true else onDone()
+    }
+
+    BackHandler(onBack = ::requestClose)
 
     fun buildCredential(): SshCredential = if (auth == AuthMethod.Key) {
         SshCredential.Key(
@@ -313,7 +334,7 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
     }
 
     if (loading) {
-        RemotlyScreenShell(editing = editing, onBack = onDone) { padding ->
+        RemotlyScreenShell(editing = editing, onBack = ::requestClose) { padding ->
             LoadingState(label = "Loading host", modifier = Modifier.padding(padding))
         }
         return
@@ -322,7 +343,7 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
     RemotlyScreen(
         title = if (editing) "Edit SSH host" else "Add SSH host",
         subtitle = existing?.let { sshHostDisplayName(it) },
-        onBack = onDone,
+        onBack = ::requestClose,
         bottomBar = {
             Surface(
                 color = MaterialTheme.colorScheme.surfaceContainer,
@@ -335,10 +356,22 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = ScreenHorizontalPadding, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    TextButton(onClick = onDone, enabled = !busy) { Text("Cancel") }
-                    Button(onClick = { save() }, enabled = !busy) {
+                    TextButton(
+                        onClick = ::requestClose,
+                        enabled = !busy,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Cancel")
+                    }
+                    Button(
+                        onClick = { save() },
+                        enabled = !busy,
+                        modifier = Modifier.weight(1f),
+                    ) {
                         if (busy) {
                             CircularProgressIndicator(
                                 modifier = Modifier
@@ -347,8 +380,10 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                                 strokeWidth = 2.dp,
                                 color = LocalContentColor.current,
                             )
-                            Spacer(Modifier.width(8.dp))
+                        } else {
+                            Icon(Icons.Filled.Save, contentDescription = null)
                         }
+                        Spacer(Modifier.width(8.dp))
                         Text("Save")
                     }
                 }
@@ -644,6 +679,23 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
         }
     }
 
+    if (confirmDiscard) {
+        AlertDialog(
+            onDismissRequest = { confirmDiscard = false },
+            title = { Text("Discard changes?") },
+            text = { Text("Your unsaved host changes will be lost.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDiscard = false
+                        onDone()
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("Discard") }
+            },
+            dismissButton = { TextButton(onClick = { confirmDiscard = false }) { Text("Keep editing") } },
+        )
+    }
     if (confirmEndpoint) {
         AlertDialog(
             onDismissRequest = { confirmEndpoint = false },

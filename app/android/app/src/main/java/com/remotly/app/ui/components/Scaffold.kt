@@ -50,8 +50,8 @@ data class ScreenAction(
     val destructive: Boolean = false,
 )
 
-/** How many actions are drawn as buttons before the rest fold into the menu. */
-private const val INLINE_ACTIONS = 3
+/** Keep one primary action visible; secondary actions live in the overflow menu. */
+private const val INLINE_ACTIONS = 1
 
 /**
  * The shell every routed screen sits in.
@@ -130,7 +130,11 @@ private fun ScreenActions(
     setMenuOpen: (Boolean) -> Unit,
 ) {
     for (action in inline) {
-        IconButton(onClick = action.onClick, enabled = action.enabled) {
+        IconButton(
+            onClick = action.onClick,
+            enabled = action.enabled,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        ) {
             Icon(action.icon, contentDescription = action.title)
         }
     }

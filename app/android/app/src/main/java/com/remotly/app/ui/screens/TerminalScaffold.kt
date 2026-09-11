@@ -11,6 +11,7 @@ package com.remotly.app.ui.screens
 // double tap) directly to the box the terminal sits in.
 
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -197,6 +198,7 @@ fun TerminalScaffold(
     pane: (@Composable () -> Unit)? = null,
     content: @Composable (Modifier) -> Unit,
 ) {
+    BackHandler(onBack = onBack)
     // Edge to edge is on for the window, so this consumes the system bars
     // and the keyboard itself. Without it the bar draws under the status bar
     // and, worse, the key row lands under the navigation bar, where the
@@ -277,16 +279,17 @@ private fun TerminalTopBar(
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
         Column {
             Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = BAR_MIN_HEIGHT)
-                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
             ) {
+                CompactIconAction(icon = Icons.AutoMirrored.Filled.ArrowBack, label = "Back", onClick = onBack)
                 if (onMenu != null) {
                     CompactIconAction(icon = Icons.Filled.Menu, label = "Workspaces and tabs", onClick = onMenu)
                 }
-                CompactIconAction(icon = Icons.AutoMirrored.Filled.ArrowBack, label = "Back", onClick = onBack)
                 Column(
                     modifier = Modifier
                         .weight(1f)

@@ -17,6 +17,7 @@ package com.remotly.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -484,7 +485,10 @@ private fun HostSidebarBody(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
-            Column(Modifier.padding(horizontal = 8.dp)) {
+            Column(
+                modifier = Modifier.padding(horizontal = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 for (s in otherSessions) {
                     val value = if (s.default) null else s.name
                     SessionRow(
@@ -505,7 +509,10 @@ private fun HostSidebarBody(
             NoticeBar(state.error, NoticeTone.Danger, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
         }
 
-        Column(Modifier.padding(horizontal = 8.dp)) {
+        Column(
+            modifier = Modifier.padding(horizontal = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             for (workspace in state.workspaces) {
                 WorkspaceRow(
                     workspace = workspace,
@@ -536,7 +543,10 @@ private fun HostSidebarBody(
 
         Spacer(Modifier.height(12.dp))
         SectionHeader("This host")
-        Column(Modifier.padding(horizontal = 8.dp)) {
+        Column(
+            modifier = Modifier.padding(horizontal = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             PlainRow(icon = Icons.Filled.Terminal, label = "Shells", hint = "The app's own SSH tabs", onClick = onOpenShells)
             PlainRow(icon = Icons.Filled.Folder, label = "Files", hint = "Browse and transfer over SFTP", onClick = onOpenFiles)
         }
@@ -642,7 +652,7 @@ private fun WorkspaceRow(
     }
     var menuOpen by remember(workspace.workspaceId) { mutableStateOf(false) }
 
-    Column {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             IconButton(
                 onClick = onToggle,
@@ -740,7 +750,10 @@ private fun WorkspaceRow(
         }
 
         if (expanded) {
-            Column(Modifier.padding(start = 28.dp)) {
+            Column(
+                modifier = Modifier.padding(start = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 for (tab in tabs) {
                     val tabLabel = tab.label.ifEmpty { tab.number.toString() }
                     val focused = tab.tabId == focusedTabId

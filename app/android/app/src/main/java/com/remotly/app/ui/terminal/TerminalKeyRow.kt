@@ -20,9 +20,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -141,15 +139,6 @@ fun TerminalKeyRow(
     val haptic = LocalHapticFeedback.current
 
     val scrollState = rememberScrollState()
-    val hasMoreLeft = scrollState.value > 0
-    val hasMoreRight = scrollState.value < scrollState.maxValue
-    val overflowDescription = when {
-        hasMoreLeft && hasMoreRight ->
-            "Extra terminal keys. More keys are available to the left and right. Swipe horizontally to browse."
-        hasMoreRight -> "Extra terminal keys. More keys are available to the right. Swipe horizontally to browse."
-        hasMoreLeft -> "Extra terminal keys. More keys are available to the left. Swipe horizontally to browse."
-        else -> "Extra terminal keys"
-    }
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
@@ -157,52 +146,33 @@ fun TerminalKeyRow(
     ) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(48.dp)) {
-                Box(
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .weight(1f)
-                        .semantics { contentDescription = overflowDescription },
+                        .horizontalScroll(scrollState)
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                        .semantics { contentDescription = "Extra terminal keys. Swipe horizontally to browse." },
                 ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(scrollState)
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                    ) {
-                        for (def in KEYS) {
-                            KeyButton(
-                                def = def,
-                                active = def.modifier != null && def.modifier == activeModifier,
-                                onKeyDown = {
-                                    if (haptics) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    when {
-                                        def.modifier != null -> {
-                                            repeater.stop()
-                                            onModifier(def.modifier)
-                                        }
-                                        def.repeats -> repeater.press(def.key)
-                                        else -> onKey(def.key)
+                    for (def in KEYS) {
+                        KeyButton(
+                            def = def,
+                            active = def.modifier != null && def.modifier == activeModifier,
+                            onKeyDown = {
+                                if (haptics) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                when {
+                                    def.modifier != null -> {
+                                        repeater.stop()
+                                        onModifier(def.modifier)
                                     }
-                                },
-                                onKeyUp = {
-                                    if (def.repeats) repeater.release(def.key)
-                                },
-                            )
-                        }
-                    }
-                    if (hasMoreLeft) {
-                        OverflowCue(
-                            icon = Icons.Filled.KeyboardArrowLeft,
-                            label = "More terminal keys to the left",
-                            modifier = Modifier.align(Alignment.CenterStart),
-                        )
-                    }
-                    if (hasMoreRight) {
-                        OverflowCue(
-                            icon = Icons.Filled.KeyboardArrowRight,
-                            label = "More terminal keys to the right",
-                            modifier = Modifier.align(Alignment.CenterEnd),
+                                    def.repeats -> repeater.press(def.key)
+                                    else -> onKey(def.key)
+                                }
+                            },
+                            onKeyUp = {
+                                if (def.repeats) repeater.release(def.key)
+                            },
                         )
                     }
                 }
@@ -217,24 +187,6 @@ fun TerminalKeyRow(
     }
 }
 
-@Composable
-private fun OverflowCue(
-    icon: ImageVector,
-    label: String,
-    modifier: Modifier,
-) {
-    Box(
-        modifier = modifier
-            .padding(horizontal = 4.dp)
-            .size(32.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.94f))
-            .semantics { contentDescription = label },
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
 
 @Composable
 private fun KeyButton(

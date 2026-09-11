@@ -645,23 +645,27 @@ private fun HostRowItem(
                 }
             }
             if (!expanded) {
-                Row(
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 4.dp, end = 4.dp, bottom = 4.dp),
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
                 ) {
-                    HostRowAction(
-                        label = "Terminal",
+                    FilledTonalButton(
                         onClick = onTerminal,
-                    )
-                    HostRowAction(
-                        label = "Files",
-                        onClick = onFiles,
-                    )
-                    HostRowAction(
-                        label = "Workspaces",
-                        onClick = onWorkspaces,
-                    )
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Filled.Terminal, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Open terminal")
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        HostRowAction(label = "Files", icon = Icons.Filled.Folder, onClick = onFiles)
+                        HostRowAction(label = "Workspaces", icon = Icons.Filled.Dashboard, onClick = onWorkspaces)
+                    }
                 }
             }
         }
@@ -671,6 +675,7 @@ private fun HostRowItem(
 @Composable
 private fun RowScope.HostRowAction(
     label: String,
+    icon: ImageVector,
     onClick: () -> Unit,
 ) {
     TextButton(
@@ -678,6 +683,8 @@ private fun RowScope.HostRowAction(
         modifier = Modifier.weight(1f),
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
     ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
         Text(label, maxLines = 1, style = MaterialTheme.typography.labelLarge)
     }
 }

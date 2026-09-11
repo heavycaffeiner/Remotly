@@ -1,5 +1,6 @@
 package com.remotly.app.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -17,6 +18,8 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.NavHostController
 import androidx.navigation.navArgument
 import com.remotly.app.settings.SettingsState
 import com.remotly.app.ui.components.TransferBar
@@ -63,6 +66,7 @@ fun RemotlyApp() {
 @Composable
 private fun RemotlyNavHost() {
     val nav = rememberNavController()
+    AppBackHandler(nav)
     NavHost(navController = nav, startDestination = Routes.HOSTS) {
         composable(Routes.HOSTS) { MainTabs(nav) }
         composable(Routes.SETTINGS) { MainTabs(nav) { SettingsContent() } }
@@ -129,5 +133,13 @@ private fun RemotlyNavHost() {
                 nav = nav,
             )
         }
+    }
+}
+
+@Composable
+private fun AppBackHandler(nav: NavHostController) {
+    val currentEntry by nav.currentBackStackEntryAsState()
+    BackHandler(enabled = currentEntry != null && nav.previousBackStackEntry != null) {
+        nav.popBackStack()
     }
 }
