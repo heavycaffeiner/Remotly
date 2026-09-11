@@ -134,7 +134,10 @@ fun MainTabs(nav: NavHostController, content: @Composable () -> Unit) {
     val expanded = LocalConfiguration.current.screenWidthDp >= EXPANDED_LAYOUT_MIN_WIDTH_DP
 
     fun selectRoot(route: String) {
-        if (route == selectedRoute) return
+        // Read live rather than from the composition that built this handler:
+        // the bar's click lambda can outlive a recomposition, and comparing
+        // against a captured route left the Hosts tab a no-op from Settings.
+        if (route == nav.currentBackStackEntry?.destination?.route) return
         nav.navigate(route) {
             // Keep the Hosts entry as the stable root while saving whichever
             // root destination is being covered. This restores search and
