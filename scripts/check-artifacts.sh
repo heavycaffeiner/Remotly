@@ -81,7 +81,7 @@ done < <(candidates)
 # Absolute developer paths, which break on any other machine.
 if command -v rg >/dev/null 2>&1; then
   hits="$(rg -n --glob '!node_modules' --glob '!*.md' --glob '!scripts/check-artifacts.sh' \
-    '/Tokyo/Projects' app/src app/android/app/src mobile scripts 2>/dev/null || true)"
+    '/Tokyo/Projects' app/android/app/src mobile scripts 2>/dev/null || true)"
   if [ -n "$hits" ]; then
     report "absolute developer path in source:"
     echo "$hits" >&2
@@ -89,7 +89,7 @@ if command -v rg >/dev/null 2>&1; then
 
   # Debug crash tags from the migration.
   hits="$(rg -n --glob '!node_modules' --glob '!scripts/check-artifacts.sh' \
-    'RemotlyCrash' app/src app/android/app/src 2>/dev/null || true)"
+    'RemotlyCrash' app/android/app/src 2>/dev/null || true)"
   if [ -n "$hits" ]; then
     report "debug crash logging left in source:"
     echo "$hits" >&2

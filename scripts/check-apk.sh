@@ -108,12 +108,12 @@ forbid '\.keystore|\.jks|BEGIN [A-Z ]*PRIVATE KEY' "keystore or private key"
 if [ -n "$aapt2" ] && [ -x "$aapt2" ]; then
   badging="$("$aapt2" dump badging "$APK" 2>/dev/null | head -1)"
   echo "  info  $badging"
-  pkg_version="$(node -p "require('$ROOT/app/package.json').version" 2>/dev/null || true)"
+  pkg_version="$(sed -n 's/^remotlyVersion=//p' "$ROOT/app/android/gradle.properties" | tr -d '[:space:]')"
   if [ -n "$pkg_version" ]; then
     if grep -q -- "versionName='$pkg_version'" <<<"$badging"; then
-      echo "  ok    version matches package.json ($pkg_version)"
+      echo "  ok    version matches gradle.properties ($pkg_version)"
     else
-      echo "  FAIL  version does not match package.json ($pkg_version)" >&2
+      echo "  FAIL  version does not match gradle.properties ($pkg_version)" >&2
       status=1
     fi
   fi

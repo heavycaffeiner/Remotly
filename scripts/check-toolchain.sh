@@ -8,7 +8,6 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-NODE_MIN_MAJOR=22
 JDK_MIN_MAJOR=17
 GO_MIN_MINOR=26           # go1.26
 NDK_VERSION="28.2.13676358"
@@ -22,26 +21,6 @@ bad()  { printf '  FAIL  %-14s %s\n' "$1" "$2" >&2; status=1; }
 warn() { printf '  warn  %-14s %s\n' "$1" "$2"; warnings=$((warnings + 1)); }
 
 echo "toolchain"
-
-# --- Node ------------------------------------------------------------------
-if command -v node >/dev/null 2>&1; then
-  node_version="$(node -v)"
-  node_major="${node_version#v}"
-  node_major="${node_major%%.*}"
-  if [ "$node_major" -ge "$NODE_MIN_MAJOR" ]; then
-    ok "node" "$node_version"
-  else
-    bad "node" "$node_version, need $NODE_MIN_MAJOR or later"
-  fi
-else
-  bad "node" "not found"
-fi
-
-if command -v npm >/dev/null 2>&1; then
-  ok "npm" "$(npm -v)"
-else
-  bad "npm" "not found"
-fi
 
 # --- JDK -------------------------------------------------------------------
 java_bin="java"

@@ -30,21 +30,7 @@ jobs:
       - name: Build sshcore AAR
         run: scripts/build-sshcore.sh
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: app/pnpm-lock.yaml
-
       - uses: gradle/actions/setup-gradle@v4
-
-      - name: Install
-        working-directory: app
-        run: pnpm install --frozen-lockfile
 
       # The keystore is a repository secret, base64 encoded so it survives the
       # environment intact. It is written outside the working tree, so it is
@@ -107,4 +93,3 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: app/android/app/build/outputs/apk/release/app-release.apk
-

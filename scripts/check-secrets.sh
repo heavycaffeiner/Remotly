@@ -30,7 +30,7 @@ else
 fi
 
 status=0
-SRC=(app/src app/android/app/src/main mobile)
+SRC=(app/android/app/src/main mobile)
 SELF='scripts/check-secrets.sh'
 
 report() {

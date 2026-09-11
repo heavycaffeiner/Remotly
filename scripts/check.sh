@@ -53,14 +53,6 @@ section "repository hygiene"
 run "no generated artifacts" ./scripts/check-artifacts.sh
 run "no secrets in logs" ./scripts/check-secrets.sh
 
-section "app"
-# pnpm install --frozen-lockfile when the lock file is authoritative and
-# stale; otherwise the existing install is used, because ci is slow.
-if [ ! -d app/node_modules ]; then
-  run "pnpm install" bash -c "cd app && pnpm install --frozen-lockfile"
-fi
-run "pnpm check" bash -c "cd app && pnpm check"
-
 section "android"
 if [ "$FAST" -eq 1 ]; then
   echo "    skipped (--fast)"

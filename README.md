@@ -66,7 +66,7 @@ A standalone SSH and SFTP client for Android.
 
 | Path | What it is |
 | --- | --- |
-| `app/` | React Native app (Android; iOS builds but is not feature-complete) |
+| `app/android/` | The Android app: Kotlin and Jetpack Compose, Material 3 |
 | `app/android/terminal-native/` | JNI bridge to libghostty-vt, the terminal core |
 | `mobile/sshcore/` | Go SSH and SFTP core, built as an AAR for the app |
 
@@ -82,8 +82,7 @@ way in.
 
 ## Building
 
-Requires JDK 17 or later, the Android SDK with an NDK, Go 1.26, Node 22+, and
-pnpm. `scripts/check-toolchain.sh` verifies the set.
+Requires JDK 17 or later, the Android SDK with an NDK, and Go 1.26.
 
 The app links a Go SSH/SFTP core built with gomobile. It is a build output
 rather than a checked-in binary, so a fresh clone builds it once before Gradle

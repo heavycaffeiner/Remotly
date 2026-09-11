@@ -3,11 +3,10 @@
 #   - the Android app (release APK, signed with a local keystore)
 #   - SHA256SUMS and a dist README
 #
-# Output goes to dist/ under the project root. The APK embeds the JS bundle
-# produced by the React Native (Metro) build.
+# Output goes to dist/ under the project root.
 #
-# The Android build needs JDK 17 (a React Native requirement) and a populated
-# app/node_modules; set JAVA_HOME accordingly before running.
+# The Android build needs JDK 17 or later; set JAVA_HOME accordingly before
+# running.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -20,17 +19,16 @@ rm -rf "$DIST"
 mkdir -p "$DIST"
 
 # The single version source, the same one the Android build reads.
-APP_VERSION="$(node -p "require('$ROOT/app/package.json').version" 2>/dev/null || echo unknown)"
+APP_VERSION="$(sed -n 's/^remotlyVersion=//p' "$ROOT/app/android/gradle.properties" | tr -d '[:space:]')"
+APP_VERSION="${APP_VERSION:-unknown}"
 echo "==> app version $APP_VERSION"
 
 # --- Android app -----------------------------------------------------------
 if [ "${SKIP_APK:-0}" = "1" ]; then
   echo "==> skipping APK (SKIP_APK=1)"
 else
-  # React Native: Metro bundles the JS during the gradle build
-  # (bundleReleaseJsAndAssets), so the only prerequisite is node_modules.
-  # Gradle needs JDK 17 or later; an older JDK fails deep in the build with an
-  # unrelated-looking error.
+  # Gradle needs JDK 17 or later; an older JDK fails deep in the build with
+  # an unrelated-looking error.
   JAVA_BIN="${JAVA_HOME:+$JAVA_HOME/bin/}java"
   jdk_major="$("$JAVA_BIN" -version 2>&1 | awk -F'"' '/version/ {split($2, v, "."); print (v[1] == 1 ? v[2] : v[1]); exit}')"
   if [ -z "$jdk_major" ] || [ "$jdk_major" -lt 17 ]; then
@@ -56,14 +54,11 @@ else
   echo "==> sshcore.aar"
   "$ROOT/scripts/build-sshcore.sh"
 
-  # --frozen-lockfile: the lock file is the input, not a suggestion.
-  echo "==> JS deps (Metro bundles during gradle)"
-  ( cd "$ROOT/app" && pnpm install --frozen-lockfile )
-
   echo "==> APK (release, R8-minified)"
   ( cd "$ROOT/app/android" && ./gradlew assembleRelease )
-  # The RN release variant is signed with the debug keystore by default; we
-  # re-sign below with the release keystore (apksigner replaces the signature).
+  # The release variant is signed with the debug keystore when no release
+  # credentials are configured; we re-sign below with the release keystore
+  # (apksigner replaces the signature).
   APK_RAW="$ROOT/app/android/app/build/outputs/apk/release/app-release.apk"
   if [ ! -f "$APK_RAW" ]; then
     APK_RAW="$ROOT/app/android/app/build/outputs/apk/release/app-release-unsigned.apk"

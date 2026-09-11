@@ -11,30 +11,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  app:
-    name: App (typecheck, lint, format, tests)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: app/pnpm-lock.yaml
-
-      - name: Install
-        working-directory: app
-        run: pnpm install --frozen-lockfile
-
-      - name: Check
-        working-directory: app
-        run: pnpm check
-
   android:
     name: Android (unit tests, debug APK)
     runs-on: ubuntu-latest
@@ -57,21 +33,7 @@ jobs:
       - name: Build sshcore AAR
         run: scripts/build-sshcore.sh
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: app/pnpm-lock.yaml
-
       - uses: gradle/actions/setup-gradle@v4
-
-      - name: Install
-        working-directory: app
-        run: pnpm install --frozen-lockfile
 
       - name: Unit tests
         working-directory: app/android
@@ -100,9 +62,9 @@ jobs:
         working-directory: ${{ matrix.module }}
         run: go vet ./...
 
-      # The race detector is the point of running these in CI: the transport and
-      # session layers are concurrent, and a data race there corrupts a user's
-      # terminal rather than failing loudly.
+      # The race detector is the point of running these in CI: the transport
+      # and session layers are concurrent, and a data race there corrupts a
+      # user's terminal rather than failing loudly.
       - name: Test
         working-directory: ${{ matrix.module }}
         run: go test -race ./...
