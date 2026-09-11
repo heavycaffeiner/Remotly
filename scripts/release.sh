@@ -12,7 +12,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST="$ROOT/dist"
 SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/opt/android-sdk}}"
-BT="$SDK/build-tools/34.0.0"
+# The newest installed build-tools, not a pinned one: a fixed version is gone
+# the moment the SDK is updated, and zipalign then fails on a path.
+BT="$(ls -d "$SDK"/build-tools/*/ 2>/dev/null | sort -V | tail -1)"
+BT="${BT%/}"
+if [ ! -x "$BT/zipalign" ]; then
+  echo "ERROR: no build-tools with zipalign under $SDK/build-tools" >&2
+  exit 1
+fi
 
 echo "==> cleaning dist"
 rm -rf "$DIST"
