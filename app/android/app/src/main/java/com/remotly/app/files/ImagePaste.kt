@@ -150,6 +150,7 @@ object ImagePaste {
         val name = pastedImageName(System.currentTimeMillis(), picked.name)
         val path = joinPath(dir, name)
 
+        TransferEvents.install()
         val id = try {
             withContext(Dispatchers.IO) {
                 SftpBridge.startUploadFromUri(hostId, path, context, uri, replace = true, resumeFrom = 0L)

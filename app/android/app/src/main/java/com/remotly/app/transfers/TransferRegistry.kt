@@ -1,5 +1,10 @@
 package com.remotly.app.transfers
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -48,6 +53,13 @@ data class TransferRecord(
  */
 object TransferRegistry {
 
+    /**
+     * A completed transfer stays on the app-wide bar briefly so the user can
+     * read the confirmation and open the settled history sheet. The record
+     * itself remains in [SETTLED_CAP] history until cleared or evicted.
+     */
+    private const val COMPLETION_BAR_RETENTION_MS = 8_000L
+    private val expiryScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     /** Finished transfers kept for the sheet before the oldest is dropped. */
     private const val SETTLED_CAP = 20
 
@@ -66,28 +78,12 @@ object TransferRegistry {
 
     private val _transfers = MutableStateFlow<List<TransferRecord>>(emptyList())
     val transfers: StateFlow<List<TransferRecord>> = _transfers.asStateFlow()
+    private val _barRaised = MutableStateFlow(false)
+    val barRaised: StateFlow<Boolean> = _barRaised.asStateFlow()
 
-    /**
-     * Keeps the foreground service up while anything is running.
-     *
-     * Both directions register here, so this is the one place that knows
-     * whether the app has work that must survive being backgrounded. Without
-     * it Android is free to stop the process's threads once the user leaves,
-     * and a transfer dies partway with nothing having failed.
-     *
-     * Only the transition is reported, so a burst of transfers costs one call
-     * rather than one per transfer.
-     */
-    fun interface ServiceGate {
-        fun setActive(active: Boolean)
-    }
-
-    @Volatile
-    private var serviceGate: ServiceGate? = null
-    private var serviceActive = false
-
-    fun setServiceGate(gate: ServiceGate?) {
-        serviceGate = gate
+    private fun safeTransferred(record: TransferRecord, transferred: Long): Long {
+        val nonNegative = transferred.coerceAtLeast(0L)
+        return if (record.total >= 0L) minOf(nonNegative, record.total) else nonNegative
     }
 
     private fun snapshotLocked(): List<TransferRecord> =
@@ -95,13 +91,7 @@ object TransferRegistry {
 
     private fun emitLocked() {
         val list = snapshotLocked()
-        val running = list.any { it.phase == TransferPhase.Active }
-        if (running != serviceActive) {
-            serviceActive = running
-            // A failed gate costs the guarantee, not the transfer. Nothing
-            // here is worth failing a transfer over.
-            runCatching { serviceGate?.setActive(running) }
-        }
+        _barRaised.value = list.any(::raisesBar)
         _transfers.value = list
     }
 
@@ -132,8 +122,16 @@ object TransferRegistry {
      * the indicator's own visibility check and the snackbar's offset run
      * through this, so they cannot disagree about whether the bar is up.
      */
-    fun raisesBar(record: TransferRecord): Boolean =
-        record.phase == TransferPhase.Active || record.phase == TransferPhase.Error
+    private fun completionStillVisible(record: TransferRecord): Boolean {
+        val ended = record.endedAt ?: return false
+        return System.currentTimeMillis() - ended < COMPLETION_BAR_RETENTION_MS
+    }
+
+    fun raisesBar(record: TransferRecord): Boolean = when (record.phase) {
+        TransferPhase.Active, TransferPhase.Error -> true
+        TransferPhase.Done -> completionStillVisible(record)
+        TransferPhase.Cancelled -> false
+    }
 
     fun barVisible(): Boolean = synchronized(lock) { snapshotLocked().any(::raisesBar) }
 
@@ -176,27 +174,91 @@ object TransferRegistry {
         }
     }
 
-    fun settle(id: String, phase: TransferPhase, error: String? = null) {
+    private fun scheduleCompletionExpiry(id: String, endedAt: Long) {
+        expiryScope.launch {
+            delay(COMPLETION_BAR_RETENTION_MS)
+            synchronized(lock) {
+                val current = records[id]
+                // A newer attempt may reuse an id. Only the original settled
+                // record is allowed to trigger this emission.
+                if (
+                    current != null &&
+                    current.phase == TransferPhase.Done &&
+                    current.endedAt == endedAt &&
+                    !raisesBar(current)
+                ) {
+                    emitLocked()
+                }
+            }
+        }
+    }
+
+    fun settle(
+        id: String,
+        phase: TransferPhase,
+        error: String? = null,
+        transferred: Long? = null,
+    ) {
         require(phase != TransferPhase.Active) { "settle needs a terminal phase" }
         synchronized(lock) {
             val r = records[id] ?: return
+            // A terminal callback can arrive after cancellation already
+            // settled the row. It may still carry the only exact local
+            // position, but it must never turn a cancellation into an error
+            // or reopen a completed transfer.
+            if (r.phase != TransferPhase.Active) {
+                if (r.phase == phase && phase != TransferPhase.Done && transferred != null) {
+                    records[id] = r.copy(
+                        transferred = safeTransferred(r, transferred),
+                        error = error ?: r.error,
+                    )
+                    emitLocked()
+                }
+                return
+            }
+            val endedAt = System.currentTimeMillis()
             records[id] = r.copy(
                 phase = phase,
+                transferred = transferred?.let { safeTransferred(r, it) } ?: r.transferred,
                 error = error ?: r.error,
-                endedAt = System.currentTimeMillis(),
+                endedAt = endedAt,
             )
             cancels.remove(id)
             trimLocked()
             emitLocked()
+            if (phase == TransferPhase.Done) {
+                scheduleCompletionExpiry(id, endedAt)
+            }
         }
     }
 
-    /** Asks a running transfer to stop. Settling is left to its own callback. */
+    /**
+     * Records the exact byte count after an error or cancellation. Allowed
+     * after the row settles, because the transfer thread learns the final
+     * flushed prefix only while it unwinds; a failed flush can make it lower
+     * than the last progress event.
+     */
+    fun recordFinalProgress(id: String, transferred: Long) {
+        synchronized(lock) {
+            val r = records[id] ?: return
+            if (r.phase != TransferPhase.Error && r.phase != TransferPhase.Cancelled) return
+            records[id] = r.copy(transferred = safeTransferred(r, transferred))
+            emitLocked()
+        }
+    }
+
+    /**
+     * Asks a running transfer to stop and marks it cancelled before invoking
+     * the backend. The terminal backend callback can therefore not race this
+     * transition and overwrite cancellation with Error.
+     */
     fun cancel(id: String) {
-        val cancel = synchronized(lock) { cancels.remove(id) } ?: return
-        // A cancel that throws must not strand the record as active.
+        val cancel = synchronized(lock) {
+            val action = cancels[id] ?: return
+            settle(id, TransferPhase.Cancelled)
+            action
+        }
         runCatching { cancel() }
-        settle(id, TransferPhase.Cancelled)
     }
 
     /**

@@ -111,15 +111,18 @@ class SftpTransfersTest {
 
     private val events = mutableListOf<Triple<String, ByteArray?, String?>>()
     private val dones = mutableMapOf<String, Long>()
+    private val terminalOffsets = mutableMapOf<String, Long>()
 
     @Before
     fun setUp() {
         events.clear()
         dones.clear()
-        SftpTransfers.setSink { id, _, data, done, error ->
+        terminalOffsets.clear()
+        SftpTransfers.setSink { id, offset, data, done, error ->
             synchronized(events) {
                 events.add(Triple(id, data, error))
                 if (done != null) dones[id] = done
+                if (done != null || error != null) terminalOffsets[id] = offset
             }
         }
     }
@@ -269,6 +272,53 @@ class SftpTransfersTest {
         synchronized(events) {
             val err = events.first { it.first == id && it.third != null }.third
             assertTrue(err!!.contains("permission denied"))
+        }
+    }
+
+    @Test
+    fun aFailedDownloadReportsItsFinalSafeOffset() {
+        val ops = object : SftpOps by FakeOps() {
+            override fun download(
+                path: String,
+                chunkSize: Int,
+                onChunk: (Long, ByteArray) -> Unit,
+            ): Long {
+                onChunk(0L, byteArrayOf(1, 2, 3))
+                throw IOException("network dropped")
+            }
+        }
+        val id = SftpTransfers.startDownload(ops, HOST, "/remote/file")
+        waitFor { synchronized(events) { terminalOffsets.containsKey(id) } }
+
+        synchronized(events) {
+            assertEquals(3L, terminalOffsets[id])
+        }
+    }
+
+    @Test
+    fun aCancelledDownloadReportsItsFinalSafeOffset() {
+        val release = CountDownLatch(1)
+        val sent = CountDownLatch(1)
+        val ops = object : SftpOps by FakeOps() {
+            override fun download(
+                path: String,
+                chunkSize: Int,
+                onChunk: (Long, ByteArray) -> Unit,
+            ): Long {
+                onChunk(0L, byteArrayOf(4, 5, 6, 7))
+                sent.countDown()
+                release.await(5, TimeUnit.SECONDS)
+                throw IOException("stopped")
+            }
+        }
+        val id = SftpTransfers.startDownload(ops, HOST, "/remote/file")
+        assertTrue("the first chunk was accepted", sent.await(3, TimeUnit.SECONDS))
+        SftpTransfers.cancel(id)
+        release.countDown()
+        waitFor { synchronized(events) { terminalOffsets.containsKey(id) } }
+
+        synchronized(events) {
+            assertEquals(4L, terminalOffsets[id])
         }
     }
 
@@ -456,5 +506,50 @@ class SftpTransfersTest {
             gate.await(5, TimeUnit.SECONDS)
             return 0L
         }
+    }
+
+    // --- direct upload resume point ---
+
+    private fun pumpOver(bytes: ByteArray, chunk: Int, progress: MutableList<Long> = mutableListOf()): SftpTransfers.UploadPump {
+        val source = java.io.ByteArrayInputStream(bytes)
+        return SftpTransfers.UploadPump(
+            read = { buffer -> source.read(buffer) },
+            chunkSize = chunk,
+            cancelled = { false },
+            onProgress = { progress.add(it) },
+        )
+    }
+
+    /**
+     * An upload that dies mid-chunk must report what the engine already took,
+     * not zero: a retry from zero truncates the file instead of appending.
+     */
+    @Test
+    fun anInterruptedUploadReportsTheEnginesLastPull() {
+        val pump = pumpOver(ByteArray(10_000), chunk = 4096)
+        assertEquals(4096, pump.pull(0)!!.size)
+        assertEquals(4096, pump.pull(4096)!!.size)
+
+        assertEquals("only the chunk before the one in flight is known to be taken", 4096L, pump.committed)
+        assertEquals(8192L, pump.total)
+    }
+
+    /** A resumed upload skips the local prefix the engine says the server holds. */
+    @Test
+    fun aResumedUploadStartsFromTheEnginesOffset() {
+        val progress = mutableListOf<Long>()
+        val pump = pumpOver(ByteArray(10_000) { (it % 251).toByte() }, chunk = 4096, progress = progress)
+
+        val chunk = pump.pull(1000)!!
+        assertEquals((1000 % 251).toByte(), chunk[0])
+        assertEquals(listOf(1000L), progress)
+        assertEquals(1000L, pump.committed)
+    }
+
+    @Test
+    fun aLocalFileShorterThanTheServersCopyIsRefused() {
+        val pump = pumpOver(ByteArray(10), chunk = 4096)
+        val result = runCatching { pump.pull(100) }
+        assertTrue(result.isFailure)
     }
 }

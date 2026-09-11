@@ -147,6 +147,7 @@ object SftpTransferOps {
         replace: Boolean,
         resumeFrom: Long,
     ): Result {
+        TransferEvents.install()
         val id = try {
             withContext(Dispatchers.IO) {
                 SftpBridge.startUploadFromUri(hostId, remotePath, context, uri, replace, resumeFrom)
@@ -180,10 +181,10 @@ object SftpTransferOps {
     /**
      * Downloads [remotePath] under [hostId] into [destination].
      *
-     * [resumeFrom] is the byte offset to continue an already-started attempt
-     * from; a fresh download passes zero. The Go side seeks the remote file
-     * to that offset and the local write appends rather than truncates, so
-     * nothing already on disk is refetched or discarded.
+     * [resumeFrom] is the last safe local byte count of an earlier attempt.
+     * The transfer layer positions the destination there when the provider
+     * allows it and restarts from zero otherwise; the remote read starts at
+     * whichever offset it settled on.
      */
     suspend fun download(
         context: Context,
@@ -194,6 +195,7 @@ object SftpTransferOps {
         size: Long,
         resumeFrom: Long,
     ): Result = scope.async {
+        TransferEvents.install()
         val id = try {
             withContext(Dispatchers.IO) {
                 SftpBridge.startDownloadToUri(hostId, remotePath, context, destination, resumeFrom)
@@ -217,7 +219,8 @@ object SftpTransferOps {
                 scope.launch { download(context, hostId, remotePath, name, destination, size, from) }
             },
         )
-        if (resumeFrom > 0) TransferRegistry.advance(id, resumeFrom)
+        // Not seeded with resumeFrom: the transfer reports the offset it
+        // actually positioned to, which is zero when a provider cannot seek.
         awaitOutcome(id)
     }.await()
 
@@ -231,23 +234,28 @@ object SftpTransferOps {
         TransferEvents.watch(id) { transferred, done, error ->
             when {
                 error != null -> {
-                    // TransferRegistry.cancel() settles the record to
-                    // Cancelled itself, synchronously, before the cancel
-                    // closure it calls (SftpTransfers.cancel, which is what
-                    // eventually produces this very event) returns. Settling
-                    // again here would overwrite that with Error. A transfer
-                    // the registry still shows Active reached here another
-                    // way, such as a host reconnect tearing it down, and that
-                    // needs settling since nothing else will.
+                    val finalTransferred = transferred.coerceAtLeast(0L)
+                    // Cancellation settles the registry synchronously before
+                    // the backend unwinds. Keep that phase, but replace its
+                    // stale throttled progress with the final flushed prefix.
                     val stillActive = TransferRegistry.list()
                         .firstOrNull { it.id == id }?.phase == TransferPhase.Active
-                    if (stillActive) TransferRegistry.settle(id, TransferPhase.Error, error)
+                    if (stillActive) {
+                        TransferRegistry.settle(
+                            id,
+                            TransferPhase.Error,
+                            error,
+                            transferred = finalTransferred,
+                        )
+                    } else {
+                        TransferRegistry.recordFinalProgress(id, finalTransferred)
+                    }
                     outcome.complete(
                         Result.Failed(error, keepPartial = keepPartialOnFailure(armed = true, resumable = true)),
                     )
                 }
                 done -> {
-                    TransferRegistry.settle(id, TransferPhase.Done)
+                    TransferRegistry.settle(id, TransferPhase.Done, transferred = transferred)
                     outcome.complete(Result.Done)
                 }
                 else -> TransferRegistry.advance(id, transferred)

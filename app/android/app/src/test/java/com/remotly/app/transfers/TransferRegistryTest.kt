@@ -12,13 +12,11 @@ class TransferRegistryTest {
     @Before
     fun setUp() {
         TransferRegistry.reset()
-        TransferRegistry.setServiceGate(null)
     }
 
     @After
     fun tearDown() {
         TransferRegistry.reset()
-        TransferRegistry.setServiceGate(null)
     }
 
     private fun register(
@@ -75,6 +73,26 @@ class TransferRegistryTest {
     }
 
     @Test
+    fun `retry uses the final safe position after failure and cancellation`() {
+        var failedFrom = -1L
+        register("failed", resumable = true, restart = { failedFrom = it })
+        TransferRegistry.advance("failed", 80)
+        TransferRegistry.settle("failed", TransferPhase.Error, "disk full")
+        TransferRegistry.recordFinalProgress("failed", 37)
+        TransferRegistry.retry("failed")
+        assertEquals(37, failedFrom)
+
+        var cancelledFrom = -1L
+        register("cancelled", resumable = true, restart = { cancelledFrom = it })
+        TransferRegistry.advance("cancelled", 80)
+        TransferRegistry.cancel("cancelled")
+        TransferRegistry.recordFinalProgress("cancelled", 29)
+        assertEquals(TransferPhase.Cancelled, TransferRegistry.list().single().phase)
+        TransferRegistry.retry("cancelled")
+        assertEquals(29, cancelledFrom)
+    }
+
+    @Test
     fun `retry drops the abandoned record so it cannot sit beside its replacement`() {
         register("t1", restart = {})
         TransferRegistry.settle("t1", TransferPhase.Error, "dropped")
@@ -122,17 +140,6 @@ class TransferRegistryTest {
         TransferRegistry.settle("done", TransferPhase.Done)
         TransferRegistry.clearSettled()
         assertEquals(listOf("running"), TransferRegistry.list().map { it.id })
-    }
-
-    @Test
-    fun `the service gate is told only on a transition`() {
-        val calls = mutableListOf<Boolean>()
-        TransferRegistry.setServiceGate { calls.add(it) }
-        register("a")
-        register("b")
-        TransferRegistry.settle("a", TransferPhase.Done)
-        TransferRegistry.settle("b", TransferPhase.Done)
-        assertEquals(listOf(true, false), calls)
     }
 
     @Test

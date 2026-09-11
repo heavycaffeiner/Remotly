@@ -122,11 +122,8 @@ object FileModule {
     }
 
     /**
-     * Opens the write stream for [uri], buffered.
-     *
-     * A ContentResolver stream is unbuffered, so each write reached the
-     * provider directly. Wrapping it lets many chunks coalesce into one
-     * provider write.
+     * Opens the write stream for [uri], buffered so chunks coalesce into one
+     * provider write. Resumes go through [openOutputAt] instead.
      */
     private fun openOutput(context: android.content.Context, uri: Uri): OutputStream? {
         val raw = context.contentResolver.openOutputStream(uri, "wt") ?: return null
@@ -135,56 +132,110 @@ object FileModule {
         return buffered
     }
 
+    private data class PositionedOutput(
+        val stream: OutputStream,
+        val offset: Long,
+    )
+
+    /**
+     * Opens [uri] at exactly [requestedOffset], or truncates it and starts at
+     * zero when the provider cannot prove that positioning is safe.
+     *
+     * Append mode trusts the provider's current end, which can be longer than
+     * the last durable byte after an interrupted write. A read/write
+     * descriptor checks the length, truncates the unverified tail, and
+     * positions the next write.
+     */
+    private fun openOutputAt(
+        context: android.content.Context,
+        uri: Uri,
+        requestedOffset: Long,
+    ): PositionedOutput {
+        val offset = requestedOffset.coerceAtLeast(0L)
+        if (offset == 0L) {
+            return PositionedOutput(openTruncating(context, uri), 0L)
+        }
+
+        val descriptor = runCatching {
+            context.contentResolver.openFileDescriptor(uri, "rw")
+        }.getOrNull()
+        if (descriptor != null) {
+            val raw = android.os.ParcelFileDescriptor.AutoCloseOutputStream(descriptor)
+            try {
+                val channel = raw.channel
+                // A shorter destination cannot contain the recorded prefix.
+                // It is not safe to seek past its end and create a hole.
+                if (channel.size() < offset) throw java.io.IOException(
+                    "destination is shorter than the recorded resume offset",
+                )
+                channel.truncate(offset)
+                channel.position(offset)
+                if (channel.size() != offset || channel.position() != offset) {
+                    throw java.io.IOException("destination could not be positioned safely")
+                }
+                return PositionedOutput(raw, offset)
+            } catch (_: Exception) {
+                // Positioning support is optional for a DocumentsProvider.
+                // Close this attempt before reopening in truncating mode.
+                runCatching { raw.close() }
+            }
+        }
+        return PositionedOutput(openTruncating(context, uri), 0L)
+    }
+
+    private fun openTruncating(context: android.content.Context, uri: Uri): OutputStream =
+        context.contentResolver.openOutputStream(uri, "wt")
+            ?: throw java.io.IOException("could not open the destination file")
+
     /**
      * Streams a download straight into [uri].
      *
-     * [pump] is handed a sink it can call from the transfer thread. Bytes
-     * never leave native, so a download costs no base64 encode, no bridge
-     * crossing per chunk, and no JS turn per chunk.
-     *
-     * The stream is closed here, on both the success and the failure path, so
-     * a partial download cannot leave a handle open.
+     * [pump] receives the offset actually made safe locally, then a writer for
+     * bytes from that offset. The writer flushes each chunk before returning,
+     * so the caller publishes only bytes that are safe to resume from. A
+     * provider that cannot seek and truncate is reopened empty and reports 0.
      */
     fun writeStream(
         context: android.content.Context,
         uri: Uri,
-        append: Boolean = false,
-        pump: ((ByteArray) -> Unit) -> Unit,
+        resumeFrom: Long = 0L,
+        pump: (Long, (ByteArray) -> Unit) -> Unit,
     ) {
-        // "wa" appends, which is what a resumed download needs: "wt" truncates
-        // and would throw away exactly the bytes the resume exists to keep.
-        val mode = if (append) "wa" else "wt"
-        val raw = context.contentResolver.openOutputStream(uri, mode)
-            ?: throw java.io.IOException("could not open the destination file")
-        val out = java.io.BufferedOutputStream(raw, OUTPUT_BUFFER_BYTES)
-        var ok = false
+        val opened = openOutputAt(context, uri, resumeFrom)
+        val out = java.io.BufferedOutputStream(opened.stream, OUTPUT_BUFFER_BYTES)
+        var failure: Throwable? = null
         try {
-            pump { bytes -> out.write(bytes) }
+            pump(opened.offset) { bytes ->
+                out.write(bytes)
+                // Returning from this callback acknowledges the chunk only
+                // after the provider accepted its flush.
+                out.flush()
+            }
             out.flush()
-            ok = true
+        } catch (e: Throwable) {
+            failure = e
+            throw e
         } finally {
-            runCatching { out.close() }
-            synchronized(lock) { outputs.remove(uri.toString()) }
-            // A download that did not finish leaves a file the user never
-            // asked for: the picker created it up front, so failing partway
-            // used to leave a truncated file sitting in their Downloads under
-            // the real name. It is discarded unless it can still be resumed,
-            // in which case the bytes on disk are what the resume continues
-            // from and deleting them would defeat it.
-            if (!ok && !append) discard(context, uri)
+            try {
+                out.close()
+            } catch (closeFailure: Throwable) {
+                if (failure != null) {
+                    failure.addSuppressed(closeFailure)
+                } else {
+                    throw closeFailure
+                }
+            } finally {
+                synchronized(lock) { outputs.remove(uri.toString()) }
+            }
         }
     }
 
     /**
      * Streams an upload straight from [uri].
      *
-     * [block] is handed a puller it can call from the transfer thread: each
-     * call fills the given buffer as far as the stream allows and returns the
-     * byte count read, or -1 at end of stream. Bytes never leave native, so an
-     * upload costs no base64 decode, no bridge crossing per chunk, and no JS
-     * turn per chunk.
-     *
-     * The stream is closed here, on both the success and the failure path.
+     * [block] is handed a puller for the transfer thread: each call fills the
+     * buffer as far as the stream allows and returns the count, or -1 at end.
+     * The stream is closed here on both the success and the failure path.
      */
     fun <T> readStream(
         context: android.content.Context,

@@ -13,10 +13,10 @@ import java.util.concurrent.atomic.AtomicLong
  * File transfers over an open SFTP connection.
  *
  * Downloads are pushed: the engine reads the file and each chunk is handed to
- * [onEvent], which ends with exactly one done or error event.
+ * [Sink.onEvent], which ends with exactly one done or error event.
  *
  * Uploads invert. [SftpOps.upload] pulls chunks and blocks until each one
- * arrives, while the app pushes them one bridge call at a time, so the upload
+ * arrives, while the app pushes them one call at a time, so the upload
  * runs on its own thread and takes chunks through a queue of depth one. A
  * push blocks until the engine has taken the previous chunk, which is what
  * stops a fast writer from buffering the whole file in memory.
@@ -24,8 +24,7 @@ import java.util.concurrent.atomic.AtomicLong
 object SftpTransfers {
 
     /**
-     * Bytes per read for a bridged transfer, where each chunk still crosses
-     * into JS.
+     * Bytes per read for a transfer whose chunks are handed to the sink.
      *
      * pkg/sftp splits one read or write into `len(buf)/32768 + 1` concurrent
      * requests, capped at the client's configured limit of 64 per file. At
@@ -89,6 +88,8 @@ object SftpTransfers {
 
     private class Download(val hostId: String) {
         val cancelled = AtomicBoolean(false)
+        /** Bytes accepted by the destination and safe to use for a retry. */
+        val safe = AtomicLong(0)
     }
 
     // A direct upload pulls its bytes from a content URI instead of a queue
@@ -97,6 +98,64 @@ object SftpTransfers {
     // enough.
     private class DirectUpload(val hostId: String) {
         val cancelled = AtomicBoolean(false)
+    }
+
+    /**
+     * Hands local bytes to the engine one pull at a time and remembers how
+     * far it got, so an interrupted upload can report a resume point.
+     *
+     * The first pull carries the offset the engine is starting from: zero
+     * for a fresh upload, the server's end minus the rewind for an append.
+     * The local stream is skipped to it rather than trusting the caller.
+     */
+    internal class UploadPump(
+        private val read: (ByteArray) -> Int,
+        chunkSize: Int,
+        private val cancelled: () -> Boolean,
+        private val onProgress: (Long) -> Unit,
+    ) {
+        private val buffer = ByteArray(chunkSize)
+        private var positioned = false
+        private var reportedAt = 0L
+
+        /** Bytes handed to the engine, including the chunk it is writing now. */
+        @Volatile
+        var total = 0L
+            private set
+
+        /** Offset of the engine's latest pull: everything below it was taken in full. */
+        @Volatile
+        var committed = 0L
+            private set
+
+        fun pull(at: Long): ByteArray? {
+            if (!positioned) {
+                positioned = true
+                total = at
+                reportedAt = at
+                skip(at)
+                if (at > 0) onProgress(at)
+            }
+            committed = at
+            if (cancelled()) return null
+            val n = read(buffer)
+            if (n < 0) return null
+            total += n
+            if (total - reportedAt >= PROGRESS_INTERVAL_BYTES) {
+                reportedAt = total
+                onProgress(total)
+            }
+            return buffer.copyOf(n)
+        }
+
+        private fun skip(bytes: Long) {
+            var left = bytes
+            while (left > 0) {
+                val n = read(ByteArray(minOf(left, buffer.size.toLong()).toInt()))
+                if (n < 0) throw IOException("local file is shorter than what the server already has")
+                left -= n
+            }
+        }
     }
 
     private val uploads = ConcurrentHashMap<String, Upload>()
@@ -143,7 +202,7 @@ object SftpTransfers {
     private fun refreshService() {
         val context = serviceContext ?: return
         val running = uploads.isNotEmpty() || downloads.isNotEmpty() || directUploads.isNotEmpty()
-        SftpTransferService.setActive(context, SftpTransferService.OWNER_SFTP, running)
+        SftpTransferService.setActive(context, running)
     }
 
     private fun newId(prefix: String): String = "$prefix-${nextId.getAndIncrement()}"
@@ -267,7 +326,8 @@ object SftpTransfers {
      * Starts reading [path], streaming chunks to the sink.
      *
      * Returns as soon as the read is armed. Exactly one done or error event
-     * follows the chunks.
+     * follows the chunks. The terminal event carries the last accepted byte
+     * count, including when cancellation interrupts the engine.
      */
     fun startDownload(ops: SftpOps, hostId: String, path: String): String {
         val id = newId("down")
@@ -277,18 +337,20 @@ object SftpTransfers {
 
         executor.execute {
             try {
-                val total = ops.download(path, CHUNK_SIZE) { offset, bytes ->
+                ops.download(path, CHUNK_SIZE) { offset, bytes ->
                     if (down.cancelled.get()) throw IOException("cancelled")
                     sink?.onEvent(id, offset, bytes, null, null)
+                    down.safe.set(offset + bytes.size.toLong())
                 }
                 if (down.cancelled.get()) {
-                    sink?.onEvent(id, 0, null, null, "cancelled")
+                    sink?.onEvent(id, down.safe.get(), null, null, "cancelled")
                 } else {
-                    sink?.onEvent(id, 0, null, total, null)
+                    val safe = down.safe.get()
+                    sink?.onEvent(id, safe, null, safe, null)
                 }
             } catch (e: Exception) {
                 val reason = if (down.cancelled.get()) "cancelled" else e.message ?: "download failed"
-                sink?.onEvent(id, 0, null, null, reason)
+                sink?.onEvent(id, down.safe.get(), null, null, reason)
             } finally {
                 downloads.remove(id)
                 refreshService()
@@ -300,13 +362,11 @@ object SftpTransfers {
     /**
      * Reads [path] straight into [uri], reporting progress but not bytes.
      *
-     * The whole point is that file data never enters JS: no base64, no bridge
-     * crossing per chunk, and no JS turn per chunk. Those three were the cost
-     * of a download, and they scaled with file size rather than with anything
-     * the user could see.
-     *
-     * Progress is reported at intervals rather than per chunk, so a fast link
-     * does not spend its time emitting events.
+     * The file module first proves the destination can be truncated and
+     * positioned at [resumeFrom], restarting from zero otherwise, and the
+     * offset it settled on is what [SftpOps.downloadFrom] reads from.
+     * Progress is throttled; each terminal event carries the exact flushed
+     * prefix, not the last throttled report.
      */
     fun startDownloadToUri(
         ops: SftpOps,
@@ -323,34 +383,43 @@ object SftpTransfers {
 
         executor.execute {
             try {
-                var total = resumeFrom
-                var reportedAt = resumeFrom
-                // Appends when resuming, so the bytes already on disk are kept
-                // and only the missing tail is fetched.
+                var reportedAt = 0L
                 com.remotly.app.fileio.FileModule.writeStream(
                     context,
                     uri,
-                    append = resumeFrom > 0,
-                ) { write ->
-                    ops.downloadFrom(path, resumeFrom, DIRECT_CHUNK_SIZE) { _, bytes ->
+                    resumeFrom = resumeFrom,
+                ) { actualOffset, write ->
+                    down.safe.set(actualOffset)
+                    reportedAt = actualOffset
+                    // This also corrects the registry when a provider had to
+                    // fall back from the requested resume offset to zero.
+                    ops.downloadFrom(path, actualOffset, DIRECT_CHUNK_SIZE) { offset, bytes ->
                         if (down.cancelled.get()) throw IOException("cancelled")
+                        val expected = down.safe.get()
+                        if (offset != expected) {
+                            throw IOException("download out of order: expected $expected, got $offset")
+                        }
                         write(bytes)
-                        total += bytes.size
-                        if (total - reportedAt >= PROGRESS_INTERVAL_BYTES) {
-                            reportedAt = total
-                            sink?.onEvent(id, total, null, null, null)
+                        // FileModule returns only after the chunk was flushed,
+                        // so this is the first point at which it is safe to
+                        // publish the new retry position.
+                        val safe = down.safe.addAndGet(bytes.size.toLong())
+                        if (safe - reportedAt >= PROGRESS_INTERVAL_BYTES) {
+                            reportedAt = safe
+                            sink?.onEvent(id, safe, null, null, null)
                         }
                     }
                 }
+                val safe = down.safe.get()
                 if (down.cancelled.get()) {
-                    sink?.onEvent(id, 0, null, null, "cancelled")
+                    sink?.onEvent(id, safe, null, null, "cancelled")
                 } else {
-                    sink?.onEvent(id, total, null, total, null)
+                    sink?.onEvent(id, safe, null, safe, null)
                 }
             } catch (e: Exception) {
                 val reason =
                     if (down.cancelled.get()) "cancelled" else e.message ?: "download failed"
-                sink?.onEvent(id, 0, null, null, reason)
+                sink?.onEvent(id, down.safe.get(), null, null, reason)
             } finally {
                 downloads.remove(id)
                 refreshService()
@@ -362,17 +431,9 @@ object SftpTransfers {
     /**
      * Uploads [uri] straight to [path], reporting progress but not bytes.
      *
-     * The mirror of [startDownloadToUri]: the file is read from the content
-     * URI on this thread and pulled straight into [SftpOps.upload] or
-     * [SftpOps.uploadAppend], so no chunk crosses the bridge as base64 and no
-     * JS turn is spent per chunk.
-     *
-     * [resumeFrom] only selects the append mode. Where the local stream is
-     * positioned comes from the offset the engine reports on its first pull,
-     * which is the point the server is known to hold in full. Trusting the
-     * caller's figure, or the file's bare length, would send the wrong bytes
-     * whenever they disagree, and the result would be a file that looks
-     * complete and is not.
+     * [resumeFrom] only selects the append mode. The local stream is positioned
+     * at the offset the engine reports on its first pull, which is the point
+     * the server is known to hold in full; the file's bare length is not.
      */
     fun startUploadFromUri(
         ops: SftpOps,
@@ -389,63 +450,30 @@ object SftpTransfers {
         refreshService()
 
         executor.execute {
+            var pump: UploadPump? = null
             try {
-                // Both are set from the engine's first pull, which reports
-                // where the server is: zero for a fresh upload, the file's
-                // current end for an append.
-                var total = 0L
-                var reportedAt = 0L
-                var positioned = false
-                com.remotly.app.fileio.FileModule.readStream(context, uri) { read ->
-                    val buffer = ByteArray(DIRECT_CHUNK_SIZE)
-                    val pull = { at: Long ->
-                        if (!positioned) {
-                            positioned = true
-                            total = at
-                            reportedAt = at
-                            var toSkip = at
-                            while (toSkip > 0) {
-                                val want = minOf(toSkip, DIRECT_CHUNK_SIZE.toLong()).toInt()
-                                val n = read(ByteArray(want))
-                                if (n < 0) {
-                                    throw IOException("local file is shorter than what the server already has")
-                                }
-                                toSkip -= n
-                            }
-                            // Tells the app where the upload restarted, the
-                            // same first event the queue-fed resume sends.
-                            if (at > 0) sink?.onEvent(id, at, null, null, null)
-                        }
-                        if (up.cancelled.get()) {
-                            null
-                        } else {
-                            val n = read(buffer)
-                            if (n < 0) {
-                                null
-                            } else {
-                                total += n
-                                if (total - reportedAt >= PROGRESS_INTERVAL_BYTES) {
-                                    reportedAt = total
-                                    sink?.onEvent(id, total, null, null, null)
-                                }
-                                buffer.copyOf(n)
-                            }
-                        }
+                val finished = com.remotly.app.fileio.FileModule.readStream(context, uri) { read ->
+                    val p = UploadPump(read, DIRECT_CHUNK_SIZE, up.cancelled::get) { offset ->
+                        sink?.onEvent(id, offset, null, null, null)
                     }
+                    pump = p
                     if (resumeFrom > 0) {
-                        ops.uploadAppend(path, RESUME_REWIND_BYTES, DIRECT_CHUNK_SIZE, pull)
+                        ops.uploadAppend(path, RESUME_REWIND_BYTES, DIRECT_CHUNK_SIZE, p::pull)
                     } else {
-                        ops.upload(path, DIRECT_CHUNK_SIZE, truncate = replace, exclusive = !replace, onChunk = pull)
+                        ops.upload(path, DIRECT_CHUNK_SIZE, truncate = replace, exclusive = !replace, onChunk = p::pull)
                     }
+                    p
                 }
                 if (up.cancelled.get()) {
-                    sink?.onEvent(id, 0, null, null, "cancelled")
+                    sink?.onEvent(id, finished.committed, null, null, "cancelled")
                 } else {
-                    sink?.onEvent(id, total, null, total, null)
+                    sink?.onEvent(id, finished.total, null, finished.total, null)
                 }
             } catch (e: Exception) {
                 val reason = if (up.cancelled.get()) "cancelled" else e.message ?: "upload failed"
-                sink?.onEvent(id, 0, null, null, reason)
+                // The engine's latest pull marks what it took in full; a retry
+                // from there selects append mode and rewinds the rest itself.
+                sink?.onEvent(id, pump?.committed ?: 0L, null, null, reason)
             } finally {
                 directUploads.remove(id)
                 refreshService()
