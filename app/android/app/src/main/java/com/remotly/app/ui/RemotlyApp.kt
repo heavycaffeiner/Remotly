@@ -11,7 +11,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import com.remotly.app.ui.components.TransferBar
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
@@ -20,6 +19,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.remotly.app.settings.SettingsState
+import com.remotly.app.ui.components.TransferBar
 import com.remotly.app.ui.screens.FilesScreen
 import com.remotly.app.ui.screens.HerdrWorkspaceScreen
 import com.remotly.app.ui.screens.HostEditorScreen

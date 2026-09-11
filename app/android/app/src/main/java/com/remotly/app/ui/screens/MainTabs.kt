@@ -78,9 +78,9 @@ import com.remotly.app.ui.Routes
 import com.remotly.app.ui.components.EmptyState
 import com.remotly.app.ui.components.ErrorState
 import com.remotly.app.ui.components.LoadingState
-import com.remotly.app.ui.components.transferBarClearance
 import com.remotly.app.ui.components.RemotlyScreen
 import com.remotly.app.ui.components.ScreenAction
+import com.remotly.app.ui.components.transferBarClearance
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
