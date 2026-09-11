@@ -17,13 +17,14 @@ A standalone SSH and SFTP client for Android.
   on the way back up while it refreshes behind the list. It opens as a tab
   beside the shells and keeps its directory, so copying between two places on
   one host does not mean leaving the terminal.
-- **Transfers that never buffer the file.** Both directions move between the
-  content URI and the server in native code, with SFTP requests pipelined
-  rather than one round trip at a time, and progress throttled so a transfer
-  does not repaint the screen thousands of times. A resumed upload rewinds
-  past anything the server cannot vouch for instead of appending to whatever
-  length it reports. A name collision asks Keep both or Replace rather than
-  picking one.
+- **Transfers that stay out of the app's memory.** The native path moves
+  bytes straight between the content URI and the server, with SFTP requests
+  pipelined rather than one round trip at a time, and progress throttled so a
+  transfer does not repaint the screen thousands of times. A chunked fallback
+  remains for a backend that cannot reach the local file itself. A resumed
+  upload rewinds past anything the server cannot vouch for instead of
+  appending to whatever length it reports. A name collision asks Keep both or
+  Replace rather than picking one.
 - **Full shell environment.** Every session starts from a login shell, so
   PATH, aliases, functions, and version managers (nvm, pyenv, asdf) are all
   present.

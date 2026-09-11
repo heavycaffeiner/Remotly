@@ -821,7 +821,11 @@ private fun Breadcrumbs(crumbs: List<Breadcrumb>, onNavigate: (String) -> Unit) 
             verticalAlignment = Alignment.CenterVertically,
         ) {
             crumbs.forEachIndexed { i, crumb ->
-                if (i > 0) {
+                // The root crumb's own name is the separator ("/", or a
+                // drive root ending in one), so another after it draws
+                // "/ / config".
+                val previous = crumbs.getOrNull(i - 1)?.name.orEmpty()
+                if (i > 0 && !previous.endsWith('/') && !previous.endsWith('\\')) {
                     Text("/", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 TextButton(onClick = { onNavigate(crumb.path) }) { Text(crumb.name) }
