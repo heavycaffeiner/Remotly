@@ -156,4 +156,16 @@ describe('viewEntries', () => {
     viewEntries(input, view({ sortKey: 'name', direction: 'desc' }));
     expect(names(input)).toEqual(copy);
   });
+
+  it('sorts by UTF-8 bytes, not by locale', () => {
+    // Uppercase sorts before lowercase in byte order (0x41 < 0x61).
+    const out = viewEntries([entry('b'), entry('B'), entry('a')]);
+    expect(names(out)).toEqual(['B', 'a', 'b']);
+  });
+
+  it('keeps NFC and NFD spellings distinct', () => {
+    // NFC single code point U+D55C; NFD is U+D558 U+0315 (base + combining).
+    const out = viewEntries([entry('\ud558\u0315'), entry('\ud55c')]);
+    expect(names(out)).toEqual(['\ud558\u0315', '\ud55c']);
+  });
 });

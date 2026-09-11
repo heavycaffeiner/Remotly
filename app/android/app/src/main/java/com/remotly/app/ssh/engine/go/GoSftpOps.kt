@@ -92,22 +92,33 @@ class GoSftpOps(private val sftp: Sftp) : SftpOps {
 
     override fun uploadAppend(
         path: String,
+        rewind: Long,
         chunkSize: Int,
         onChunk: (Long) -> ByteArray?,
     ): Long {
-        val file = call { sftp.openAppend(path) }
+        val file = call { sftp.openAppend(path, rewind) }
         try {
             var total = call { file.offset() }
-            while (true) {
-                val chunk = onChunk(total) ?: break
-                if (chunk.isEmpty()) continue
-                val written = call { file.write(chunk) }
-                if (written != chunk.size.toLong()) {
-                    throw IOException("short write: $written of ${chunk.size} bytes")
+            try {
+                while (true) {
+                    val chunk = onChunk(total) ?: break
+                    if (chunk.isEmpty()) continue
+                    val written = call { file.write(chunk) }
+                    if (written != chunk.size.toLong()) {
+                        throw IOException("short write: $written of ${chunk.size} bytes")
+                    }
+                    total += written
                 }
-                total += written
+                return total
+            } catch (e: Exception) {
+                // A concurrent write that fails partway can leave the server
+                // holding more bytes than total accounts for. Cutting the
+                // file back to total repairs it while the connection is
+                // still up; the rewind on the next open covers the case
+                // where nothing got the chance to run.
+                runCatching { file.truncate(total) }
+                throw e
             }
-            return total
         } finally {
             runCatching { file.close() }
         }
@@ -123,16 +134,21 @@ class GoSftpOps(private val sftp: Sftp) : SftpOps {
         val file = call { sftp.openWrite(path, truncate, exclusive) }
         try {
             var total = 0L
-            while (true) {
-                val chunk = onChunk(total) ?: break
-                if (chunk.isEmpty()) continue
-                val written = call { file.write(chunk) }
-                if (written != chunk.size.toLong()) {
-                    throw IOException("short write: $written of ${chunk.size} bytes")
+            try {
+                while (true) {
+                    val chunk = onChunk(total) ?: break
+                    if (chunk.isEmpty()) continue
+                    val written = call { file.write(chunk) }
+                    if (written != chunk.size.toLong()) {
+                        throw IOException("short write: $written of ${chunk.size} bytes")
+                    }
+                    total += written
                 }
-                total += written
+                return total
+            } catch (e: Exception) {
+                runCatching { file.truncate(total) }
+                throw e
             }
-            return total
         } finally {
             runCatching { file.close() }
         }

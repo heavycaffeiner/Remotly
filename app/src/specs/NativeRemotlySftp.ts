@@ -146,6 +146,29 @@ export interface Spec extends TurboModule {
     resumeFrom: number,
   ): Promise<string>;
 
+  /**
+   * Writes a content URI straight into a file and returns a transfer id.
+   *
+   * The bytes never enter JS. `conflict` is "replace" to truncate an
+   * existing file or "fail" to refuse one. onTransfer carries no `data` for
+   * this transfer: progress is throttled to one event every few hundred
+   * kilobytes, and the single terminal event is unchanged. A base64 round
+   * trip and a bridge call per chunk are what this replaces.
+   */
+  startUploadFromUri(
+    hostId: string,
+    path: string,
+    uri: string,
+    conflict: string,
+    /**
+     * Non-zero continues an interrupted upload instead of writing from the
+     * start. The value itself is not the resume point: the server decides
+     * it, discarding anything it cannot vouch for, and reports where writing
+     * actually resumed as the first progress event.
+     */
+    resumeFrom: number,
+  ): Promise<string>;
+
   /** Cancels a transfer in either direction. A no-op once it has settled. */
   cancelTransfer(id: string): Promise<void>;
 

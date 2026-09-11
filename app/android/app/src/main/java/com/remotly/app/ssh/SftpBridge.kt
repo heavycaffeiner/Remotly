@@ -173,6 +173,18 @@ object SftpBridge {
         SftpTransfers.startDownloadToUri(it, hostId, path, context, uri, resumeFrom)
     }
 
+    /** Uploads a content URI straight into the file, without routing bytes through JS. */
+    fun startUploadFromUri(
+        hostId: String,
+        path: String,
+        context: android.content.Context,
+        uri: android.net.Uri,
+        replace: Boolean,
+        resumeFrom: Long,
+    ): String = op(hostId) {
+        SftpTransfers.startUploadFromUri(it, hostId, path, context, uri, replace, resumeFrom)
+    }
+
     fun close(hostId: String) {
         // Kept open while a transfer is still using it. A download runs in the
         // background and outlives the screen that started it, so closing here

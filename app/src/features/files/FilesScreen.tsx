@@ -1,5 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FlatList, View } from 'react-native';
+import {
+  FlatList,
+  RefreshControl,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
@@ -7,7 +12,9 @@ import type { RouteProp } from '@react-navigation/native';
 import {
   SftpFilesBackend,
   isPlainName,
-  viewEntries,
+  filterEntries,
+  orderEntries,
+  type FileOrder,
   type FileView,
   parseBreadcrumbs,
   parentPath,
@@ -70,7 +77,12 @@ import { useSettings } from '../../theme/SettingsProvider';
 import { Breadcrumbs } from './Breadcrumbs';
 import { FileListItem } from './FileListItem';
 import { FilesToolbar } from './FilesToolbar';
-import { entryKey, formatSize, numberedName } from './filePresentation';
+import {
+  entryKey,
+  formatSize,
+  numberedName,
+  rowHeight,
+} from './filePresentation';
 
 // A file browser over SSH SFTP. Names are rendered byte-faithful.
 
@@ -101,7 +113,10 @@ interface Prompt {
   text: string;
 }
 
-const PAGE_SIZE = 500;
+// How many directory listings are held for instant redisplay. Walking a tree
+// revisits the same handful of directories, and the cost of a stale listing
+// is bounded: it is shown while the refresh is already in flight.
+const DIR_CACHE_MAX = 24;
 // Bytes written per chunk on an upload (1 MiB minus an 8-byte frame offset).
 const UPLOAD_CHUNK = 1024 * 1024 - 8;
 const SFTP_POLL_MS = 150;
@@ -139,8 +154,8 @@ export function FilesScreen({
   // not a preference. Hidden files and the sort order are settings, so they
   // are shared with the SSH browser and survive a restart.
   const [query, setQuery] = useState('');
-  const [more, setMore] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [hostKey, setHostKey] = useState<HostKeyPrompt | null>(null);
   const [menuFor, setMenuFor] = useState<string | null>(null);
@@ -159,11 +174,21 @@ export function FilesScreen({
     size: number;
   } | null>(null);
   const { settings, update } = useSettings();
+  // The row height follows the system text size, and getItemLayout has to
+  // use the same number the rows do.
+  const { fontScale } = useWindowDimensions();
 
   const backendRef = useRef<FilesBackend | null>(null);
   const cwdRef = useRef(filesTabCwd(tabId));
   const xferRef = useRef<TransferBackend | null>(null);
-  const nextOffsetRef = useRef(0);
+  // Listings already fetched, newest last. A directory that is still here is
+  // drawn immediately and refreshed behind the list, which is what makes
+  // walking back up a tree instant instead of a spinner per level.
+  const dirCacheRef = useRef(new Map<string, FileEntry[]>());
+  // Bumped on every navigation, so a listing that arrives after the user has
+  // moved on is dropped instead of replacing the directory they are looking
+  // at.
+  const loadGenRef = useRef(0);
   const activeXferRef = useRef<{
     id: string;
     uri: string;
@@ -202,51 +227,75 @@ export function FilesScreen({
 
   // --- directory listing ---
 
-  async function loadPage(
-    path: string,
-    offset: number,
-    replace: boolean,
-  ): Promise<void> {
+  /**
+   * Fetches one directory and shows it.
+   *
+   * The whole directory arrives in one call: SFTP readdir has no resumable
+   * cursor, so a page was a slice of a listing the server had already sent,
+   * and asking for the next one re-read the directory from the start.
+   *
+   * Entries already on screen are left alone until the new ones land. A
+   * refresh that blanks the list first makes every navigation flash, and a
+   * failed refresh would throw away a listing that was still correct.
+   */
+  async function loadDir(path: string, showSpinner: boolean): Promise<void> {
     const b = backendRef.current;
     if (b === null) return;
-    setLoading(true);
+    const gen = (loadGenRef.current += 1);
+    if (showSpinner) setLoading(true);
     setError('');
     try {
-      const res = await b.list(path, offset, PAGE_SIZE);
-      if (disposedRef.current) return;
-      setEntries(prev =>
-        replace ? res.entries : [...(prev ?? []), ...res.entries],
-      );
-      setMore(res.more);
-      nextOffsetRef.current = offset + res.entries.length;
+      const listed = await b.list(path);
+      if (disposedRef.current || loadGenRef.current !== gen) return;
+      cacheDir(path, listed);
+      setEntries(listed);
     } catch (e) {
-      if (disposedRef.current) return;
+      if (disposedRef.current || loadGenRef.current !== gen) return;
       const err = toRemotlyError(e, 'unknown');
       log.error('files list failed', { path, code: err.code });
       setError(userFacingMessage(err));
-      if (replace) setEntries(null);
+      // A cached listing stays up under the error banner: it is what the
+      // directory held a moment ago, which beats an empty screen.
+      if (!dirCacheRef.current.has(path)) setEntries(null);
     } finally {
-      if (!disposedRef.current) setLoading(false);
+      if (!disposedRef.current && loadGenRef.current === gen) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }
 
-  function loadDir(path: string): void {
-    setCur(path);
-    setEntries(null);
-    setMore(false);
-    nextOffsetRef.current = 0;
-    void loadPage(path, 0, true);
+  function cacheDir(path: string, listed: FileEntry[]): void {
+    const cache = dirCacheRef.current;
+    // Re-inserting moves the key to the end, so delete first and the oldest
+    // key is always the one that goes.
+    cache.delete(path);
+    cache.set(path, listed);
+    if (cache.size > DIR_CACHE_MAX) {
+      const oldest = cache.keys().next();
+      if (!oldest.done) cache.delete(oldest.value);
+    }
   }
 
-  function loadMore(): void {
-    if (loading || !more) return;
-    void loadPage(cwdRef.current, nextOffsetRef.current, false);
+  function openDir(path: string): void {
+    setCur(path);
+    // Navigating abandons a pull-refresh of the old directory; its load is
+    // dropped by the generation check and would never clear the control.
+    setRefreshing(false);
+    const cached = dirCacheRef.current.get(path) ?? null;
+    setEntries(cached);
+    void loadDir(path, cached === null);
+  }
+
+  function refreshDir(): void {
+    setRefreshing(true);
+    void loadDir(cwdRef.current, false);
   }
 
   function navigate(path: string): void {
     setMenuFor(null);
     setPrompt(null);
-    loadDir(path);
+    openDir(path);
   }
 
   function goUp(): void {
@@ -270,7 +319,7 @@ export function FilesScreen({
         xferRef.current = new SftpTransferBackend(hostId);
         setBackend(b);
         setPhase('ready');
-        loadDir(cwdRef.current);
+        openDir(cwdRef.current);
         return;
       }
       if (st.state === 'FAILED') {
@@ -379,7 +428,7 @@ export function FilesScreen({
         );
       }
       cancelPrompt();
-      void loadDir(cwdRef.current);
+      void loadDir(cwdRef.current, false);
     } catch (e) {
       const err = toRemotlyError(e, 'unknown');
       log.error('files op failed', {
@@ -421,6 +470,16 @@ export function FilesScreen({
       total: picked.size,
       active: true,
     });
+
+    // The fast path: the backend reads the local file itself, so no file
+    // bytes cross into JS. Falls through to the chunked path for a backend
+    // that cannot reach the source on its own.
+    const direct = xb.startUploadFromUri;
+    if (direct !== undefined) {
+      await directUpload(xb, direct, picked, dest, conflict, resumeFrom);
+      return;
+    }
+
     let handleId: string | null = null;
     try {
       const handle = await xb.startUpload(
@@ -487,7 +546,7 @@ export function FilesScreen({
         active: false,
         done: true,
       });
-      void loadDir(cwdRef.current);
+      void loadDir(cwdRef.current, false);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (handleId !== null) settleTransfer(handleId, 'error', msg);
@@ -504,6 +563,145 @@ export function FilesScreen({
       if (handleId !== null && activeXferRef.current?.id === handleId) {
         activeXferRef.current = null;
       }
+      void release(picked.uri).catch(() => undefined);
+    }
+  }
+
+  /**
+   * Runs one upload that the backend reads from the source URI itself.
+   *
+   * Progress and the terminal outcome arrive as native events, so this
+   * returns once the transfer is armed rather than when the file is on the
+   * server. The registry is updated unconditionally and only the banner is
+   * gated on this screen still owning the transfer, the same split the
+   * direct download uses: an upload keeps running after the user navigates
+   * away.
+   *
+   * The outcome can land before the id does. The backend registers its sink
+   * inside the start call and replays anything already held for that id, so
+   * a small file can finish while this function is still awaiting. The
+   * outcome is held and applied after registration, because settling a
+   * transfer the registry has not seen leaves it running in the sheet for
+   * good.
+   */
+  async function directUpload(
+    xb: TransferBackend,
+    start: NonNullable<TransferBackend['startUploadFromUri']>,
+    picked: PickedFile,
+    dest: string,
+    conflict: 'fail' | 'replace',
+    resumeFrom: number,
+  ): Promise<void> {
+    type Outcome = { done: number } | { error: string };
+    const armed: { id: string | null; held: Outcome | null } = {
+      id: null,
+      held: null,
+    };
+
+    function finishDone(id: string, totalBytes: number): void {
+      advanceTransfer(id, totalBytes);
+      settleTransfer(id, 'done');
+      if (activeXferRef.current?.id === id) {
+        activeXferRef.current = null;
+        setTransfer({
+          kind: 'upload',
+          path: picked.name,
+          received: totalBytes,
+          total: picked.size,
+          active: false,
+          done: true,
+        });
+      }
+      void release(picked.uri).catch(() => undefined);
+      void loadDir(cwdRef.current, false);
+    }
+
+    function finishError(id: string, msg: string): void {
+      settleTransfer(id, 'error', msg);
+      if (activeXferRef.current?.id === id) {
+        activeXferRef.current = null;
+        setTransfer({
+          kind: 'upload',
+          path: picked.name,
+          received: 0,
+          total: picked.size,
+          active: false,
+          error: msg,
+          // A refused upload is the name already being taken, which the
+          // banner answers with "Replace and retry".
+          conflict: conflict === 'fail',
+        });
+      }
+      void release(picked.uri).catch(() => undefined);
+    }
+
+    try {
+      const handle = await start.call(
+        xb,
+        dest,
+        picked.uri,
+        conflict,
+        sent => {
+          const id = armed.id;
+          if (id === null) return;
+          advanceTransfer(id, sent);
+          if (activeXferRef.current?.id !== id) return;
+          setTransfer(t => {
+            if (t === null || t.kind !== 'upload' || !t.active) return t;
+            return { ...t, received: sent };
+          });
+        },
+        totalBytes => {
+          const id = armed.id;
+          if (id === null) armed.held = { done: totalBytes };
+          else finishDone(id, totalBytes);
+        },
+        msg => {
+          const id = armed.id;
+          if (id === null) armed.held = { error: msg };
+          else finishError(id, msg);
+        },
+        resumeFrom,
+      );
+      armed.id = handle.id;
+      const resumable = xb.capabilities.transferResume;
+      registerTransfer(
+        {
+          id: handle.id,
+          direction: 'upload',
+          path: dest,
+          name: picked.name,
+          hostId: hostIdParam,
+          total: picked.size,
+          resumable,
+        },
+        () => void xb.cancel(handle.id).catch(() => undefined),
+        from => void doUpload(picked, conflict, resumable ? from : 0),
+      );
+      if (resumeFrom > 0) advanceTransfer(handle.id, resumeFrom);
+      activeXferRef.current = {
+        id: handle.id,
+        uri: picked.uri,
+        kind: 'upload',
+      };
+      const held = armed.held;
+      if (held !== null) {
+        armed.held = null;
+        if ('done' in held) finishDone(handle.id, held.done);
+        else finishError(handle.id, held.error);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      activeXferRef.current = null;
+      setTransfer({
+        kind: 'upload',
+        path: picked.name,
+        received: 0,
+        total: picked.size,
+        active: false,
+        error: msg,
+        conflict: conflict === 'fail',
+      });
       void release(picked.uri).catch(() => undefined);
     }
   }
@@ -537,18 +735,66 @@ export function FilesScreen({
     // cannot reach the destination on its own.
     const direct = xb.startDownloadToUri;
     if (direct !== undefined) {
-      let id: string | null = null;
+      // The outcome can land before the id does, for the same reason the
+      // direct upload holds one: the backend replays anything already held
+      // for the id the moment it registers its sink, which happens inside
+      // the start call. Settling a transfer the registry has not seen would
+      // leave it running in the sheet for good.
+      type Outcome = { done: number } | { error: string };
+      const armed: { id: string | null; held: Outcome | null } = {
+        id: null,
+        held: null,
+      };
+      const resumable = xb.capabilities.transferResume;
+
+      function finishDone(id: string, totalBytes: number): void {
+        // Recorded unconditionally: the transfer runs in native and keeps
+        // going after this screen is gone, and the app-wide sheet reads it.
+        // Only the local banner is gated on the screen still owning it.
+        advanceTransfer(id, totalBytes);
+        settleTransfer(id, 'done');
+        if (activeXferRef.current?.id === id) {
+          activeXferRef.current = null;
+          setTransfer({
+            kind: 'download',
+            path: picked.name,
+            received: totalBytes,
+            total: totalBytes,
+            active: false,
+            done: true,
+          });
+        }
+        void release(picked.uri).catch(() => undefined);
+      }
+
+      function finishError(id: string, msg: string): void {
+        settleTransfer(id, 'error', msg);
+        if (activeXferRef.current?.id === id) {
+          activeXferRef.current = null;
+          setTransfer({
+            kind: 'download',
+            path: picked.name,
+            received: 0,
+            total: -1,
+            active: false,
+            error: msg,
+          });
+        }
+        // Kept only when Resume can continue from what is on disk. Otherwise
+        // the partial file goes: it carries the name the user chose and
+        // would pass for a complete download.
+        if (resumable) void release(picked.uri).catch(() => undefined);
+        else void discard(picked.uri).catch(() => undefined);
+      }
+
       try {
         const handle = await direct.call(
           xb,
           path,
           picked.uri,
           received => {
+            const id = armed.id;
             if (id === null) return;
-            // Recorded unconditionally: the transfer runs in native and keeps
-            // going after this screen is gone, and the app-wide sheet reads
-            // this. Only the local banner is gated on the screen still owning
-            // the transfer.
             advanceTransfer(id, received);
             if (activeXferRef.current?.id !== id) return;
             setTransfer(t => {
@@ -557,57 +803,22 @@ export function FilesScreen({
             });
           },
           totalBytes => {
-            if (id !== null) {
-              advanceTransfer(id, totalBytes);
-              settleTransfer(id, 'done');
-            }
-            // Only this screen's banner is conditional. The transfer itself
-            // is settled above whether or not anyone is watching.
-            const owned = id !== null && activeXferRef.current?.id === id;
-            if (owned) activeXferRef.current = null;
-            if (owned) {
-              setTransfer({
-                kind: 'download',
-                path: picked.name,
-                received: totalBytes,
-                total: totalBytes,
-                active: false,
-                done: true,
-              });
-            }
-            void release(picked.uri).catch(() => undefined);
+            const id = armed.id;
+            if (id === null) armed.held = { done: totalBytes };
+            else finishDone(id, totalBytes);
           },
           msg => {
-            if (id !== null) settleTransfer(id, 'error', msg);
-            const owned = id !== null && activeXferRef.current?.id === id;
-            if (owned) activeXferRef.current = null;
-            if (owned) {
-              setTransfer({
-                kind: 'download',
-                path: picked.name,
-                received: 0,
-                total: -1,
-                active: false,
-                error: msg,
-              });
-            }
-            // Kept only when Resume can continue from what is on disk.
-            // Otherwise the partial file goes: it carries the name the user
-            // chose and would pass for a complete download.
-            if (xb.capabilities.transferResume) {
-              void release(picked.uri).catch(() => undefined);
-            } else {
-              void discard(picked.uri).catch(() => undefined);
-            }
+            const id = armed.id;
+            if (id === null) armed.held = { error: msg };
+            else finishError(id, msg);
           },
           resumeFrom,
         );
-        id = handle.id;
+        armed.id = handle.id;
         // Registered so the transfer is visible app-wide and, more to the
         // point, so the unmount cleanup can see it is still running. An
         // unregistered download read as "nothing active" and the SFTP
         // connection was closed under it on navigating away.
-        const resumable = xb.capabilities.transferResume;
         registerTransfer(
           {
             id: handle.id,
@@ -633,6 +844,12 @@ export function FilesScreen({
           uri: picked.uri,
           kind: 'download',
         };
+        const held = armed.held;
+        if (held !== null) {
+          armed.held = null;
+          if ('done' in held) finishDone(handle.id, held.done);
+          else finishError(handle.id, held.error);
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         activeXferRef.current = null;
@@ -1037,20 +1254,23 @@ export function FilesScreen({
     (entry: FileEntry) => setMenuFor(entry.name),
     [],
   );
-  // The persisted preferences plus this screen's search box.
-  const view: FileView = React.useMemo(
+  // The persisted preferences, without the search box, so a keystroke does
+  // not invalidate the ordering.
+  const order: FileOrder = React.useMemo(
     () => ({
       sortKey: settings.filesSortKey,
       direction: settings.filesSortDirection,
       showHidden: settings.filesShowHidden,
-      query,
     }),
     [
       settings.filesSortKey,
       settings.filesSortDirection,
       settings.filesShowHidden,
-      query,
     ],
+  );
+  const view: FileView = React.useMemo(
+    () => ({ ...order, query }),
+    [order, query],
   );
 
   const setView = React.useCallback(
@@ -1073,9 +1293,17 @@ export function FilesScreen({
 
   // Entries stay raw: the filter is display only, and every operation still
   // addresses the entry by its real name.
+  //
+  // Ordering and searching are memoized apart so a keystroke only re-filters.
+  // Re-sorting a directory of tens of thousands of entries per character is
+  // what made the search box lag.
+  const ordered = React.useMemo(
+    () => orderEntries(entries ?? [], order),
+    [entries, order],
+  );
   const shownEntries = React.useMemo(
-    () => viewEntries(entries ?? [], view),
-    [entries, view],
+    () => filterEntries(ordered, query),
+    [ordered, query],
   );
 
   const renderEntry = React.useCallback(
@@ -1084,12 +1312,39 @@ export function FilesScreen({
     ),
     [openEntry, menuForEntry],
   );
+  const keyForEntry = React.useCallback(
+    (item: FileEntry) => entryKey(cwd, item),
+    [cwd],
+  );
+  // The ".." row sits above the entries, so its height is part of every
+  // offset. Without it the list scrolls to a position one row short. Both
+  // read the same scaled height as the rows themselves, so a larger system
+  // font size does not put the two out of step.
+  const rowPx = rowHeight(fontScale);
+  const headerHeight = parentPath(cwd) !== null ? rowPx : 0;
+  const rowLayout = React.useCallback(
+    (_data: unknown, index: number) => ({
+      length: rowPx,
+      offset: headerHeight + rowPx * index,
+      index,
+    }),
+    [headerHeight, rowPx],
+  );
   const canTransfer = xferRef.current !== null;
   const runningCount = useTransfers().filter(t => t.phase === 'active').length;
   const openTransfers = React.useCallback(() => openTransferSheet(), []);
   const { colors } = useTheme();
 
   const actions: ScreenAction[] = [
+    {
+      key: 'refresh',
+      icon: 'refresh',
+      // A pull gesture also refreshes, but it is out of reach from a screen
+      // reader or an external keyboard.
+      title: 'Refresh this folder',
+      onPress: refreshDir,
+      disabled: phase !== 'ready',
+    },
     {
       key: 'mkdir',
       icon: 'plus',
@@ -1184,7 +1439,8 @@ export function FilesScreen({
         <FilesToolbar
           view={view}
           shown={shownEntries.length}
-          loaded={entries?.length ?? 0}
+          loaded={ordered.length}
+          loading={loading}
           onChange={setView}
         />
       ) : null}
@@ -1192,23 +1448,35 @@ export function FilesScreen({
       {phase === 'ready' ? (
         <FlatList
           data={shownEntries}
-          keyExtractor={e => entryKey(cwd, e)}
+          keyExtractor={keyForEntry}
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: 48 }}
+          // flexGrow so the empty and loading states centre in the list area
+          // instead of collapsing against the toolbar.
+          contentContainerStyle={{ flexGrow: 1, paddingBottom: 48 }}
+          // A directory arrives whole, so the list carries every entry and
+          // the window has to be bounded rather than the data.
+          getItemLayout={rowLayout}
+          initialNumToRender={16}
+          maxToRenderPerBatch={16}
+          windowSize={11}
+          removeClippedSubviews
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={refreshDir} />
+          }
           ListHeaderComponent={
             parentPath(cwd) !== null ? <UpRow onPress={goUp} /> : undefined
           }
           ListEmptyComponent={
-            entries !== null && shownEntries.length === 0 ? (
+            loading ? (
+              <Loading label="Reading this folder" />
+            ) : entries !== null && shownEntries.length === 0 ? (
               entries.length > 0 ? (
                 <Empty
                   icon="magnify"
                   title="Nothing matches"
-                  message={
-                    more
-                      ? 'Only the entries loaded so far were searched. Scroll to load the rest of this folder.'
-                      : 'No entry here matches the search and hidden-file settings.'
-                  }
+                  message="No entry in this folder matches the search and hidden-file settings."
                 />
               ) : (
                 <Empty
@@ -1223,24 +1491,6 @@ export function FilesScreen({
               )
             ) : undefined
           }
-          ListFooterComponent={
-            loading && (entries === null || more) ? (
-              <View
-                style={{
-                  alignItems: 'center',
-                  paddingHorizontal: 32,
-                  paddingVertical: 16,
-                }}
-              >
-                <Progress
-                  label="Loading more entries"
-                  style={{ width: '50%' }}
-                />
-              </View>
-            ) : undefined
-          }
-          onEndReached={loadMore}
-          onEndReachedThreshold={0.2}
           renderItem={renderEntry}
         />
       ) : null}
@@ -1317,35 +1567,6 @@ export function FilesScreen({
             ) : null}
           </View>
         </Surface>
-      ) : null}
-
-      {phase === 'ready' ? (
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            borderTopWidth: 1,
-            borderTopColor: colors.outlineVariant as string,
-            paddingHorizontal: 8,
-            paddingVertical: 4,
-          }}
-        >
-          <Button
-            variant="ghost"
-            size="sm"
-            icon="refresh"
-            onPress={() => loadDir(cwdRef.current)}
-            accessibilityLabel="Refresh this folder"
-          >
-            Refresh
-          </Button>
-          <Text variant="caption" style={{ marginLeft: 8, flexShrink: 1 }}>
-            {canTransfer
-              ? 'Transfers: resume available, no integrity check'
-              : 'Browsing and metadata only.'}
-          </Text>
-        </View>
       ) : null}
 
       {/* A download whose name is already taken in the destination folder.
@@ -1529,20 +1750,41 @@ function MenuRow({
 }
 
 // The parent-directory row. At module scope so FlatList's header type is
-// stable across renders.
+// stable across renders, and the same height as an entry row so
+// getItemLayout can treat it as a fixed offset ahead of the entries.
 function UpRow({ onPress }: { onPress: () => void }): React.ReactElement {
   const { colors } = useTheme();
+  const { fontScale } = useWindowDimensions();
   return (
-    <Button
-      variant="ghost"
-      icon="arrow-up"
-      style={{ borderRadius: 0 }}
-      contentStyle={{ height: 56, justifyContent: 'flex-start' }}
-      labelStyle={{ color: colors.onSurfaceVariant as string }}
+    <TouchableRipple
+      role="button"
       accessibilityLabel="Up one level"
       onPress={onPress}
+      style={{
+        height: rowHeight(fontScale),
+        paddingHorizontal: 12,
+        justifyContent: 'center',
+      }}
     >
-      ..
-    </Button>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <View
+          style={{
+            height: 34,
+            width: 34,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: 999,
+            backgroundColor: colors.surfaceVariant as string,
+          }}
+        >
+          <Icon
+            name="arrow-up"
+            size={20}
+            color={colors.onSurfaceVariant as string}
+          />
+        </View>
+        <Text style={{ color: colors.onSurfaceVariant as string }}>..</Text>
+      </View>
+    </TouchableRipple>
   );
 }

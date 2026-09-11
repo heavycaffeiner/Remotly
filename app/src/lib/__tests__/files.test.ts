@@ -1,8 +1,7 @@
 import { describe, it, expect } from '@jest/globals';
-import type { FileEntry, SftpBridge, SftpRawEntry } from '../files';
+import type { SftpBridge, SftpRawEntry } from '../files';
 import {
   SftpFilesBackend,
-  sortEntries,
   baseName,
   isPlainName,
   parentPath,
@@ -10,47 +9,6 @@ import {
   parseBreadcrumbs,
   SFTP_CAPABILITIES,
 } from '../files';
-
-function entry(name: string, isDir = false, isSymlink = false): FileEntry {
-  return { name, isDir, isSymlink, size: 0, mtime: 0, perm: 0 };
-}
-
-describe('sortEntries', () => {
-  it('puts directories before files', () => {
-    const out = sortEntries([
-      entry('b.txt'),
-      entry('adir', true),
-      entry('a.txt'),
-    ]);
-    expect(out.map(e => e.name)).toEqual(['adir', 'a.txt', 'b.txt']);
-  });
-
-  it('sorts by UTF-8 bytes, not locale or normalization', () => {
-    // Uppercase sorts before lowercase in byte order (0x41 < 0x61).
-    const out = sortEntries([entry('b'), entry('B'), entry('a')]);
-    expect(out.map(e => e.name)).toEqual(['B', 'a', 'b']);
-  });
-
-  it('keeps NFC and NFD spellings distinct and byte-ordered', () => {
-    // NFC single code point U+D55C; NFD is U+D558 U+0315 (base + combining).
-    const nfc = entry('\ud55c');
-    const nfd = entry('\ud558\u0315');
-    const out = sortEntries([nfd, nfc]);
-    // Both must be present (not folded), and ordered by their real bytes.
-    expect(out).toHaveLength(2);
-    expect(out[0].name).not.toBe(out[1].name);
-    const names = out.map(e => e.name);
-    expect(names).toContain('\ud55c');
-    expect(names).toContain('\ud558\u0315');
-  });
-
-  it('is stable for equal keys and does not mutate the input', () => {
-    const input = [entry('x'), entry('a'), entry('x')];
-    const snapshot = [...input];
-    sortEntries(input);
-    expect(input).toEqual(snapshot);
-  });
-});
 
 describe('path helpers', () => {
   it('baseName', () => {
@@ -198,7 +156,7 @@ describe('SftpFilesBackend', () => {
     return { bridge, calls };
   }
 
-  it('maps SFTP entries to the model, ms to seconds, and sorts dirs first', async () => {
+  it('maps SFTP entries to the model and converts ms to seconds', async () => {
     const { bridge } = mockBridge([
       sftpEntry('z.txt', false, 10, 1500),
       sftpEntry('adir', true, 0, 0),
@@ -207,26 +165,27 @@ describe('SftpFilesBackend', () => {
     const backend = new SftpFilesBackend('host-1', bridge);
     expect(backend.capabilities.transferResume).toBe(true);
     expect(backend.capabilities.transferIntegrity).toBe(false);
-    const res = await backend.list('/');
-    expect(res.total).toBe(3);
-    expect(res.entries.map(e => e.name)).toEqual(['adir', 'a.txt', 'z.txt']);
+    const entries = await backend.list('/');
+    expect(entries.map(e => e.name).sort()).toEqual(['a.txt', 'adir', 'z.txt']);
     // 1500 ms -> 1 s, 2500 ms -> 2 s.
-    expect(res.entries.find(e => e.name === 'z.txt')?.mtime).toBe(1);
-    expect(res.entries.find(e => e.name === 'a.txt')?.size).toBe(5);
+    expect(entries.find(e => e.name === 'z.txt')?.mtime).toBe(1);
+    expect(entries.find(e => e.name === 'a.txt')?.size).toBe(5);
   });
 
-  it('paginates a full SFTP listing client-side', async () => {
-    const many = Array.from({ length: 10 }, (_, i) =>
-      sftpEntry(`f${i.toString().padStart(2, '0')}.txt`, false, i),
+  // The browser used to ask for 500 entries at a time, and each page re-read
+  // the whole directory because SFTP readdir has no resumable cursor. Worse,
+  // the pages past the first were only fetched by scrolling, so a search that
+  // matched inside the first page never looked at the rest of the folder.
+  it('returns the whole directory from a single bridge call', async () => {
+    const many = Array.from({ length: 1200 }, (_, i) =>
+      sftpEntry(`f${i.toString().padStart(4, '0')}.txt`, false, i),
     );
-    const { bridge } = mockBridge(many);
+    const { bridge, calls } = mockBridge(many);
     const backend = new SftpFilesBackend('host-1', bridge);
-    const page1 = await backend.list('/', 0, 4);
-    expect(page1.entries).toHaveLength(4);
-    expect(page1.more).toBe(true);
-    const page3 = await backend.list('/', 8, 4);
-    expect(page3.entries).toHaveLength(2);
-    expect(page3.more).toBe(false);
+    const entries = await backend.list('/');
+    expect(entries).toHaveLength(1200);
+    expect(entries[1199].name).toBe('f1199.txt');
+    expect(calls.filter(c => c.startsWith('list:'))).toEqual(['list:host-1:/']);
   });
 
   it('routes metadata ops to the bridge with the host id', async () => {

@@ -302,6 +302,54 @@ class RemotlySftpModule(reactContext: ReactApplicationContext) :
         )
     }
 
+    override fun startUploadFromUri(
+        hostId: String,
+        path: String,
+        uri: String,
+        conflict: String,
+        resumeFrom: Double,
+        promise: Promise,
+    ) {
+        if (path.isBlank()) {
+            promise.reject(BridgeCodes.INVALID_PARAM.toString(), "path is required")
+            return
+        }
+        if (uri.isBlank()) {
+            promise.reject(BridgeCodes.INVALID_PARAM.toString(), "uri is required")
+            return
+        }
+        val parsed = try {
+            android.net.Uri.parse(uri)
+        } catch (e: Exception) {
+            promise.reject(BridgeCodes.INVALID_PARAM.toString(), "uri is not valid")
+            return
+        }
+        // Anything but an explicit replace refuses to clobber an existing file.
+        val replace = conflict == "replace"
+        // The URI comes from the system picker and is only ever read through
+        // the ContentResolver, which enforces the grant the picker issued.
+        // Nothing here derives a filesystem path from it.
+        val context = reactApplicationContext
+        SftpBridge.execute(
+            onResult = { r ->
+                r.fold(
+                    { id -> promise.resolve(id) },
+                    { e -> promise.reject(BridgeCodes.FAIL.toString(), e.message ?: "upload failed") },
+                )
+            },
+            block = {
+                SftpBridge.startUploadFromUri(
+                    hostId,
+                    path,
+                    context,
+                    parsed,
+                    replace,
+                    resumeFrom.toLong().coerceAtLeast(0L),
+                )
+            },
+        )
+    }
+
     override fun cancelTransfer(id: String, promise: Promise) {
         SftpTransfers.cancel(id)
         promise.resolve(null)

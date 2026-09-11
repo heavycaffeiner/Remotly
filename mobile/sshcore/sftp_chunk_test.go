@@ -11,9 +11,9 @@ import (
 // Read throughput against chunk size, over a real SFTP server on loopback.
 //
 // Each ReadChunk is one SFTP round trip, so a small chunk pays that latency
-// more often. This is why the direct-to-URI download reads in 256KB rather than
-// the 32KB the bridged path used, and it prints the numbers rather than
-// asserting a rate, which would be a flake on shared hardware.
+// more often. This is why the direct-to-URI download reads in 1MiB rather
+// than the 256KB the bridged path uses, and it prints the numbers rather
+// than asserting a rate, which would be a flake on shared hardware.
 func TestSftpChunkSizeThroughput(t *testing.T) {
 	if testing.Short() {
 		t.Skip("throughput comparison is not a correctness check")
@@ -69,10 +69,9 @@ func TestSftpChunkSizeThroughput(t *testing.T) {
 	}
 }
 
-// An upload that resumes keeps what is already on the server and appends after
-// it. The daemon backend gets this from the server, which reports the offset to
-// continue from; SFTP has no such protocol message, so the client seeks to the
-// end itself.
+// An upload that resumes keeps what is already on the server and continues
+// after it. With a zero rewind the continuation point is the file's end,
+// which is what a caller writing in one packet at a time would ask for.
 func TestSftpOpenAppendResumesAtTheEnd(t *testing.T) {
 	ts := startSftpServer(t)
 	conn := connectSftp(t, ts)
@@ -90,7 +89,7 @@ func TestSftpOpenAppendResumesAtTheEnd(t *testing.T) {
 	}
 
 	// The transfer is interrupted here and picked up again.
-	a, err := conn.OpenAppend("home/resume.bin")
+	a, err := conn.OpenAppend("home/resume.bin", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,18 +119,115 @@ func TestSftpOpenAppendResumesAtTheEnd(t *testing.T) {
 }
 
 // Appending to a path that does not exist yet starts at zero, so a resume of a
-// transfer that never wrote anything behaves like a fresh upload.
+// transfer that never wrote anything behaves like a fresh upload. A rewind
+// larger than the file cannot drive the offset negative.
 func TestSftpOpenAppendOnANewFileStartsAtZero(t *testing.T) {
 	ts := startSftpServer(t)
 	conn := connectSftp(t, ts)
 
-	a, err := conn.OpenAppend("home/fresh.bin")
+	a, err := conn.OpenAppend("home/fresh.bin", 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer a.Close()
 	if a.Offset() != 0 {
 		t.Errorf("offset = %d, want 0", a.Offset())
+	}
+}
+
+// The case the in-process repair cannot cover: the upload died without
+// running any cleanup, so the server still holds bytes past the last write it
+// acknowledged in full. Resuming at the file's end would bury that gap in the
+// middle of the user's file and report success, so the resume rewinds by one
+// write's worth and resends instead of trusting the length.
+func TestSftpOpenAppendRewindsPastAnUnconfirmedTail(t *testing.T) {
+	ts := startSftpServer(t)
+	conn := connectSftp(t, ts)
+
+	// 40 bytes on the server, of which only the first 24 are known good.
+	w, err := conn.OpenWrite("home/killed.bin", true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("0123456789abcdef0123456789abcdef01234567")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := conn.OpenAppend("home/killed.bin", 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if a.Offset() != 24 {
+		t.Fatalf("resume offset = %d, want 24", a.Offset())
+	}
+	size, err := a.Size()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if size != 24 {
+		t.Errorf("file left at %d bytes, want it cut to 24", size)
+	}
+}
+
+// A concurrent write that fails partway can leave the server holding more
+// bytes than the caller ever confirmed. Truncate is how the caller repairs
+// that before a resume: cutting back to the confirmed length means the next
+// append starts exactly where the caller believes it left off, rather than
+// past a gap of bytes it never sent or past a tail it can't account for.
+func TestSftpFileTruncateRepairsAFailedWrite(t *testing.T) {
+	ts := startSftpServer(t)
+	conn := connectSftp(t, ts)
+
+	confirmed := []byte("confirmed data;")
+	w, err := conn.OpenWrite("home/repair.bin", true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write(confirmed); err != nil {
+		t.Fatal(err)
+	}
+	// Simulates a concurrent write landing on the server before the request
+	// that carried it was confirmed as failed to the caller.
+	if _, err := w.Write([]byte("stray unconfirmed tail")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Truncate(int64(len(confirmed))); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := conn.OpenAppend("home/repair.bin", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Offset() != int64(len(confirmed)) {
+		t.Fatalf("resume offset = %d, want %d (the stray tail was not cut)", a.Offset(), len(confirmed))
+	}
+	tail := []byte("real continuation")
+	if _, err := a.Write(tail); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := conn.OpenRead("home/repair.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	got, err := r.ReadChunk(1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := string(confirmed) + string(tail); string(got) != want {
+		t.Errorf("repaired file = %q, want %q", got, want)
 	}
 }
 

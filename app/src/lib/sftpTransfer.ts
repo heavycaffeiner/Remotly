@@ -100,6 +100,55 @@ function toError(e: unknown): Error {
   return new Error((e as Error)?.message ?? 'sftp transfer failed');
 }
 
+/** Bounds the wait for the resume-offset announcement, so an open that never
+ *  settles fails instead of hanging the caller. */
+const RESUME_OFFSET_TIMEOUT_MS = 120_000;
+
+/**
+ * Waits for the resume offset a resumed upload reports as its first
+ * onTransfer event (see startUploadResume's doc comment on the native spec).
+ *
+ * Registered the same way a download sink is: the id can already have a held
+ * event waiting in `pending` from before this call, which is replayed first.
+ */
+function waitForResumeOffset(id: string): Promise<number> {
+  const { promise, resolve, reject } = Promise.withResolvers<number>();
+  let settled = false;
+  const timer = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    sinks.delete(id);
+    reject(new Error('timed out waiting for the resume offset'));
+  }, RESUME_OFFSET_TIMEOUT_MS);
+
+  const finish = (result: { offset: number } | { error: string }): void => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    sinks.delete(id);
+    if ('error' in result) reject(new Error(result.error));
+    else resolve(result.offset);
+  };
+
+  const sink: DownloadSink = {
+    onChunk: offset => finish({ offset }),
+    onDone: () =>
+      finish({ error: 'upload finished before reporting its resume offset' }),
+    onError: message => finish({ error: message }),
+    received: 0,
+  };
+  sinks.set(id, sink);
+  const held = pending.get(id);
+  if (held !== undefined) {
+    pending.delete(id);
+    for (const event of held) {
+      if (!sinks.has(id)) break;
+      deliver(sink, event);
+    }
+  }
+  return promise;
+}
+
 /**
  * Transfers for one host's SFTP connection.
  *
@@ -118,14 +167,34 @@ export class SftpTransferBackend implements TransferBackend {
     path: string,
     size: number,
     conflict: ConflictPolicy,
+    _hash?: string,
+    resumeFrom?: number,
   ): Promise<TransferHandle> {
-    const id = await NativeSftp.startUpload(this.hostId, path, conflict).catch(
+    if (resumeFrom === undefined || resumeFrom <= 0) {
+      const id = await NativeSftp.startUpload(
+        this.hostId,
+        path,
+        conflict,
+      ).catch(e => {
+        throw toError(e);
+      });
+      this.progress.set(id, 0);
+      return { id, direction: 'upload', path, size };
+    }
+
+    ensureSubscribed();
+    const id = await NativeSftp.startUploadResume(this.hostId, path).catch(
       e => {
         throw toError(e);
       },
     );
     this.progress.set(id, 0);
-    return { id, direction: 'upload', path, size };
+    const startOffset = await waitForResumeOffset(id).catch(e => {
+      this.progress.delete(id);
+      throw toError(e);
+    });
+    this.progress.set(id, startOffset);
+    return { id, direction: 'upload', path, size, startOffset };
   }
 
   async writeChunk(
@@ -149,6 +218,61 @@ export class SftpTransferBackend implements TransferBackend {
       throw toError(e);
     });
     this.progress.delete(id);
+  }
+
+  /**
+   * Uploads straight from a content URI, with no file bytes crossing into JS.
+   *
+   * Progress events carry `offset` as the running total and no `data`; the
+   * single terminal event is unchanged.
+   */
+  async startUploadFromUri(
+    path: string,
+    uri: string,
+    conflict: ConflictPolicy,
+    onProgress: (sent: number) => void,
+    onDone: (totalBytes: number) => void,
+    onError: (message: string) => void,
+    resumeFrom?: number,
+  ): Promise<TransferHandle> {
+    ensureSubscribed();
+    const from = resumeFrom !== undefined && resumeFrom > 0 ? resumeFrom : 0;
+    const id = await NativeSftp.startUploadFromUri(
+      this.hostId,
+      path,
+      uri,
+      conflict,
+      from,
+    ).catch(e => {
+      throw toError(e);
+    });
+
+    const sink: DownloadSink = {
+      onChunk: offset => {
+        this.progress.set(id, offset);
+        onProgress(offset);
+      },
+      onDone: total => {
+        this.progress.delete(id);
+        onDone(total);
+      },
+      onError: message => {
+        this.progress.delete(id);
+        onError(message);
+      },
+      received: 0,
+    };
+    sinks.set(id, sink);
+    this.progress.set(id, 0);
+    const held = pending.get(id);
+    if (held !== undefined) {
+      pending.delete(id);
+      for (const event of held) {
+        if (!sinks.has(id)) break;
+        deliver(sink, event);
+      }
+    }
+    return { id, direction: 'upload', path, size: -1 };
   }
 
   async startDownload(

@@ -134,7 +134,14 @@ func (s *Sftp) Connect(cfg *Config) *SftpConnectResult {
 	s.sshClient = sshClient
 	s.clientMu.Unlock()
 
-	c, err := sftp.NewClient(sshClient)
+	// Concurrent writes pipeline Write calls instead of waiting for each 32KB
+	// packet's ack before sending the next one, which is what made an upload
+	// pay one round trip per packet on any link with real latency. Reads are
+	// concurrent by default already. pkg/sftp documents that a failed
+	// concurrent write can leave the file longer than the length the caller
+	// last confirmed; SftpFile.Truncate exists so a failed upload can cut the
+	// file back to that length before a resume appends to it.
+	c, err := sftp.NewClient(sshClient, sftp.UseConcurrentWrites(true), sftp.MaxConcurrentRequestsPerFile(64))
 	if err != nil {
 		sshClient.Close()
 		s.clientMu.Lock()
@@ -262,13 +269,25 @@ func (s *Sftp) OpenRead(path string) (out *SftpFile, err error) {
 	return &SftpFile{f: f}, nil
 }
 
-// OpenAppend opens a file for writing and seeks to its current end.
+// OpenAppend reopens a partial upload, rewinding past anything a concurrent
+// write may have left unconfirmed, and returns the offset to continue from
+// through the file's Offset method.
 //
-// This is what makes an interrupted upload resumable: the bytes already on the
-// server are kept and writing continues after them. Returns the offset to
-// resume from through the file's Offset method.
-func (s *Sftp) OpenAppend(path string) (out *SftpFile, err error) {
+// The file's length is not the resume point. Writes are pipelined, so a
+// transfer that died partway (a lost connection, or the app being killed)
+// can leave a packet from a later offset on the server while an earlier one
+// never arrived. Appending at the end would bury that gap in the middle of
+// the user's file and report success.
+//
+// Every byte below the end minus rewind belongs to a write the server
+// acknowledged in full, because one Write call never spans more than that
+// and only returns once all of its packets land. Cutting back that far and
+// resending is the cost of not having to trust the length.
+func (s *Sftp) OpenAppend(path string, rewind int64) (out *SftpFile, err error) {
 	defer guard(&err)
+	if rewind < 0 {
+		return nil, errors.New("rewind must not be negative")
+	}
 	c := s.sftpClient()
 	if c == nil {
 		return nil, errors.New("sftp not connected")
@@ -277,12 +296,24 @@ func (s *Sftp) OpenAppend(path string) (out *SftpFile, err error) {
 	if err != nil {
 		return nil, err
 	}
-	off, err := f.Seek(0, io.SeekEnd)
+	end, err := f.Seek(0, io.SeekEnd)
 	if err != nil {
 		_ = f.Close()
 		return nil, err
 	}
-	return &SftpFile{f: f, offset: off}, nil
+	at := end - rewind
+	if at < 0 {
+		at = 0
+	}
+	if err := f.Truncate(at); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	if _, err := f.Seek(at, io.SeekStart); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return &SftpFile{f: f, offset: at}, nil
 }
 
 // OpenWrite opens a file for chunked writing. truncate empties an existing
@@ -444,6 +475,18 @@ func (f *SftpFile) ReadChunk(max int) (out []byte, err error) {
 func (f *SftpFile) Write(p []byte) (n int, err error) {
 	defer guard(&err)
 	return f.f.Write(p)
+}
+
+// Truncate cuts the file to size.
+//
+// Concurrent writes can leave bytes past the last one the caller confirmed
+// when a write fails partway. Resuming an upload reopens the file and appends
+// at its end, so that tail would be read as real data and the gap before it
+// would never be filled. Cutting back to the confirmed length keeps append
+// resumable.
+func (f *SftpFile) Truncate(size int64) (err error) {
+	defer guard(&err)
+	return f.f.Truncate(size)
 }
 
 // Close closes the handle.

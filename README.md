@@ -11,6 +11,15 @@ A standalone SSH and SFTP client for Android.
 - **SSH and SFTP, no server side.** Add a host and connect directly: several
   terminal tabs per host, host-key verification on first use, and file
   transfer in both directions.
+- **A file browser that holds the whole folder.** A directory is read once and
+  kept, so search covers every entry in it rather than the part that happened
+  to be on screen, sorting is instant, and a folder already visited is redrawn
+  on the way back up while it refreshes behind the list.
+- **Transfers that stay off the JS thread.** Both directions move between the
+  content URI and the server in native code, with SFTP requests pipelined
+  rather than one round trip at a time. A resumed upload rewinds past anything
+  the server cannot vouch for instead of appending to whatever length it
+  reports.
 - **Full shell environment.** Every session starts from a login shell, so
   PATH, aliases, functions, and version managers (nvm, pyenv, asdf) are all
   present.

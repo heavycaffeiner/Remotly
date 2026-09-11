@@ -20,12 +20,6 @@ export interface FileEntry {
   linkTarget?: string;
 }
 
-export interface ListResult {
-  entries: FileEntry[];
-  more: boolean;
-  total: number;
-}
-
 /** What a backend can do. The UI reads this to show or hide affordances and
  *  to label resume/integrity honestly. */
 export interface FilesCapabilities {
@@ -78,7 +72,15 @@ export class FilesError extends Error {
 export interface FilesBackend {
   readonly capabilities: FilesCapabilities;
   roots(): Promise<string[]>;
-  list(path: string, offset?: number, limit?: number): Promise<ListResult>;
+  /**
+   * Every entry in a directory, unordered.
+   *
+   * One call per directory: SFTP has no partial readdir the client can resume
+   * from, so a page is a slice of a listing the server already sent in full.
+   * Paginating on top of that re-read the whole directory per page and left
+   * the unfetched tail invisible to search.
+   */
+  list(path: string): Promise<FileEntry[]>;
   stat(path: string): Promise<FileEntry>;
   mkdir(path: string): Promise<void>;
   rename(from: string, to: string): Promise<void>;
@@ -172,29 +174,11 @@ export function isHidden(entry: FileEntry): boolean {
   return entry.name.startsWith('.');
 }
 
-/**
- * Case-insensitive substring match for the filter box.
- *
- * Case folding is display behaviour, not identity: the raw name remains the
- * operation identifier everywhere else. Folding is applied to both sides so a
- * user typing "readme" finds "README", which is what a search box is for.
- */
-function matches(name: string, query: string): boolean {
-  if (query === '') return true;
-  return name.toLowerCase().includes(query.toLowerCase());
-}
-
-/** Directories first, then byte-wise by raw name. Returns a new array; the
- *  input order of equal entries is preserved (stable). */
-export function sortEntries(entries: readonly FileEntry[]): FileEntry[] {
-  return [...entries].sort((a, b) => {
-    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
-    return compareNames(a.name, b.name);
-  });
-}
+/** How a listing is ordered, without the search box. */
+export type FileOrder = Omit<FileView, 'query'>;
 
 /**
- * Applies the view to a listing: hidden filter, then search, then ordering.
+ * Orders a listing: hidden filter, then sort.
  *
  * Directories always sort ahead of files, whatever the key and direction. A
  * file browser that interleaves them by size or date is unusable for
@@ -205,20 +189,46 @@ export function sortEntries(entries: readonly FileEntry[]): FileEntry[] {
  * files of equal size or with the same timestamp keep a fixed position instead
  * of shuffling between renders.
  */
+export function orderEntries(
+  entries: readonly FileEntry[],
+  order: FileOrder,
+): FileEntry[] {
+  const visible = entries.filter(e => order.showHidden || !isHidden(e));
+  const sign = order.direction === 'desc' ? -1 : 1;
+  return visible.sort((a, b) => {
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+    const byKey = compareByKey(a, b, order.sortKey);
+    if (byKey !== 0) return byKey * sign;
+    return compareNames(a.name, b.name);
+  });
+}
+
+/**
+ * Keeps the entries whose name contains the query, preserving the order.
+ *
+ * Case folding is display behaviour, not identity: the raw name remains the
+ * operation identifier everywhere else. Folding is applied to both sides so a
+ * user typing "readme" finds "README", which is what a search box is for.
+ *
+ * The query is folded once rather than per entry. This runs over the whole
+ * directory on every keystroke, and a large one is tens of thousands of
+ * entries.
+ */
+export function filterEntries(
+  entries: readonly FileEntry[],
+  query: string,
+): FileEntry[] {
+  if (query === '') return entries as FileEntry[];
+  const needle = query.toLowerCase();
+  return entries.filter(e => e.name.toLowerCase().includes(needle));
+}
+
+/** Ordering and search in one pass, for callers that hold neither result. */
 export function viewEntries(
   entries: readonly FileEntry[],
   view: FileView = DEFAULT_FILE_VIEW,
 ): FileEntry[] {
-  const visible = entries.filter(
-    e => (view.showHidden || !isHidden(e)) && matches(e.name, view.query),
-  );
-  const sign = view.direction === 'desc' ? -1 : 1;
-  return visible.sort((a, b) => {
-    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
-    const byKey = compareByKey(a, b, view.sortKey);
-    if (byKey !== 0) return byKey * sign;
-    return compareNames(a.name, b.name);
-  });
+  return filterEntries(orderEntries(entries, view), view.query);
 }
 
 function compareByKey(a: FileEntry, b: FileEntry, key: SortKey): number {
@@ -359,8 +369,6 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-const FS_MAX_PAGE = 500;
-
 // --- SFTP backend ----------------------------------------------------------
 
 // One SFTP entry as the native bridge serializes it (GSON of SftpEntry).
@@ -423,8 +431,7 @@ function sftpToEntry(raw: SftpRawEntry): FileEntry {
 
 // The SSH SFTP backend. It assumes a ready session for the host (the browser
 // drives connect and the host-key prompt); every op throws FilesError if the
-// session is not ready or the server rejects the operation. Listing is
-// client-side paginated because SFTP readDir returns the whole directory.
+// session is not ready or the server rejects the operation.
 export class SftpFilesBackend implements FilesBackend {
   readonly capabilities = SFTP_CAPABILITIES;
   constructor(private hostId: string, private bridge: SftpBridge) {}
@@ -433,21 +440,10 @@ export class SftpFilesBackend implements FilesBackend {
     return ['/'];
   }
 
-  async list(
-    path: string,
-    offset = 0,
-    limit = FS_MAX_PAGE,
-  ): Promise<ListResult> {
-    const all = sortEntries(
-      (await this.bridge.list(this.hostId, path)).map(sftpToEntry),
-    );
-    const n = Math.max(1, Math.min(limit, FS_MAX_PAGE));
-    const start = Math.max(0, offset);
-    return {
-      entries: all.slice(start, start + n),
-      more: start + n < all.length,
-      total: all.length,
-    };
+  async list(path: string): Promise<FileEntry[]> {
+    // Unsorted: the caller orders by the user's sort key anyway, so sorting
+    // here would only be thrown away.
+    return (await this.bridge.list(this.hostId, path)).map(sftpToEntry);
   }
 
   async stat(path: string): Promise<FileEntry> {
@@ -522,6 +518,24 @@ export interface TransferBackend {
   ): Promise<TransferHandle>;
   writeChunk(id: string, offset: number, data: Uint8Array): Promise<number>;
   completeUpload(id: string): Promise<void>;
+  /**
+   * Uploads straight from a source the backend reads itself.
+   *
+   * The mirror of [startDownloadToUri], and present for the same reason: the
+   * chunked path base64-encodes every byte, hands it across the bridge, and
+   * takes a JS turn per chunk.
+   *
+   * Callers must fall back to [startUpload] plus [writeChunk] when absent.
+   */
+  startUploadFromUri?(
+    path: string,
+    uri: string,
+    conflict: ConflictPolicy,
+    onProgress: (sent: number) => void,
+    onDone: (totalBytes: number) => void,
+    onError: (message: string) => void,
+    resumeFrom?: number,
+  ): Promise<TransferHandle>;
   startDownload(
     path: string,
     onChunk: (offset: number, bytes: Uint8Array) => void,

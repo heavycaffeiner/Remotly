@@ -65,6 +65,7 @@ class SftpTransfersTest {
 
         override fun uploadAppend(
             path: String,
+            rewind: Long,
             chunkSize: Int,
             onChunk: (Long) -> ByteArray?,
         ): Long = upload(path, chunkSize, truncate = false, exclusive = false, onChunk = onChunk)
@@ -412,6 +413,7 @@ class SftpTransfersTest {
 
         override fun uploadAppend(
             path: String,
+            rewind: Long,
             chunkSize: Int,
             onChunk: (Long) -> ByteArray?,
         ): Long = upload(path, chunkSize, true, false, onChunk)

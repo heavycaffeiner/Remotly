@@ -264,6 +264,39 @@ To exercise the screen against a real server, run one in a container with
 herdr installed and `herdr server` started, publish its SSH port, and add a
 host pointing at it (`10.0.2.2:2222` from an emulator).
 
+## Files
+
+A directory is fetched whole, once per visit. SFTP readdir has no cursor a
+client can resume from, so a page was a slice of a listing the server had
+already sent and asking for the next one re-read the directory from the
+start. `FilesBackend.list` therefore takes a path and nothing else; ordering
+and search run over the full array and `FlatList` virtualizes the rows. Rows
+are a fixed height derived from the system font scale, which is what lets
+`getItemLayout` place a row without laying it out.
+
+Listings are kept per screen in a small LRU, so a directory already read is
+drawn immediately and refreshed behind the list. A refresh never blanks what
+is on screen, and a listing that arrives after the user has navigated on is
+dropped by a generation counter.
+
+Both transfer directions have a native path that never hands file bytes to
+JS: `startDownloadToUri` and `startUploadFromUri` move between the content
+URI and the server inside Kotlin, and only throttled progress events cross
+the bridge. The chunked `writeChunk` path remains for a backend that cannot
+reach the local file itself.
+
+The Go client runs with `UseConcurrentWrites`, so a write is pipelined rather
+than paying a round trip per 32KB packet. That costs an invariant: a write
+that fails partway can leave the server holding bytes past the last one it
+acknowledged. Two things cover it. A failure the app survives truncates back
+to the confirmed length before closing. A failure it does not, a kill or a
+dead socket, is covered on the next attempt: `OpenAppend` takes a rewind and
+cuts back that far from the file's end rather than trusting the length,
+because every byte below the end minus one write's worth belongs to a write
+the server acknowledged in full. `SftpTransfers.RESUME_REWIND_BYTES` is that
+figure, one value shared by both upload paths, since what has to be covered
+is the chunk the interrupted attempt wrote and not the one resuming it.
+
 ## Release
 
 ```sh

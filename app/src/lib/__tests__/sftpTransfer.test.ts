@@ -8,6 +8,8 @@ const native = NativeSftp as unknown as {
   startDownload: jest.Mock;
   startDownloadToUri: jest.Mock;
   startUpload: jest.Mock;
+  startUploadResume: jest.Mock;
+  startUploadFromUri: jest.Mock;
   writeChunk: jest.Mock;
   completeUpload: jest.Mock;
   cancelTransfer: jest.Mock;
@@ -24,6 +26,8 @@ jest.mock('../../specs/NativeRemotlySftp', () => ({
     startDownload: jest.fn(),
     startDownloadToUri: jest.fn(),
     startUpload: jest.fn(async () => 'up-1'),
+    startUploadResume: jest.fn(),
+    startUploadFromUri: jest.fn(),
     writeChunk: jest.fn(async () => 0),
     completeUpload: jest.fn(async () => undefined),
     cancelTransfer: jest.fn(async () => undefined),
@@ -246,5 +250,122 @@ describe('SftpTransferBackend downloads', () => {
     emit(chunkEvent('down-5', 0, 'real'));
 
     expect(seen).toEqual(['real']);
+  });
+});
+
+describe('SftpTransferBackend uploads', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('starts fresh when no resume offset is given', async () => {
+    native.startUpload.mockResolvedValueOnce('up-fresh');
+    const backend = new SftpTransferBackend('host-1');
+
+    const handle = await backend.startUpload('/remote/f.bin', 100, 'fail');
+
+    expect(native.startUpload).toHaveBeenCalledWith(
+      'host-1',
+      '/remote/f.bin',
+      'fail',
+    );
+    expect(native.startUploadResume).not.toHaveBeenCalled();
+    expect(handle.startOffset).toBeUndefined();
+  });
+
+  /**
+   * startUpload used to call startUpload regardless of resumeFrom, so a
+   * resumed upload silently restarted from zero even though the caller asked
+   * to continue and capabilities.transferResume advertised support for it.
+   */
+  it('resumes through startUploadResume and reports the server offset', async () => {
+    native.startUploadResume.mockResolvedValueOnce('up-resume');
+    const backend = new SftpTransferBackend('host-1');
+
+    const started = backend.startUpload(
+      '/remote/f.bin',
+      100,
+      'fail',
+      undefined,
+      40,
+    );
+    emit({ id: 'up-resume', offset: 64 } as SftpTransferEvent);
+    const handle = await started;
+
+    expect(native.startUpload).not.toHaveBeenCalled();
+    expect(native.startUploadResume).toHaveBeenCalledWith(
+      'host-1',
+      '/remote/f.bin',
+    );
+    expect(handle.startOffset).toBe(64);
+  });
+
+  it('fails a resume whose upload errors before announcing an offset', async () => {
+    native.startUploadResume.mockResolvedValueOnce('up-resume-fail');
+    const backend = new SftpTransferBackend('host-1');
+
+    const started = backend.startUpload(
+      '/remote/f.bin',
+      100,
+      'fail',
+      undefined,
+      10,
+    );
+    emit({
+      id: 'up-resume-fail',
+      offset: 0,
+      error: 'no such file',
+    } as SftpTransferEvent);
+
+    await expect(started).rejects.toThrow('no such file');
+  });
+
+  it('passes the source uri and conflict to a direct upload', async () => {
+    native.startUploadFromUri.mockResolvedValueOnce('up-uri-1');
+    const backend = new SftpTransferBackend('host-9');
+
+    await backend.startUploadFromUri(
+      '/remote/f.bin',
+      'content://src/1',
+      'replace',
+      () => undefined,
+      () => undefined,
+      () => undefined,
+    );
+
+    expect(native.startUploadFromUri).toHaveBeenCalledWith(
+      'host-9',
+      '/remote/f.bin',
+      'content://src/1',
+      'replace',
+      0,
+    );
+  });
+
+  it('reports direct upload progress and completion', async () => {
+    native.startUploadFromUri.mockResolvedValueOnce('up-uri-2');
+    const backend = new SftpTransferBackend('host-1');
+    const progress: number[] = [];
+    let total = -1;
+
+    await backend.startUploadFromUri(
+      '/remote/f.bin',
+      'content://src/2',
+      'fail',
+      s => progress.push(s),
+      t => {
+        total = t;
+      },
+      () => undefined,
+    );
+    emit({ id: 'up-uri-2', offset: 1048576 } as SftpTransferEvent);
+    emit({
+      id: 'up-uri-2',
+      offset: 2000000,
+      done: 2000000,
+    } as SftpTransferEvent);
+
+    expect(progress).toEqual([1048576]);
+    expect(total).toBe(2000000);
   });
 });

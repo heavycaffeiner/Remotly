@@ -176,6 +176,34 @@ object FileModule {
     }
 
     /**
+     * Streams an upload straight from [uri].
+     *
+     * [block] is handed a puller it can call from the transfer thread: each
+     * call fills the given buffer as far as the stream allows and returns the
+     * byte count read, or -1 at end of stream. Bytes never leave native, so an
+     * upload costs no base64 decode, no bridge crossing per chunk, and no JS
+     * turn per chunk.
+     *
+     * The stream is closed here, on both the success and the failure path.
+     */
+    fun <T> readStream(
+        context: android.content.Context,
+        uri: Uri,
+        block: ((ByteArray) -> Int) -> T,
+    ): T {
+        val raw = context.contentResolver.openInputStream(uri)
+            ?: throw java.io.IOException("could not open the source file")
+        try {
+            return block { buffer ->
+                val n = readFully(raw, buffer, buffer.size)
+                if (n == 0) -1 else n
+            }
+        } finally {
+            runCatching { raw.close() }
+        }
+    }
+
+    /**
      * Deletes a destination the app created but did not fill.
      *
      * Only a document this app created through the picker is removed, and only

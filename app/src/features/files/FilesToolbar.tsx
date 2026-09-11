@@ -17,11 +17,29 @@ const SORT_LABELS: Record<SortKey, string> = {
   kind: 'Type',
 };
 
+/**
+ * The line under the controls, which is also the answer to "did the search
+ * look at the whole folder": the total it reports is the whole directory,
+ * not a page of it.
+ */
+function countLabel(
+  shown: number,
+  loaded: number,
+  filtering: boolean,
+  loading: boolean,
+): string {
+  if (loading) return 'Reading this folder...';
+  const items = loaded === 1 ? '1 item' : `${loaded} items`;
+  return filtering ? `${shown} of ${items}` : items;
+}
+
 interface FilesToolbarProps {
   view: FileView;
-  /** Entries shown out of the total loaded, for the filter summary. */
+  /** Entries the search matched, out of the whole directory. */
   shown: number;
   loaded: number;
+  /** True while the directory is being read, so the count is not final. */
+  loading: boolean;
   onChange: (next: FileView) => void;
 }
 
@@ -29,6 +47,7 @@ export function FilesToolbar({
   view,
   shown,
   loaded,
+  loading,
   onChange,
 }: FilesToolbarProps): React.ReactElement {
   const { colors } = useTheme();
@@ -91,14 +110,6 @@ export function FilesToolbar({
             clearButtonMode="while-editing"
           />
         </View>
-        {filtering ? (
-          <IconButton
-            icon="close"
-            size={18}
-            accessibilityLabel="Clear the search"
-            onPress={clearQuery}
-          />
-        ) : null}
         <IconButton
           icon={view.showHidden ? 'eye' : 'eye-off'}
           size={18}
@@ -109,29 +120,42 @@ export function FilesToolbar({
           accessibilityState={{ selected: view.showHidden }}
           onPress={toggleHidden}
         />
+        {/* Last in the row: appearing and disappearing here moves nothing
+            else. */}
+        {filtering ? (
+          <IconButton
+            icon="close"
+            size={18}
+            accessibilityLabel="Clear the search"
+            onPress={clearQuery}
+          />
+        ) : null}
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ alignItems: 'center', gap: 4 }}
-      >
-        {SORT_KEYS.map(key => (
-          <SortChip
-            key={key}
-            sortKey={key}
-            active={key === view.sortKey}
-            descending={view.direction === 'desc'}
-            onPress={pickSort}
-          />
-        ))}
-      </ScrollView>
-
-      {filtering ? (
+      {/* The count shares the row with the sort chips. On a phone the
+          browser already spends a breadcrumb bar and a search row above the
+          first entry. */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <ScrollView
+          horizontal
+          style={{ flex: 1 }}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ alignItems: 'center', gap: 4 }}
+        >
+          {SORT_KEYS.map(key => (
+            <SortChip
+              key={key}
+              sortKey={key}
+              active={key === view.sortKey}
+              descending={view.direction === 'desc'}
+              onPress={pickSort}
+            />
+          ))}
+        </ScrollView>
         <Text variant="caption">
-          {shown} of {loaded} shown
+          {countLabel(shown, loaded, filtering, loading)}
         </Text>
-      ) : null}
+      </View>
     </Surface>
   );
 }

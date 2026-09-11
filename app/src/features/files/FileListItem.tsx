@@ -5,7 +5,7 @@
 // directory holds, and a new component type on every pass costs row state.
 
 import React, { useCallback } from 'react';
-import { View } from 'react-native';
+import { useWindowDimensions, View } from 'react-native';
 import { TouchableRipple, useTheme } from 'react-native-paper';
 import { IconButton } from '../../components/Screen';
 import { Icon } from '../../components/ui/icon';
@@ -15,6 +15,7 @@ import {
   entryAccessibilityLabel,
   entryDescription,
   entryIcon,
+  rowHeight,
 } from './filePresentation';
 
 interface FileListItemProps {
@@ -23,12 +24,13 @@ interface FileListItemProps {
   onMenu: (entry: FileEntry) => void;
 }
 
-export function FileListItem({
+function FileListItemImpl({
   entry,
   onOpen,
   onMenu,
 }: FileListItemProps): React.ReactElement {
   const { colors } = useTheme();
+  const { fontScale } = useWindowDimensions();
   const open = useCallback(() => onOpen(entry), [onOpen, entry]);
   const menu = useCallback(() => onMenu(entry), [onMenu, entry]);
 
@@ -39,9 +41,8 @@ export function FileListItem({
       onPress={open}
       onLongPress={menu}
       style={{
-        minHeight: 48,
+        height: rowHeight(fontScale),
         paddingHorizontal: 12,
-        paddingVertical: 6,
         justifyContent: 'center',
       }}
     >
@@ -62,7 +63,7 @@ export function FileListItem({
             color={colors.onSecondaryContainer as string}
           />
         </View>
-        <View style={{ flex: 1, gap: 2 }}>
+        <View style={{ flex: 1 }}>
           <Text numberOfLines={1}>{entry.name}</Text>
           <Text variant="caption" numberOfLines={1}>
             {entryDescription(entry)}
@@ -77,3 +78,7 @@ export function FileListItem({
     </TouchableRipple>
   );
 }
+
+// Memoized because the list holds a whole directory: without it, every
+// keystroke in the search box re-renders every mounted row.
+export const FileListItem = React.memo(FileListItemImpl);

@@ -8,6 +8,29 @@
 import type { FileEntry } from '../../lib/files';
 import type { IconName } from '../../components/ui/icon';
 
+/**
+ * Height of one entry row at the default text size, in points.
+ *
+ * Fixed rather than measured so the list can compute offsets without laying
+ * a row out: a directory arrives whole, and a scroll bar that has to measure
+ * thousands of rows to know where it is jumps while it does. Callers scale
+ * it with [rowHeight] instead of using it directly, because the row stacks
+ * two lines of text and a larger system font size would clip the second.
+ */
+const BASE_ROW_HEIGHT = 56;
+
+/**
+ * Row height at the current system font scale.
+ *
+ * Both the row and the list's offset calculation read this, so they cannot
+ * disagree. Never shrinks below the base: a scale under one leaves the touch
+ * target alone.
+ */
+export function rowHeight(fontScale: number): number {
+  const scale = Number.isFinite(fontScale) && fontScale > 1 ? fontScale : 1;
+  return Math.ceil(BASE_ROW_HEIGHT * scale);
+}
+
 /** A stable list key. */
 export function entryKey(dir: string, entry: FileEntry): string {
   // The full path, exactly as stored. Using the bare name would collide
@@ -35,9 +58,38 @@ export function formatSize(n: number): string {
   return `${v.toFixed(v >= 100 ? 0 : 1)} ${units[i]}`;
 }
 
-export function formatMtime(sec: number): string {
+/**
+ * A compact timestamp for a list row.
+ *
+ * The full locale date and time is roughly twenty characters and pushed the
+ * size off the end of a narrow row. A file manager shows the time for today,
+ * the day and month within the year, and the year beyond that, which is
+ * enough to tell two versions of a file apart at a glance.
+ *
+ * `now` is injectable so the boundaries are testable.
+ */
+export function formatMtime(sec: number, now = new Date()): string {
   if (sec <= 0) return '';
-  return new Date(sec * 1000).toLocaleString();
+  const at = new Date(sec * 1000);
+  if (Number.isNaN(at.getTime())) return '';
+  const sameDay =
+    at.getFullYear() === now.getFullYear() &&
+    at.getMonth() === now.getMonth() &&
+    at.getDate() === now.getDate();
+  if (sameDay) {
+    return at.toLocaleTimeString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+  if (at.getFullYear() === now.getFullYear()) {
+    return at.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+  return at.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
 }
 
 export function entryDescription(entry: FileEntry): string {

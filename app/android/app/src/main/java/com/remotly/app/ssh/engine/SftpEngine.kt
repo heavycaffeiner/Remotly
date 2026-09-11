@@ -68,11 +68,18 @@ interface SftpOps {
         onChunk: (Long, ByteArray) -> Unit,
     ): Long
 
-    // Opens the file for writing at its current end and pulls chunks the same
-    // way upload does, so an interrupted upload keeps what already arrived.
-    // Returns the size the file reached, including what was there before.
+    // Reopens a partial upload and pulls chunks the same way upload does, so
+    // an interrupted upload keeps what already arrived. [rewind] is how far
+    // back from the file's end the continuation starts: writes are pipelined,
+    // so the last rewind bytes may contain a gap, and only what lies below
+    // them is known to have been acknowledged in full. It has to cover the
+    // chunk the interrupted attempt wrote, which is not necessarily the one
+    // this attempt uses, so callers pass a single shared figure rather than
+    // their own chunkSize. The first onChunk reports where writing actually
+    // resumed. Returns the size the file reached.
     fun uploadAppend(
         path: String,
+        rewind: Long,
         chunkSize: Int,
         onChunk: (Long) -> ByteArray?,
     ): Long
