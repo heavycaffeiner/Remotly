@@ -78,6 +78,7 @@ import com.remotly.app.ui.Routes
 import com.remotly.app.ui.components.EmptyState
 import com.remotly.app.ui.components.ErrorState
 import com.remotly.app.ui.components.LoadingState
+import com.remotly.app.ui.components.transferBarClearance
 import com.remotly.app.ui.components.RemotlyScreen
 import com.remotly.app.ui.components.ScreenAction
 import java.util.concurrent.atomic.AtomicInteger
@@ -346,7 +347,10 @@ private fun HostsContent(nav: NavHostController) {
             if (phase == HostsPhase.Ready) {
                 FloatingActionButton(
                     onClick = { addOpen = true },
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(20.dp)
+                        .padding(bottom = transferBarClearance()),
                 ) {
                     Icon(Icons.Filled.Add, contentDescription = "Add a host")
                 }

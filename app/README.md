@@ -252,8 +252,8 @@ server inside Kotlin, and only throttled progress events reach the screen. The
 chunked `FileModule.writeChunk` path remains for a backend that cannot reach
 the local file itself.
 
-A name that already exists is a question, never a guess. Both directions ask
-Keep both or Replace, and Keep both numbers the name with `uniqueName`. The
+Both directions ask Keep both or Replace on a name collision instead of
+picking one, and Keep both numbers the name with `uniqueName`. The
 create-document picker is deliberately not used to settle a download
 collision: it renames on its own and never says that it did.
 

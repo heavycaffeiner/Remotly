@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.remotly.app.files.formatSize
@@ -46,6 +47,33 @@ import com.remotly.app.transfers.TransferRegistry
  * moment the user navigates away, which is exactly when they most want to see
  * it.
  */
+
+/**
+ * Clearance under the bar, matching the height of the shell's navigation
+ * bar.
+ *
+ * The bar floats over the whole navigation graph, so it cannot measure the
+ * tab bar beneath it. Sitting on the tabs covers them; this keeps it just
+ * above. A screen with no tab bar shows it a little higher than it strictly
+ * needs to be, which reads as a margin rather than as a defect.
+ */
+private val TAB_BAR_HEIGHT = 80.dp
+
+/**
+ * Height to reserve under anything else pinned to the bottom of a screen,
+ * so the bar does not cover it. Approximate: the bar sizes itself to its
+ * content, and a value that tracked it exactly would mean measuring across
+ * the whole navigation graph.
+ */
+val TRANSFER_BAR_HEIGHT = 52.dp
+
+/** [TRANSFER_BAR_HEIGHT] while the bar is on screen, zero while it is not. */
+@Composable
+fun transferBarClearance(): Dp {
+    val transfers by TransferRegistry.transfers.collectAsStateWithLifecycle()
+    return if (transfers.any(TransferRegistry::raisesBar)) TRANSFER_BAR_HEIGHT else 0.dp
+}
+
 @Composable
 fun TransferBar(modifier: Modifier = Modifier) {
     val transfers by TransferRegistry.transfers.collectAsStateWithLifecycle()
@@ -83,11 +111,17 @@ private fun BarSurface(
         if (failed > 0) MaterialTheme.colorScheme.onErrorContainer
         else MaterialTheme.colorScheme.onSecondaryContainer
 
-    Surface(color = container, contentColor = content, modifier = modifier.fillMaxWidth()) {
+    Surface(
+        color = container,
+        contentColor = content,
+        modifier = modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(bottom = TAB_BAR_HEIGHT),
+    ) {
         Column(
             Modifier
                 .clickable(onClickLabel = "Show transfers", onClick = onOpen)
-                .navigationBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 10.dp),
         ) {
             Text(summary, style = MaterialTheme.typography.bodyMedium)

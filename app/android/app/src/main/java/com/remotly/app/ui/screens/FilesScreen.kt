@@ -61,6 +61,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -195,6 +196,11 @@ fun FilesScreen(hostId: String, onBack: () -> Unit) {
 
     var phase by remember { mutableStateOf(Phase.Connecting) }
     var hostKey by remember { mutableStateOf<HostKeyPrompt?>(null) }
+    // Bumped once the user answers the host-key prompt, which restarts the
+    // poll below. Without it the screen waits for a session that already
+    // settled and never reports anything.
+    var pollEpoch by remember { mutableIntStateOf(0) }
+    var keyAnswered by remember { mutableStateOf(false) }
     var cwd by remember { mutableStateOf("/") }
     var entries by remember { mutableStateOf<List<FileEntry>?>(null) }
     var error by remember { mutableStateOf("") }
@@ -366,13 +372,17 @@ fun FilesScreen(hostId: String, onBack: () -> Unit) {
         }
     }
 
-    LaunchedEffect(hostId) {
+    LaunchedEffect(hostId, pollEpoch) {
         if (hostId.isEmpty()) {
             phase = Phase.Error
             error = "No host to open. Open the file browser from a host."
             return@LaunchedEffect
         }
-        withContext(Dispatchers.IO) { runCatching { SftpBridge.connect(hostId) } }
+        // Only the first pass opens the connection. Reconnecting after a key
+        // decision would close the session that decision just approved.
+        if (pollEpoch == 0) {
+            withContext(Dispatchers.IO) { runCatching { SftpBridge.connect(hostId) } }
+        }
         repeat(SFTP_POLL_MAX) {
             val active = SftpBridge.status(hostId)
             when (active?.state) {
@@ -393,7 +403,7 @@ fun FilesScreen(hostId: String, onBack: () -> Unit) {
 
                 SftpBridge.State.HOST_KEY -> {
                     val info = active.prompt
-                    if (info != null) {
+                    if (info != null && !keyAnswered) {
                         hostKey = HostKeyPrompt(
                             info.info.algorithm,
                             info.info.fingerprint,
@@ -497,10 +507,12 @@ fun FilesScreen(hostId: String, onBack: () -> Unit) {
                     onAccept = {
                         phase = Phase.Connecting
                         hostKey = null
+                        keyAnswered = true
                         scope.launch {
                             withContext(Dispatchers.IO) {
                                 runCatching { SftpBridge.decideHostKey(hostId, true) }
                             }
+                            pollEpoch++
                         }
                     },
                 )
