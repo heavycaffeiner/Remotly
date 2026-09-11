@@ -369,6 +369,16 @@ class SftpTransfersTest {
         assertTrue(!SftpTransfers.hasActiveForHost("host-none"))
     }
 
+    @Test
+    fun theRewindCoversEveryChunkAResumeCanHaveLost() {
+        // A resume rewinds by this much and appends from there. Any chunk
+        // larger than the rewind could have left bytes past what the server
+        // acknowledged, and the append would start above the gap rather than
+        // below it, finishing a file with a hole in the middle.
+        assertTrue(SftpTransfers.RESUME_REWIND_BYTES >= SftpTransfers.CHUNK_SIZE)
+        assertTrue(SftpTransfers.RESUME_REWIND_BYTES >= SftpTransfers.DIRECT_CHUNK_SIZE)
+    }
+
     /** An upload counts as active for its host, the same as a download. */
     @Test
     fun anUploadKeepsItsHostActive() {
