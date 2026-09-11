@@ -13,8 +13,6 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,9 +49,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
-import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
@@ -75,9 +70,7 @@ import com.remotly.app.session.SshTab
 import com.remotly.app.session.SshTabKind
 import com.remotly.app.session.SshTabPhase
 import com.remotly.app.session.neighborTab
-import com.remotly.app.session.shouldClaimSwipe
 import com.remotly.app.session.shouldShowTabStrip
-import com.remotly.app.session.swipeDirection
 import com.remotly.app.settings.SettingsState
 import com.remotly.app.ssh.SshHost
 import com.remotly.app.ssh.SshModule
@@ -86,6 +79,7 @@ import com.remotly.app.ui.components.ScreenAction
 import com.remotly.app.ui.terminal.FocusPolicy
 import com.remotly.app.ui.terminal.TerminalPane
 import com.remotly.app.ui.terminal.rememberTerminalHandle
+import com.remotly.app.ui.terminal.terminalTabSwipe
 import com.remotly.app.ui.terminal.ModifierKey
 import com.remotly.app.ui.terminal.applyModifier
 import com.remotly.app.ui.terminal.transformKey
@@ -103,55 +97,6 @@ private fun tabPhase(phase: SshTabPhase): TerminalTabPhase = when (phase) {
     SshTabPhase.Active -> TerminalTabPhase.Active
     SshTabPhase.Closed -> TerminalTabPhase.Ended
     SshTabPhase.Failed -> TerminalTabPhase.Gone
-}
-
-/**
- * A horizontal swipe that moves to the neighbouring tab.
- *
- * Claimed only once the drag is clearly horizontal, using the same
- * thresholds every tab strip in the app swipes by. A second finger hands the
- * whole gesture back immediately: two fingers on the terminal are its pinch,
- * never a tab switch.
- */
-private fun Modifier.terminalSwipeNav(enabled: Boolean, onSwipe: (Int) -> Unit): Modifier {
-    if (!enabled) return this
-    return pointerInput(onSwipe) {
-        awaitEachGesture {
-            val down = awaitFirstDown(requireUnconsumed = false)
-            val tracker = VelocityTracker()
-            tracker.addPosition(down.uptimeMillis, down.position)
-            var totalDx = 0f
-            var totalDy = 0f
-            var claimed = false
-            val pointerId = down.id
-            while (true) {
-                val event = awaitPointerEvent()
-                if (event.changes.size > 1) return@awaitEachGesture
-                val change = event.changes.firstOrNull { it.id == pointerId } ?: return@awaitEachGesture
-                if (!change.pressed) {
-                    if (claimed) {
-                        val velocity = tracker.calculateVelocity()
-                        val direction = swipeDirection(totalDx, velocity.x / 1000f)
-                        if (direction != 0) onSwipe(direction)
-                        change.consume()
-                    }
-                    return@awaitEachGesture
-                }
-                tracker.addPosition(change.uptimeMillis, change.position)
-                val delta = change.positionChange()
-                totalDx += delta.x
-                totalDy += delta.y
-                if (!claimed) {
-                    if (shouldClaimSwipe(totalDx, totalDy)) {
-                        claimed = true
-                        change.consume()
-                    }
-                } else {
-                    change.consume()
-                }
-            }
-        }
-    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -204,6 +149,11 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
         lastShellId = shell.sessionId
     }
 
+    // A files tab owns no session, so the terminal underneath stays on the
+    // shell that was last in front instead of being rekeyed to an id with
+    // nothing behind it.
+    val paneSessionKey = (if (filesTab == null) hostState.tabs.activeSessionId else lastShellId) ?: ""
+
     // Coming back from a workspace tab leaves that terminal active, which
     // this screen does not show. Land on the shell tab that was last open.
     LaunchedEffect(hostState.tabs.activeSessionId, shellTabs) {
@@ -225,9 +175,24 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
     val terminal = rememberTerminalHandle()
     val focusPolicy = remember { FocusPolicy(autoOpen = settings.openKeyboardOnTerminal) }
     val imeVisible = WindowInsets.isImeVisible
+    var imeStateObserved by remember { mutableStateOf(false) }
     LaunchedEffect(imeVisible) {
-        if (imeVisible) focusPolicy.onKeyboardShown() else focusPolicy.onKeyboardHidden()
+        if (imeVisible) {
+            focusPolicy.onKeyboardShown()
+        } else if (imeStateObserved) {
+            focusPolicy.onKeyboardHidden()
+        }
+        imeStateObserved = true
     }
+    // The browser is not a place to type into the shell, so the keyboard
+    // comes down with the files tab and stays down until asked for again.
+    LaunchedEffect(filesTab?.sessionId) {
+        if (filesTab != null) terminal.hideKeyboard()
+    }
+    // Session of the last terminal that reported ready; a ready for another
+    // session is a tab switch. Decided in the callback, because an effect
+    // keyed on the active tab runs only after the new view has reported ready.
+    var readySessionKey by remember { mutableStateOf<String?>(null) }
     val requestKeyboard = rememberUpdatedState {
         // Through the view, which focuses itself first. Asking the window
         // insets controller instead only worked when the terminal already
@@ -241,7 +206,6 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
 
     fun selectSession(sessionId: String) {
         SshSessions.selectTab(hostId, sessionId)
-        focusPolicy.onSessionSwitch()
     }
 
     var pendingNotify by remember { mutableStateOf<Pair<String, String>?>(null) }
@@ -287,11 +251,14 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
     // typed as "hold Ctrl, tap c" latches on the row and applies to the next
     // character the keyboard commits, not just to another row key.
     var latchedModifier by remember { mutableStateOf<ModifierKey?>(null) }
+    var hasSelection by remember { mutableStateOf(false) }
 
     var renameTargetId by remember(hostId) { mutableStateOf<String?>(null) }
 
     val title = host?.let(::hostDisplayName) ?: "SSH"
-    val subtitle = host?.let { "${it.username}@${it.host}:${it.port}" }
+    // The header already names the host. The second line identifies the
+    // current surface instead of repeating user@host:port.
+    val subtitle = activeTab?.title
 
     val banner = when {
         activeTab == null -> null
@@ -302,16 +269,22 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
             actionLabel = "Reconnect",
             onAction = { SshSessions.reconnectTab(hostId, activeTab.sessionId) },
         )
-        activeTab.phase == SshTabPhase.Failed -> TerminalBanner(
-            tone = TerminalBannerTone.Error,
-            message = activeTab.detail.ifEmpty { "The connection failed." },
-            actionLabel = "Retry",
-            onAction = { SshSessions.reconnectTab(hostId, activeTab.sessionId) },
-        )
+        // A failed connection gets a persistent card below, not a two-line
+        // overlay that can disappear behind terminal output.
         else -> null
     }
 
+    val failedTab = activeTab?.takeIf { it.phase == SshTabPhase.Failed }
     val failure = when {
+        failedTab != null -> TerminalFailure(
+            title = "Connection failed",
+            message = "Remotly could not establish this SSH connection.",
+            actionLabel = "Retry",
+            onAction = { SshSessions.reconnectTab(hostId, failedTab.sessionId) },
+            secondaryActionLabel = "Edit connection",
+            onSecondaryAction = { nav.navigate(Routes.hostEditor(hostId)) },
+            details = failedTab.detail.ifBlank { "No additional connection details were provided." },
+        )
         lookup?.error != null -> TerminalFailure(
             title = lookup?.error?.message.orEmpty(),
             actionLabel = "Go back",
@@ -415,6 +388,20 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
             subtitle = subtitle,
             onBack = ::goBack,
             actions = actions,
+            actionGroups = listOf(
+                TerminalActionGroup(
+                    title = "Sessions and files",
+                    actionKeys = setOf("files", "new", "rename", "close"),
+                ),
+                TerminalActionGroup(
+                    title = "Clipboard",
+                    actionKeys = setOf("selectAll", "copy", "paste", "paste-image"),
+                ),
+                TerminalActionGroup(
+                    title = "Connection",
+                    actionKeys = setOf("disconnect"),
+                ),
+            ),
             tabs = if (shouldShowTabStrip(shellTabs)) {
                 shellTabs.map { TerminalTab(it.sessionId, it.title, tabPhase(it.phase)) }
             } else {
@@ -431,6 +418,7 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
             showKeyRow = settings.showExtraKeyRow,
             activeModifier = latchedModifier,
             onKey = { key ->
+                terminal.clearComposition()
                 val result = transformKey(key, latchedModifier)
                 if (result != null) {
                     if (result.clearModifier) latchedModifier = null
@@ -438,7 +426,10 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
                     SshSessions.sendInput(hostId, result.bytes)
                 }
             },
-            onModifier = { pressed -> latchedModifier = if (latchedModifier == pressed) null else pressed },
+            onModifier = { pressed ->
+                terminal.clearComposition()
+                latchedModifier = if (latchedModifier == pressed) null else pressed
+            },
             keyRepeatDelayMs = settings.keyRepeatDelayMs,
             haptics = settings.hapticFeedback,
             onKeyboard = { requestKeyboard.value() },
@@ -448,18 +439,14 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
                 {
                     FilesScreen(
                         hostId = hostId,
-                        onBack = { SshSessions.closeTab(hostId, filesTab.sessionId) },
+                        onClose = { SshSessions.closeTab(hostId, filesTab.sessionId) },
                         tabId = filesTab.sessionId,
-                        bare = true,
                     )
                 }
             },
         ) { paneModifier ->
             TerminalPane(
-                // A files tab owns no session, so the terminal underneath
-                // stays on the shell that was last in front instead of being
-                // rekeyed to an id with nothing behind it.
-                sessionKey = (if (filesTab == null) hostState.tabs.activeSessionId else lastShellId) ?: "",
+                sessionKey = paneSessionKey,
                 fontSizeSp = settings.terminalFontSize,
                 cursorStyle = settings.cursorStyle,
                 onInput = { bytes ->
@@ -477,15 +464,28 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
                     }
                     notify("Terminal text: $sp sp")
                 },
-                modifier = paneModifier.terminalSwipeNav(enabled = shellTabs.size > 1) { direction ->
+                modifier = paneModifier.terminalTabSwipe(
+                    enabled = shellTabs.size > 1 && !hasSelection,
+                ) { direction ->
                     val next = neighborTab(shellTabs, hostState.tabs.activeSessionId, direction) { it.sessionId }
                     if (next != null) selectSession(next)
                 },
                 handle = terminal,
                 // The setting is honoured here rather than on a timer: this
                 // is the first moment the terminal can actually take input.
-                onReady = { if (settings.openKeyboardOnTerminal && filesTab == null) requestKeyboard.value() },
+                onReady = {
+                    val previous = readySessionKey
+                    readySessionKey = paneSessionKey
+                    val open = if (previous != null && previous != paneSessionKey) {
+                        focusPolicy.onSessionSwitch()
+                    } else {
+                        focusPolicy.onReady()
+                    }
+                    if (open) terminal.openKeyboard()
+                },
                 onNotify = ::notifyFromTerminal,
+                onFocusChanged = focusPolicy::onFocusChange,
+                onSelectionChanged = { hasSelection = it },
             )
         }
 

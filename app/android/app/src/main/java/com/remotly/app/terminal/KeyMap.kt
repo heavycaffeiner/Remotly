@@ -1,5 +1,6 @@
 package com.remotly.app.terminal
 
+import android.view.KeyCharacterMap
 import android.view.KeyEvent
 
 /** A key event encoded for the ghostty key encoder. */
@@ -60,9 +61,19 @@ object KeyMap {
     if (event.metaState and KeyEvent.META_META_ON != 0) mods = mods or MOD_SUPER
 
     val key = keyCodeToGhostty(event.keyCode)
+    return KeyEncoding(key, mods, textOf(event))
+  }
+
+  // The text a key produces under the current modifiers. Only ACTION_MULTIPLE
+  // events carry characters directly; a hardware letter key has to be resolved
+  // through its character map, or the encoder has nothing to send for it.
+  private fun textOf(event: KeyEvent): String? {
     val chars = event.getCharacters()
-    val utf8 = if (chars.isNullOrEmpty()) null else chars.toString()
-    return KeyEncoding(key, mods, utf8)
+    if (!chars.isNullOrEmpty()) return chars.toString()
+    val cp = event.getUnicodeChar(event.metaState)
+    if (cp and KeyCharacterMap.COMBINING_ACCENT != 0) return null
+    if (cp < ' '.code) return null
+    return String(Character.toChars(cp))
   }
 
   // Internal so JVM unit tests can exercise the mapping without a KeyEvent.

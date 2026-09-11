@@ -13,8 +13,6 @@ package com.remotly.app.ui.screens
 // desktop lands without a timer.
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.material.icons.Icons
@@ -35,16 +33,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.util.VelocityTracker
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
+import com.remotly.app.ui.EXPANDED_LAYOUT_MIN_WIDTH_DP
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -59,15 +51,12 @@ import com.remotly.app.herdr.HerdrWorkspaceOrder
 import com.remotly.app.herdr.joinShell
 import com.remotly.app.herdr.nextHerdrTab
 import com.remotly.app.herdr.nextHerdrWorkspace
-import com.remotly.app.session.SWIPE_AXIS_RATIO
-import com.remotly.app.session.SWIPE_CLAIM_PX
-import com.remotly.app.session.SWIPE_COMMIT_PX
-import com.remotly.app.session.SWIPE_COMMIT_VELOCITY
 import com.remotly.app.session.SshSessions
 import com.remotly.app.session.SshTabPhase
 import com.remotly.app.session.findSshTab
 import com.remotly.app.settings.SettingsState
 import com.remotly.app.ui.Routes
+import com.remotly.app.session.SshTabKind
 import com.remotly.app.ui.components.ScreenAction
 import com.remotly.app.ui.terminal.ModifierKey
 import com.remotly.app.ui.terminal.TerminalBackground
@@ -75,8 +64,8 @@ import com.remotly.app.ui.terminal.TerminalPane
 import com.remotly.app.ui.terminal.transformKey
 import androidx.compose.ui.platform.LocalContext
 import com.remotly.app.notify.TerminalNotifications
-import kotlin.math.abs
-import kotlin.math.hypot
+import com.remotly.app.ui.terminal.rememberTerminalHandle
+import com.remotly.app.ui.terminal.terminalTabSwipe
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
@@ -108,98 +97,6 @@ private fun herdrFailureMessage(e: Throwable): String {
 /** What a mux gesture over the terminal asks for. */
 private enum class MuxAction { TabNext, TabPrevious, WorkspaceNext }
 
-/** How long after a tap a second one still counts as a double tap, in ms. */
-private const val DOUBLE_TAP_MS = 280L
-
-/** How far apart the two taps may land, in px. */
-private const val DOUBLE_TAP_SLOP_PX = 40f
-
-/**
- * A one-finger sideways drag moves between herdr's tabs; a double tap moves
- * to the next workspace. A second finger down hands the whole gesture back,
- * because two fingers are the terminal's pinch and a two-finger drag cannot
- * be told from a pinch reliably enough to drive navigation with it.
- *
- * Tracking runs at [PointerEventPass.Initial], ahead of the embedded native
- * [com.remotly.app.terminal.TerminalView], so a claimed drag or double tap
- * consumes the pointer before the terminal's own touch handling sees it; an
- * unclaimed touch is never consumed and reaches the terminal exactly as if
- * this modifier were absent.
- */
-@Composable
-private fun Modifier.herdrMuxGestures(onAction: (MuxAction) -> Unit): Modifier {
-    val actionState = rememberUpdatedState(onAction)
-    return pointerInput(Unit) {
-        var lastTapAt = 0L
-        var lastTapX = 0f
-        var lastTapY = 0f
-        awaitEachGesture {
-            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-            val now = System.currentTimeMillis()
-            val gapMs = now - lastTapAt
-            val secondTap = lastTapAt != 0L &&
-                gapMs in 0..DOUBLE_TAP_MS &&
-                hypot((down.position.x - lastTapX).toDouble(), (down.position.y - lastTapY).toDouble()) <=
-                DOUBLE_TAP_SLOP_PX
-
-            if (secondTap) {
-                lastTapAt = 0L
-                down.consume()
-                var event = awaitPointerEvent(PointerEventPass.Initial)
-                while (event.changes.any { it.pressed }) {
-                    event.changes.forEach { it.consume() }
-                    event = awaitPointerEvent(PointerEventPass.Initial)
-                }
-                event.changes.forEach { it.consume() }
-                actionState.value(MuxAction.WorkspaceNext)
-                return@awaitEachGesture
-            }
-
-            lastTapAt = now
-            lastTapX = down.position.x
-            lastTapY = down.position.y
-
-            var fingers = 1
-            var claimed = false
-            val tracker = VelocityTracker()
-            tracker.addPosition(down.uptimeMillis, down.position)
-            val startX = down.position.x
-            val startY = down.position.y
-
-            while (true) {
-                val event = awaitPointerEvent(PointerEventPass.Initial)
-                val changes = event.changes
-                fingers = maxOf(fingers, changes.count { it.pressed })
-                val primary = changes.firstOrNull { it.id == down.id } ?: changes.first()
-                tracker.addPosition(primary.uptimeMillis, primary.position)
-                val dx = primary.position.x - startX
-                val dy = primary.position.y - startY
-                // A touch the terminal keeps handling reports no release to
-                // this detector, so a tap candidate is disarmed by its own
-                // movement rather than by how it ended.
-                if (hypot(dx.toDouble(), dy.toDouble()) > DOUBLE_TAP_SLOP_PX) lastTapAt = 0L
-
-                if (fingers < 2 && !claimed && abs(dx) > SWIPE_CLAIM_PX && abs(dx) > abs(dy) * SWIPE_AXIS_RATIO) {
-                    claimed = true
-                }
-                if (claimed && fingers < 2) changes.forEach { it.consume() }
-
-                if (changes.all { !it.pressed }) {
-                    if (claimed && fingers < 2) {
-                        val vx = tracker.calculateVelocity().x / 1000f
-                        val far = abs(dx) >= SWIPE_COMMIT_PX
-                        val fast = abs(vx) >= SWIPE_COMMIT_VELOCITY && abs(dx) > SWIPE_CLAIM_PX
-                        if (far || fast) {
-                            actionState.value(if (dx < 0) MuxAction.TabNext else MuxAction.TabPrevious)
-                        }
-                    }
-                    break
-                }
-            }
-        }
-    }
-}
-
 @Composable
 fun HerdrWorkspaceScreen(
     hostId: String,
@@ -210,7 +107,6 @@ fun HerdrWorkspaceScreen(
     nav: NavHostController,
 ) {
     val settings by SettingsState.settings.collectAsStateWithLifecycle()
-    val view = LocalView.current
 
     // ProcessLifecycleOwner is not on this module's classpath (only
     // lifecycle-runtime-compose and lifecycle-viewmodel-compose are
@@ -256,13 +152,17 @@ fun HerdrWorkspaceScreen(
     val herdr by store.hostState(hostId, session).collectAsStateWithLifecycle()
 
     var sessionId by remember(hostId) { mutableStateOf<String?>(null) }
-    var sidebarOpen by remember { mutableStateOf(false) }
+    // Null lets wide screens start with their permanent sidebar visible while
+    // keeping compact screens closed until the user explicitly opens them.
+    var sidebarOpen by remember { mutableStateOf<Boolean?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
     var renameTabId by remember { mutableStateOf<String?>(null) }
     var renameDraft by remember { mutableStateOf("") }
     var activeModifier by remember { mutableStateOf<ModifierKey?>(null) }
+    var hasSelection by remember { mutableStateOf(false) }
 
     val hostState by SshSessions.state(hostId).collectAsStateWithLifecycle()
+    val terminal = rememberTerminalHandle()
     val tab = sessionId?.let { findSshTab(hostState.tabs, it) }
 
     // Which workspace this terminal is on is herdr's own focus, not a copy of
@@ -390,6 +290,7 @@ fun HerdrWorkspaceScreen(
     }
 
     fun onKeyPress(key: String) {
+        terminal.clearComposition()
         val result = transformKey(key, activeModifier) ?: return
         SshSessions.sendInput(hostId, result.bytes)
         if (result.clearModifier) activeModifier = null
@@ -448,12 +349,13 @@ fun HerdrWorkspaceScreen(
     }
 
     BoxWithConstraints {
-        val permanent = maxWidth >= 720.dp
+        val permanent = maxWidth >= EXPANDED_LAYOUT_MIN_WIDTH_DP.dp
+        val drawerOpen = sidebarOpen ?: permanent
         HostSidebar(
             hostId = hostId,
             hostName = hostName,
             session = session,
-            open = sidebarOpen,
+            open = drawerOpen,
             onClose = { sidebarOpen = false },
             client = client,
             store = store,
@@ -464,14 +366,16 @@ fun HerdrWorkspaceScreen(
                 act { client.focusHerdrWorkspace(hostId, request.workspaceId, request.session) }
             },
             onOpenShells = { nav.navigate(Routes.sshTerminal(hostId)) },
-            onOpenFiles = { nav.navigate(Routes.files(hostId)) },
+            onOpenFiles = {
+                SshSessions.openTab(hostId, kind = SshTabKind.Files)
+                nav.navigate(Routes.sshTerminal(hostId))
+            },
         ) {
             TerminalScaffold(
                 title = effectiveLabel,
                 subtitle = "$hostName, ${session ?: "default"}",
                 onBack = { nav.popBackStack() },
-                onMenu = if (permanent) null else ({ sidebarOpen = true }),
-                actions = actions,
+                onMenu = { sidebarOpen = true },
                 tabs = tabViews,
                 activeTabId = focusedTabId,
                 onSelectTab = ::selectTab,
@@ -482,23 +386,13 @@ fun HerdrWorkspaceScreen(
                 showKeyRow = settings.showExtraKeyRow,
                 activeModifier = activeModifier,
                 onKey = ::onKeyPress,
-                onModifier = { m -> activeModifier = if (activeModifier == m) null else m },
+                onModifier = { m ->
+                    terminal.clearComposition()
+                    activeModifier = if (activeModifier == m) null else m
+                },
                 keyRepeatDelayMs = settings.keyRepeatDelayMs,
                 haptics = settings.hapticFeedback,
-                // TerminalPane exposes no ready callback or view handle a
-                // screen could drive TerminalView.openKeyboard() through
-                // directly, and its AndroidView's own modifier is fixed
-                // regardless of what is passed in; there is no reachable
-                // path to the specific native view from here without
-                // changing ui/terminal/*, which is out of scope for this
-                // screen. This asks the window's insets controller to show
-                // the IME for whatever currently holds Android focus
-                // instead, which recovers the common case: the user tapped
-                // the terminal earlier, dismissed the keyboard, and taps
-                // "show keyboard" again. A session that has never held focus
-                // yet, or a pane just swapped in by a tab switch, has
-                // nothing to focus and this is a no-op for it.
-                onKeyboard = { ViewCompat.getWindowInsetsController(view)?.show(WindowInsetsCompat.Type.ime()) },
+                onKeyboard = { terminal.openKeyboard() },
                 content = { modifier ->
                     val activeSessionId = sessionId
                     val context = LocalContext.current
@@ -526,7 +420,20 @@ fun HerdrWorkspaceScreen(
                                 }
                             },
                             onFontSizeChanged = { size -> SettingsState.update { it.copy(terminalFontSize = size) } },
-                            modifier = modifier.herdrMuxGestures(onAction = ::onMuxGesture),
+                            // Double taps are recognized by the native view:
+                            // it receives both taps, while a Compose modifier
+                            // around it is not shown an unclaimed first tap.
+                            modifier = modifier.terminalTabSwipe(enabled = !hasSelection) { direction ->
+                                onMuxGesture(if (direction > 0) MuxAction.TabNext else MuxAction.TabPrevious)
+                            },
+                            handle = terminal,
+                            // The native handle is ready exactly when this
+                            // session has a measured terminal; opening here
+                            // works on first attach and after a workspace tab
+                            // is replaced.
+                            onReady = { if (settings.openKeyboardOnTerminal) terminal.openKeyboard() },
+                            onDoubleTap = { onMuxGesture(MuxAction.WorkspaceNext) },
+                            onSelectionChanged = { hasSelection = it },
                         )
                     }
                 },

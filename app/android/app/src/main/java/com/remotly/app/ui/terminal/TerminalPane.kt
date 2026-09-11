@@ -1,5 +1,7 @@
 package com.remotly.app.ui.terminal
 
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -15,8 +17,13 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.viewinterop.AndroidView
 import com.remotly.app.platform.readClipboardText
+import com.remotly.app.session.shouldClaimSwipe
+import com.remotly.app.session.swipeDirection
 import com.remotly.app.terminal.TerminalView
 import com.remotly.app.ui.components.ErrorState
 import com.remotly.app.ui.components.LoadingState
@@ -24,6 +31,45 @@ import kotlinx.coroutines.delay
 
 /** A startup that never reports readiness in this window is treated as failed. */
 private const val STARTUP_TIMEOUT_MS = 5_000L
+
+/**
+ * A one-finger sideways drag across the terminal, reported as the direction
+ * from [com.remotly.app.session.swipeDirection].
+ *
+ * Tracked at [PointerEventPass.Initial] with absolute positions: the native
+ * view consumes every touch, so the main pass reports no movement. Consuming
+ * once the drag is clearly horizontal cancels the view's own gesture. A
+ * second finger hands the gesture back, because that is the terminal's pinch.
+ */
+fun Modifier.terminalTabSwipe(enabled: Boolean, onSwipe: (Int) -> Unit): Modifier {
+    if (!enabled) return this
+    return pointerInput(onSwipe) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            val tracker = VelocityTracker()
+            tracker.addPosition(down.uptimeMillis, down.position)
+            var claimed = false
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                if (event.changes.size > 1) return@awaitEachGesture
+                val change = event.changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
+                tracker.addPosition(change.uptimeMillis, change.position)
+                val dx = change.position.x - down.position.x
+                val dy = change.position.y - down.position.y
+                if (!change.pressed) {
+                    if (claimed) {
+                        change.consume()
+                        val direction = swipeDirection(dx, tracker.calculateVelocity().x / 1000f)
+                        if (direction != 0) onSwipe(direction)
+                    }
+                    return@awaitEachGesture
+                }
+                if (!claimed && shouldClaimSwipe(dx, dy)) claimed = true
+                if (claimed) change.consume()
+            }
+        }
+    }
+}
 
 /**
  * What a screen can ask of the terminal it is showing.
@@ -41,6 +87,10 @@ class TerminalHandle internal constructor() {
 
     fun hideKeyboard() {
         view?.hideKeyboard()
+    }
+    /** Drops an open CJK or other IME preedit without sending it. */
+    fun clearComposition() {
+        view?.clearComposition()
     }
 
     fun selectAll() {
@@ -93,6 +143,9 @@ fun TerminalPane(
     handle: TerminalHandle? = null,
     onReady: (() -> Unit)? = null,
     onNotify: ((title: String, body: String) -> Unit)? = null,
+    onDoubleTap: (() -> Unit)? = null,
+    onFocusChanged: ((Boolean) -> Unit)? = null,
+    onSelectionChanged: ((Boolean) -> Unit)? = null,
 ) {
     val onInputState = rememberUpdatedState(onInput)
     val onPtyWriteState = rememberUpdatedState(onPtyWrite)
@@ -101,6 +154,9 @@ fun TerminalPane(
     val onFontSizeChangedState = rememberUpdatedState(onFontSizeChanged)
     val onReadyState = rememberUpdatedState(onReady)
     val onNotifyState = rememberUpdatedState(onNotify)
+    val onDoubleTapState = rememberUpdatedState(onDoubleTap)
+    val onFocusChangedState = rememberUpdatedState(onFocusChanged)
+    val onSelectionChangedState = rememberUpdatedState(onSelectionChanged)
 
     // retryToken forces a fresh native view without a new session: a startup
     // failure or timeout retries by bumping this rather than by rebinding the
@@ -191,9 +247,12 @@ fun TerminalPane(
                             }
 
                             override fun onFocusChange(focused: Boolean) {
-                                // Keyboard policy is a screen-level decision;
-                                // FocusPolicy is exposed separately for
-                                // whichever screen drives it.
+                                onFocusChangedState.value?.invoke(focused)
+                            }
+                            override fun onDoubleTap(): Boolean {
+                                val callback = onDoubleTapState.value ?: return false
+                                callback()
+                                return true
                             }
 
                             override fun onPtyWrite(data: ByteArray) {
@@ -201,8 +260,7 @@ fun TerminalPane(
                             }
 
                             override fun onSelectionChange(active: Boolean) {
-                                // The native selection toolbar already offers
-                                // Copy; no separate affordance is needed here.
+                                onSelectionChangedState.value?.invoke(active)
                             }
 
                             override fun onPasteRequest() {

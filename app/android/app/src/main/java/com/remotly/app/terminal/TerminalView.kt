@@ -36,8 +36,8 @@ import com.remotly.app.R
  * handle, renders frames to a Canvas, and captures input (IME + hardware keys).
  * All native calls happen on the main thread.
  *
- * [host] receives terminal events (ready, input, resize, bell, title) so the
- * surrounding Fabric view manager can forward them to the app.
+ * [host] receives terminal events so the Compose owner can route them to the
+ * active session and screen.
  */
 class TerminalView @JvmOverloads constructor(
   context: Context,
@@ -55,8 +55,14 @@ class TerminalView @JvmOverloads constructor(
     /** A pinch settled on a new whole-sp font size. */
     fun onFontSizeChange(fontSizeSp: Int)
 
-    /** Terminal focus changed. JS needs this to apply its keyboard policy. */
+    /** Terminal focus changed so the screen can apply its keyboard policy. */
     fun onFocusChange(focused: Boolean)
+    /**
+     * A native double tap reached the terminal surface.
+     *
+     * Returns true when the owning screen claimed it for navigation.
+     */
+    fun onDoubleTap(): Boolean = false
     fun onPtyWrite(data: ByteArray)
 
     /** A selection was made or dropped, so the screen can offer Copy. */
@@ -65,7 +71,7 @@ class TerminalView @JvmOverloads constructor(
     /**
      * Paste was chosen from the selection toolbar.
      *
-     * The clipboard is read on the JS side, which already owns sending input
+     * The clipboard is read by the pane, which already owns sending input
      * to the session.
      */
     fun onPasteRequest()
@@ -145,6 +151,73 @@ class TerminalView @JvmOverloads constructor(
 
   /** True while an accessibility announcement is posted but has not run. */
   private var accessibilityAnnouncePosted = false
+  /** True when terminal output or viewport movement needs a text refresh event. */
+  private var accessibilityContentDirty = false
+
+  /** Generation of the newest terminal state requested for accessibility. */
+  private var accessibilityContentGeneration = 0L
+
+  /** Generation represented by the most recently parsed frame. */
+  private var accessibilityRenderedGeneration = 0L
+
+  /** Last viewport text delivered to an accessibility service. */
+  private var accessibilityLastText: String? = null
+
+  /**
+   * True between a native selection change and the first frame that contains
+   * its selected-cell flags. Until then, do not report stale flags from the
+   * previous frame.
+   */
+  private var accessibilitySelectionFramePending = false
+
+  /** Aggregated visibility, so a hidden view does not poll for a frame it will never draw. */
+  private var accessibilityVisible = true
+
+  private val accessibilityAnnounceRunnable = Runnable {
+    accessibilityAnnouncePosted = false
+    if (!isAttachedToWindow || !accessibilityVisible) return@Runnable
+    val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
+    if (am == null || !am.isEnabled || !accessibilityContentDirty) return@Runnable
+    if (accessibilityRenderedGeneration < accessibilityContentGeneration) {
+      postAccessibilityAnnounce(ACCESSIBILITY_ANNOUNCE_RETRY_MS)
+      return@Runnable
+    }
+
+    val screen = viewportText()
+    val previous = accessibilityLastText
+    if (screen == previous) {
+      accessibilityContentDirty = false
+      return@Runnable
+    }
+    accessibilityLastText = screen
+    accessibilityContentDirty = false
+    // Do not announce the initial empty frame. A later transition to empty is
+    // still delivered so a service can discard the old viewport text.
+    if (screen.isNotEmpty() || previous != null) {
+      sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
+    }
+  }
+
+  private fun postAccessibilityAnnounce(delayMs: Long) {
+    if (accessibilityAnnouncePosted || !isAttachedToWindow || !accessibilityVisible) return
+    val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
+    if (am == null || !am.isEnabled) return
+    accessibilityAnnouncePosted = true
+    postDelayed(accessibilityAnnounceRunnable, delayMs)
+  }
+
+  /**
+   * Marks the current viewport as needing an accessibility refresh.
+   *
+   * The event is delayed until a parsed frame has been drawn and then
+   * suppressed when the flattened text is unchanged. This keeps a repainting
+   * TUI from producing one TalkBack announcement per frame.
+   */
+  private fun scheduleAccessibilityAnnounce() {
+    accessibilityContentDirty = true
+    accessibilityContentGeneration += 1
+    postAccessibilityAnnounce(ACCESSIBILITY_ANNOUNCE_MS)
+  }
 
   /** The size the terminal is actually running at, matching the pty. */
   private var appliedCols = 0
@@ -160,6 +233,12 @@ class TerminalView @JvmOverloads constructor(
   private var keyboardRetryPosted = false
   private val tapDetector =
     TapDetector(ViewConfiguration.get(context).scaledTouchSlop.toFloat())
+  private var previousTapAtMs = 0L
+  private var previousTapX = 0f
+  private var previousTapY = 0f
+  private var doubleTapGestureClaimed = false
+  private val doubleTapSlopPx =
+    ViewConfiguration.get(context).scaledDoubleTapSlop.toFloat()
   private val scrollTracker =
     ScrollTracker(ViewConfiguration.get(context).scaledTouchSlop.toFloat())
   private var velocityTracker: VelocityTracker? = null
@@ -283,10 +362,10 @@ class TerminalView @JvmOverloads constructor(
   var fontSizePx: Float
     get() = renderer.fontSizePx
     set(value) {
-      // Fabric re-applies every prop on each render. Remeasuring the cell and
-      // recomputing the grid for a value that did not change costs a text
-      // measure and can emit a resize, which a full-screen application answers
-      // by repainting.
+      // The pane's update block reapplies this on every recomposition.
+      // Remeasuring the cell and recomputing the grid for a value that did not
+      // change costs a text measure and can emit a resize, which a full-screen
+      // application answers by repainting.
       if (renderer.fontSizePx == value) return
       renderer.fontSizePx = value
       recomputeGrid()
@@ -347,6 +426,7 @@ class TerminalView @JvmOverloads constructor(
   init {
     setBackgroundColor(Color.BLACK)
     isFocusable = true
+    isClickable = true
     isFocusableInTouchMode = true
     // The view paints its own text, so nothing here reaches the accessibility
     // tree by itself. It is named and marked as a live region, and its
@@ -367,29 +447,173 @@ class TerminalView @JvmOverloads constructor(
    */
   override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
     super.onInitializeAccessibilityNodeInfo(info)
-    info.className = TerminalView::class.java.name
+    // An editable text role, because the view takes IME input and a double
+    // tap opens the keyboard. Only the editing actions implemented below are
+    // offered; the node never claims ACTION_SET_TEXT.
+    info.className = android.widget.EditText::class.java.name
     info.isEditable = true
+    info.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+    info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_PASTE)
+    if (hasSelection) {
+      info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_COPY)
+      info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLEAR_SELECTION)
+    }
+
     val screen = viewportText()
-    if (screen.isNotEmpty()) info.text = screen
+    if (screen.isNotEmpty()) {
+      info.text = screen
+      // A content description takes precedence over text in TalkBack. Keep
+      // the label for an empty terminal, but let the visible viewport be what
+      // the service reads once there is content.
+      info.contentDescription = null
+      accessibilityTextSelection(screen)?.let { range ->
+        info.setTextSelection(range[0], range[1])
+      }
+    }
+  }
+
+  override fun performAccessibilityAction(action: Int, arguments: android.os.Bundle?): Boolean =
+    when (action) {
+      AccessibilityNodeInfo.ACTION_PASTE -> {
+        host?.onPasteRequest()
+        true
+      }
+      AccessibilityNodeInfo.ACTION_COPY -> copySelection() != null
+      AccessibilityNodeInfo.ACTION_CLEAR_SELECTION -> {
+        clearSelection()
+        true
+      }
+      else -> super.performAccessibilityAction(action, arguments)
+    }
+
+  override fun onInitializeAccessibilityEvent(event: AccessibilityEvent) {
+    super.onInitializeAccessibilityEvent(event)
+    event.className = android.widget.EditText::class.java.name
+    when (event.eventType) {
+      AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+      AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
+      AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED -> {
+        val screen = viewportText()
+        if (screen.isNotEmpty()) event.text.add(screen)
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) {
+          accessibilityTextSelection(screen)?.let { range ->
+            event.fromIndex = range[0]
+            event.toIndex = range[1]
+          }
+        }
+      }
+    }
   }
 
   /**
-   * Announces output that arrived while the screen reader is on.
+   * The selected text range, or the native cursor position when no range is
+   * active, in offsets into [viewportText].
    *
-   * Coalesced to one announcement per idle moment: a repainting TUI otherwise
-   * interrupts the reader on every write and nothing is ever heard in full.
+   * Selection flags come from the parsed native frame, which also covers
+   * Select All. The local range is used only until the next frame is parsed,
+   * so accessibility cannot briefly expose the previous frame's selection.
    */
-  private fun scheduleAccessibilityAnnounce() {
-    if (accessibilityAnnouncePosted) return
-    val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
-    if (am == null || !am.isEnabled) return
-    accessibilityAnnouncePosted = true
-    postDelayed({
-      accessibilityAnnouncePosted = false
-      if (!isAttachedToWindow) return@postDelayed
-      sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
-    }, ACCESSIBILITY_ANNOUNCE_MS)
+  private fun accessibilityTextSelection(screen: String): IntArray? {
+    if (screen.isEmpty()) return null
+    val f = frame ?: return null
+    if (f.cols <= 0 || f.rows <= 0) return null
+
+    val selected = if (!accessibilitySelectionFramePending) selectedCellRange(f) else null
+    val active = selected ?: selection
+      ?.takeIf { hasSelection }
+      ?.let { intArrayOf(it.startCol, it.startRow, it.endCol, it.endRow) }
+    if (active != null) {
+      val start = accessibilityTextOffset(f, screen, active[0], active[1], after = false)
+      val end = accessibilityTextOffset(f, screen, active[2], active[3], after = true)
+      if (start != null && end != null) {
+        return intArrayOf(minOf(start, end), maxOf(start, end))
+      }
+    }
+
+    if (!f.cursorVisible) return null
+    val cursor = accessibilityTextOffset(f, screen, f.cursorX, f.cursorY, after = false)
+      ?: return null
+    return intArrayOf(cursor, cursor)
   }
+
+  /** Returns the first and last selected cells in reading order. */
+  private fun selectedCellRange(f: TerminalFrame): IntArray? {
+    var startCol = -1
+    var startRow = -1
+    var endCol = -1
+    var endRow = -1
+    for (y in 0 until f.rows) {
+      for (x in 0 until f.cols) {
+        if (!f.hasFlag(f.indexOf(x, y), CellFlags.SELECTED)) continue
+        if (startRow < 0) {
+          startCol = x
+          startRow = y
+        }
+        endCol = x
+        endRow = y
+      }
+    }
+    return if (startRow < 0) null else intArrayOf(startCol, startRow, endCol, endRow)
+  }
+
+  /**
+   * Converts a cell boundary to the offset used by [viewportText].
+   *
+   * The text surface trims trailing spaces on every line, and trims trailing
+   * blank lines at the end. Clamping to the supplied text handles both cases.
+   */
+  private fun accessibilityTextOffset(
+    f: TerminalFrame,
+    screen: String,
+    targetCol: Int,
+    targetRow: Int,
+    after: Boolean,
+  ): Int? {
+    if (targetCol !in 0 until f.cols || targetRow !in 0 until f.rows) return null
+    var offset = 0
+    for (y in 0 until f.rows) {
+      var rawOffset = 0
+      var targetOffset = -1
+      var trailingSpaces = 0
+      for (x in 0 until f.cols) {
+        val i = f.indexOf(x, y)
+        if (x == targetCol && y == targetRow && !after) targetOffset = rawOffset
+        if (f.isSpacer(i)) {
+          if (x == targetCol && y == targetRow && after) targetOffset = rawOffset
+          continue
+        }
+
+        val len = f.textLengthAt(i)
+        val cellLength = if (len == 0) 1 else len
+        if (x == targetCol && y == targetRow && after) {
+          targetOffset = rawOffset + cellLength
+        }
+        rawOffset += cellLength
+        trailingSpaces = if (len == 0) {
+          trailingSpaces + 1
+        } else {
+          var suffix = 0
+          var j = len - 1
+          val textOffset = f.textOffsetAt(i)
+          while (j >= 0 && f.chars[textOffset + j] == ' ') {
+            suffix++
+            j--
+          }
+          if (suffix == len) trailingSpaces + suffix else suffix
+        }
+      }
+
+      val lineLength = rawOffset - trailingSpaces
+      if (y == targetRow) {
+        val rawTarget = if (targetOffset >= 0) targetOffset else rawOffset
+        return (offset + rawTarget.coerceIn(0, lineLength)).coerceIn(0, screen.length)
+      }
+      offset += lineLength
+      if (y < f.rows - 1) offset++
+    }
+    return null
+  }
+
 
   /**
    * The visible screen as text, one line per row.
@@ -505,6 +729,20 @@ class TerminalView @JvmOverloads constructor(
    * does not arrive here at all.
    */
   override fun onTouchEvent(event: MotionEvent): Boolean {
+    if (doubleTapGestureClaimed) {
+      if (event.actionMasked == MotionEvent.ACTION_UP ||
+        event.actionMasked == MotionEvent.ACTION_CANCEL
+      ) {
+        doubleTapGestureClaimed = false
+        parent?.requestDisallowInterceptTouchEvent(false)
+      }
+      return true
+    }
+    if (event.actionMasked == MotionEvent.ACTION_DOWN && claimDoubleTap(event)) {
+      doubleTapGestureClaimed = true
+      parent?.requestDisallowInterceptTouchEvent(true)
+      return true
+    }
     scaleDetector.onTouchEvent(event)
     when (event.actionMasked) {
       MotionEvent.ACTION_DOWN -> {
@@ -542,12 +780,13 @@ class TerminalView @JvmOverloads constructor(
         // A press held in place starts a selection. Any movement past the
         // touch slop cancels it, so a scroll is never mistaken for one.
         armSelectionLongPress(event.x, event.y)
-        // The parent is a scrollable RN view; claim the gesture so it cannot
-        // steal a vertical drag meant for the terminal's scrollback.
+        // Claim the gesture so a scrollable parent cannot steal a vertical
+        // drag meant for the terminal's scrollback.
         parent?.requestDisallowInterceptTouchEvent(true)
       }
       MotionEvent.ACTION_POINTER_DOWN -> {
         tapDetector.onPointerDown()
+        previousTapAtMs = 0L
         scrollTracker.onPointerDown()
         cancelSelectionLongPress()
         clearSelection()
@@ -578,6 +817,7 @@ class TerminalView @JvmOverloads constructor(
         // That is what wrote 0;32;29M and its release into the session, where
         // a shell with no mouse tracking printed them as text.
         if (mouseTracking && tapDetector.isCandidate && !selecting) {
+          rememberTap(event)
           mouseTracking = false
           if (sendMouse(MOUSE_PRESS, MOUSE_BUTTON_LEFT, event.x, event.y)) {
             sendMouse(MOUSE_RELEASE, MOUSE_BUTTON_LEFT, event.x, event.y)
@@ -629,6 +869,7 @@ class TerminalView @JvmOverloads constructor(
           // raising the IME over a link the user was reaching for is the
           // opposite of what the tap meant.
           if (copyLinkAt(event.x, event.y)) return true
+          rememberTap(event)
           performClick()
           return true
         }
@@ -639,6 +880,7 @@ class TerminalView @JvmOverloads constructor(
         mouseTracking = false
         wheelTicker.reset()
         tapDetector.onCancel()
+        previousTapAtMs = 0L
         scrollTracker.onCancel()
         cancelSelectionLongPress()
         selecting = false
@@ -647,6 +889,29 @@ class TerminalView @JvmOverloads constructor(
       }
     }
     return true
+  }
+
+  /**
+   * Claims the second tap at its down event, before mouse reporting or
+   * selection can interpret it. The first tap is left untouched.
+   */
+  private fun claimDoubleTap(event: MotionEvent): Boolean {
+    val elapsed = event.eventTime - previousTapAtMs
+    val dx = event.x - previousTapX
+    val dy = event.y - previousTapY
+    val second = previousTapAtMs != 0L &&
+      elapsed in 0..ViewConfiguration.getDoubleTapTimeout().toLong() &&
+      dx * dx + dy * dy <= doubleTapSlopPx * doubleTapSlopPx
+    if (!second) return false
+    if (host?.onDoubleTap() != true) return false
+    previousTapAtMs = 0L
+    return true
+  }
+
+  private fun rememberTap(event: MotionEvent) {
+    previousTapAtMs = event.eventTime
+    previousTapX = event.x
+    previousTapY = event.y
   }
 
   // --- Selection ------------------------------------------------------------
@@ -681,6 +946,7 @@ class TerminalView @JvmOverloads constructor(
       val col = colAt(x)
       val row = rowAt(y)
       selecting = true
+      previousTapAtMs = 0L
       applySelection(selectWordAt(col, row) ?: TerminalSelection.at(col, row))
       startActionMode()
     }
@@ -712,6 +978,7 @@ class TerminalView @JvmOverloads constructor(
       handle, next.startCol, next.startRow, next.endCol, next.endRow, false,
     )
     if (!ok) return
+    accessibilitySelectionFramePending = true
     selection = next
     hasSelection = true
     invalidate()
@@ -826,7 +1093,10 @@ class TerminalView @JvmOverloads constructor(
     cancelSelectionLongPress()
     selecting = false
     val had = hasSelection
-    if (handle != 0L && had) RemotlyTerminal.nativeClearSelection(handle)
+    if (handle != 0L && had) {
+      RemotlyTerminal.nativeClearSelection(handle)
+      accessibilitySelectionFramePending = true
+    }
     hasSelection = false
     selection = null
     val mode = actionMode
@@ -835,6 +1105,7 @@ class TerminalView @JvmOverloads constructor(
     if (had) {
       invalidate()
       host?.onSelectionChange(false)
+      sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED)
     }
   }
 
@@ -849,6 +1120,7 @@ class TerminalView @JvmOverloads constructor(
     actionMode?.finish()
     actionMode = startActionMode(selectionCallback, ActionMode.TYPE_FLOATING)
     host?.onSelectionChange(true)
+    sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED)
   }
 
   private val selectionCallback = object : ActionMode.Callback2() {
@@ -948,6 +1220,7 @@ class TerminalView @JvmOverloads constructor(
     RemotlyTerminal.nativeScrollViewport(handle, -rows)
     lastScrollAtMs = SystemClock.uptimeMillis()
     invalidate()
+    scheduleAccessibilityAnnounce()
   }
 
   /**
@@ -980,6 +1253,7 @@ class TerminalView @JvmOverloads constructor(
     RemotlyTerminal.nativeScrollToBottom(handle)
     lastScrollAtMs = SystemClock.uptimeMillis()
     invalidate()
+    scheduleAccessibilityAnnounce()
   }
 
   /**
@@ -1028,8 +1302,8 @@ class TerminalView @JvmOverloads constructor(
   }
 
   private fun recomputeGrid() {
-    // Fabric can expose a transient zero-sized layout during mount and
-    // rotation. Do not create a bogus 1x1 terminal or emit ready for it.
+    // Compose can lay this out at zero size during mount and rotation. Do not
+    // create a bogus 1x1 terminal or emit ready for it.
     if (width <= 0 || height <= 0 || cellWidthPx <= 0 || cellHeightPx <= 0) return
     // A frame costs 73 bytes per cell and is rebuilt on every draw, so an
     // unbounded grid is an out-of-memory kill rather than a slow screen.
@@ -1058,6 +1332,7 @@ class TerminalView @JvmOverloads constructor(
       RemotlyTerminal.nativeResize(handle, newCols, newRows, cellWidthPx, cellHeightPx)
       host?.onResize(cols, rows)
       invalidate()
+      scheduleAccessibilityAnnounce()
     }
   }
 
@@ -1086,6 +1361,7 @@ class TerminalView @JvmOverloads constructor(
     appliedRows = remoteRows
     RemotlyTerminal.nativeResize(handle, remoteCols, remoteRows, cellWidthPx, cellHeightPx)
     invalidate()
+    scheduleAccessibilityAnnounce()
   }
 
   private fun createTerminal() {
@@ -1141,13 +1417,15 @@ class TerminalView @JvmOverloads constructor(
   /**
    * Releases the native terminal.
    *
-   * Called from the view manager when React is finished with this view, not
-   * when it merely leaves the window. Detaching happens on every navigation
+   * Called by the pane when it is finished with this view, not when it
+   * merely leaves the window. Detaching happens on every navigation
    * away, and destroying the handle there threw away the scrollback: coming
    * back showed an empty terminal with the session's history gone.
    */
   fun release() {
     stopFling()
+    previousTapAtMs = 0L
+    doubleTapGestureClaimed = false
     cancelScrollbarFade()
     cancelSelectionLongPress()
     TerminalStore.unbindRenderer(sessionId, this)
@@ -1180,6 +1458,7 @@ class TerminalView @JvmOverloads constructor(
     super.onDetachedFromWindow()
     // A posted frame callback outliving the view would keep scrolling a
     // terminal nobody is looking at.
+    previousTapAtMs = 0L
     stopFling()
     cancelScrollbarFade()
     cancelSelectionLongPress()
@@ -1187,19 +1466,24 @@ class TerminalView @JvmOverloads constructor(
     // this fires every time the user navigates away. Only the IME connection
     // is dropped, so uncommitted preedit does not reappear over a later
     // session.
+    removeCallbacks(accessibilityAnnounceRunnable)
+    accessibilityAnnouncePosted = false
     composition = CompositionState.NONE
     inputConnection = null
     // A request that never ran must not fire when the view is reattached to a
     // different screen.
     pendingKeyboard = false
+    doubleTapGestureClaimed = false
     keyboardRetryPosted = false
   }
 
   override fun onAttachedToWindow() {
     super.onAttachedToWindow()
+    doubleTapGestureClaimed = false
     // A detach/reattach can keep its old dimensions, so onSizeChanged may not
     // fire. The handle survives a detach, so this usually only re-reports the
     // existing grid; it still creates one after a release.
+    previousTapAtMs = 0L
     recomputeGrid()
     // Re-announce the grid so the owning screen re-arms its data flow. The
     // terminal kept its scrollback across the detach, so this is a reattach
@@ -1208,6 +1492,9 @@ class TerminalView @JvmOverloads constructor(
       host?.onReady(cols, rows)
       host?.onResize(cols, rows)
       onExternalWrite()
+    }
+    if (accessibilityContentDirty) {
+      postAccessibilityAnnounce(ACCESSIBILITY_ANNOUNCE_MS)
     }
     // Only an explicit request made before attachment is replayed. Attachment
     // on its own never opens the keyboard.
@@ -1298,10 +1585,26 @@ class TerminalView @JvmOverloads constructor(
     // A fade frame posted for a view nobody can see would keep waking the
     // choreographer.
     if (!isVisible) cancelScrollbarFade()
+    accessibilityVisible = isVisible
+    if (isVisible) {
+      if (accessibilityContentDirty) postAccessibilityAnnounce(ACCESSIBILITY_ANNOUNCE_MS)
+    } else {
+      removeCallbacks(accessibilityAnnounceRunnable)
+      accessibilityAnnouncePosted = false
+    }
   }
 
   fun selectAll() {
-    if (handle != 0L) RemotlyTerminal.nativeSelectAll(handle)
+    if (handle == 0L) return
+    RemotlyTerminal.nativeSelectAll(handle)
+    accessibilitySelectionFramePending = true
+    invalidate()
+    // Wait for the next parsed frame before exposing the native range.
+    postDelayed({
+      if (isAttachedToWindow) {
+        sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED)
+      }
+    }, ACCESSIBILITY_SELECTION_EVENT_DELAY_MS)
   }
 
   /**
@@ -1380,6 +1683,10 @@ class TerminalView @JvmOverloads constructor(
     // half-empty screen after a session switch until a resize forced a reread.
     val fresh = refreshFrame()
     val f = frame
+    if (fresh) {
+      accessibilityRenderedGeneration = accessibilityContentGeneration
+      accessibilitySelectionFramePending = false
+    }
     // Nothing to draw: either the terminal had no frame to give, or it was
     // emptied by a session switch. Returning here would leave the previous
     // session's pixels on the surface, which is what made two screens appear
@@ -1621,6 +1928,8 @@ class TerminalView @JvmOverloads constructor(
     const val MAX_FRAME_SECONDS = 0.05f
 
     const val MENU_COPY = 1
+    const val ACCESSIBILITY_ANNOUNCE_RETRY_MS = 32L
+    const val ACCESSIBILITY_SELECTION_EVENT_DELAY_MS = 32L
     const val MENU_PASTE = 2
     const val MENU_SELECT_ALL = 3
 
