@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -50,7 +51,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PermanentDrawerSheet
 import androidx.compose.material3.PermanentNavigationDrawer
 import androidx.compose.material3.Text
@@ -78,6 +78,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.remotly.app.ui.components.RemotlyTextField
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.remotly.app.herdr.HerdrClient
 import com.remotly.app.herdr.HerdrCreateTab
@@ -314,7 +315,7 @@ fun HostSidebar(
             onDismissRequest = { renameFor = null },
             title = { Text(if (subject is Subject.Tab) "Rename tab" else "Rename workspace") },
             text = {
-                OutlinedTextField(
+                RemotlyTextField(
                     value = draft,
                     onValueChange = { draft = it },
                     label = { Text("Label") },
@@ -334,7 +335,7 @@ fun HostSidebar(
             title = { Text("New workspace") },
             text = {
                 Column {
-                    OutlinedTextField(
+                    RemotlyTextField(
                         value = draft,
                         onValueChange = { draft = it },
                         label = { Text("Label") },
@@ -533,7 +534,7 @@ private fun HostSidebarBody(
             }
         }
 
-        HorizontalDivider(Modifier.padding(vertical = 6.dp))
+        Spacer(Modifier.height(12.dp))
         SectionHeader("This host")
         Column(Modifier.padding(horizontal = 8.dp)) {
             PlainRow(icon = Icons.Filled.Terminal, label = "Shells", hint = "The app's own SSH tabs", onClick = onOpenShells)
@@ -559,10 +560,10 @@ private fun SessionRow(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
-            .clip(MaterialTheme.shapes.extraSmall)
+            .clip(MaterialTheme.shapes.small)
             .background(
-                if (current) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                MaterialTheme.shapes.extraSmall,
+                if (current) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+                MaterialTheme.shapes.small,
             )
             .clickable(role = Role.Button, onClick = onClick)
             .semantics {
@@ -587,7 +588,7 @@ private fun SessionRow(
                 status,
                 style = MaterialTheme.typography.bodySmall,
                 color = if (current) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
+                    MaterialTheme.colorScheme.onSecondaryContainer
                 } else {
                     MaterialTheme.colorScheme.onSurfaceVariant
                 },
@@ -603,7 +604,7 @@ private fun SectionHeader(title: String) {
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier
-            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
             .semantics { heading() },
     )
 }
@@ -629,8 +630,8 @@ private fun WorkspaceRow(
     val herdrFocused = workspace.focused
     val selected = current || herdrFocused
     val rowBackground = when {
-        current -> MaterialTheme.colorScheme.primaryContainer
-        herdrFocused -> MaterialTheme.colorScheme.secondaryContainer
+        current -> MaterialTheme.colorScheme.secondaryContainer
+        herdrFocused -> MaterialTheme.colorScheme.surfaceContainerHigh
         else -> Color.Transparent
     }
     val status = when {
@@ -657,8 +658,8 @@ private fun WorkspaceRow(
                 modifier = Modifier
                     .weight(1f)
                     .heightIn(min = 48.dp)
-                    .clip(MaterialTheme.shapes.extraSmall)
-                    .background(rowBackground, MaterialTheme.shapes.extraSmall)
+                    .clip(MaterialTheme.shapes.small)
+                    .background(rowBackground, MaterialTheme.shapes.small)
                     .clickable(enabled = !busy, role = Role.Button, onClick = onEnter)
                     .semantics {
                         contentDescription = "Open a terminal on ${workspace.label}, $tabWord" +
@@ -674,7 +675,7 @@ private fun WorkspaceRow(
                         maxLines = 1,
                         style = MaterialTheme.typography.bodyLarge,
                         color = if (current) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
+                            MaterialTheme.colorScheme.onSecondaryContainer
                         } else {
                             MaterialTheme.colorScheme.onSurface
                         },
@@ -690,9 +691,9 @@ private fun WorkspaceRow(
                             status,
                             style = MaterialTheme.typography.labelSmall,
                             color = if (current) {
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            } else {
                                 MaterialTheme.colorScheme.onSecondaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
                             },
                         )
                     }
@@ -756,10 +757,10 @@ private fun WorkspaceRow(
                             modifier = Modifier
                                 .weight(1f)
                                 .heightIn(min = 48.dp)
-                                .clip(MaterialTheme.shapes.extraSmall)
+                                .clip(MaterialTheme.shapes.small)
                                 .background(
                                     if (focused) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
-                                    MaterialTheme.shapes.extraSmall,
+                                    MaterialTheme.shapes.small,
                                 )
                                 .clickable(enabled = !busy, role = Role.Button) { onFocusTab(tab) }
                                 .semantics {

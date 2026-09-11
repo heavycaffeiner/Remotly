@@ -10,7 +10,6 @@ package com.remotly.app.ui.terminal
 // visual state drift once the caller has already consumed and cleared it.
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -24,20 +23,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -72,8 +68,11 @@ import kotlinx.coroutines.withTimeoutOrNull
  */
 private const val PRESS_DELAY_MS = 80L
 
-/** Every key keeps at least this touch target, in either dimension. */
-private val KEY_MIN_SIZE = 48.dp
+/** Every key keeps at least this touch width; the row itself is the 48dp target. */
+private val KEY_MIN_SIZE = 44.dp
+
+/** Visible key height; the row's height carries the rest of the touch target. */
+private val KEY_HEIGHT = 36.dp
 
 private data class KeyDef(
     val key: String,
@@ -153,12 +152,11 @@ fun TerminalKeyRow(
     }
 
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = modifier,
     ) {
         Column {
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(56.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(48.dp)) {
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -170,7 +168,7 @@ fun TerminalKeyRow(
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(scrollState)
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
                     ) {
                         for (def in KEYS) {
                             KeyButton(
@@ -208,7 +206,6 @@ fun TerminalKeyRow(
                         )
                     }
                 }
-                VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 IconButton(
                     onClick = onKeyboard,
                     modifier = Modifier.defaultMinSize(minWidth = KEY_MIN_SIZE, minHeight = KEY_MIN_SIZE),
@@ -247,20 +244,17 @@ private fun KeyButton(
     onKeyUp: () -> Unit,
 ) {
     val backgroundColor =
-        if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer
+        if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
     val contentColor =
-        if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
-    val borderColor =
-        if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
-    val shape = RoundedCornerShape(14.dp)
+        if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+    val shape = MaterialTheme.shapes.small
 
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .defaultMinSize(minWidth = KEY_MIN_SIZE, minHeight = KEY_MIN_SIZE)
+            .defaultMinSize(minWidth = KEY_MIN_SIZE, minHeight = KEY_HEIGHT)
             .clip(shape)
             .background(backgroundColor)
-            .border(1.dp, borderColor, shape)
             .clearAndSetSemantics {
                 contentDescription = def.label
                 role = Role.Button

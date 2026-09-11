@@ -65,7 +65,7 @@ private val TAB_BAR_HEIGHT = 80.dp
  * content, and a value that tracked it exactly would mean measuring across
  * the whole navigation graph.
  */
-val TRANSFER_BAR_HEIGHT = 52.dp
+val TRANSFER_BAR_HEIGHT = 60.dp
 
 /** [TRANSFER_BAR_HEIGHT] while the bar is on screen, zero while it is not. */
 @Composable
@@ -110,23 +110,24 @@ private fun BarSurface(
     // so the state is never carried by colour alone.
     val container =
         if (failed > 0) MaterialTheme.colorScheme.errorContainer
-        else MaterialTheme.colorScheme.secondaryContainer
+        else MaterialTheme.colorScheme.surfaceContainerHigh
     val content =
         if (failed > 0) MaterialTheme.colorScheme.onErrorContainer
-        else MaterialTheme.colorScheme.onSecondaryContainer
+        else MaterialTheme.colorScheme.onSurface
 
     Surface(
         color = container,
         contentColor = content,
+        shape = MaterialTheme.shapes.medium,
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(bottom = TAB_BAR_HEIGHT),
+            .padding(start = 12.dp, end = 12.dp, bottom = TAB_BAR_HEIGHT + 8.dp),
     ) {
         Column(
             Modifier
                 .clickable(onClickLabel = "Show transfers", onClick = onOpen)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
             Text(summary, style = MaterialTheme.typography.bodyMedium)
             val active = raised.firstOrNull { it.phase == TransferPhase.Active }
@@ -207,7 +208,7 @@ private fun TransferSheet(transfers: List<TransferRecord>, onDismiss: () -> Unit
 @Composable
 private fun TransferRow(record: TransferRecord) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -224,7 +225,7 @@ private fun TransferRow(record: TransferRecord) {
             },
         )
         Column(Modifier.weight(1f)) {
-            Text(record.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+            Text(record.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
             Text(
                 statusLine(record),
                 style = MaterialTheme.typography.bodySmall,

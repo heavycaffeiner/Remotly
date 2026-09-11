@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -21,7 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -42,7 +42,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -50,13 +49,10 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -94,6 +90,7 @@ import com.remotly.app.ui.components.EmptyState
 import com.remotly.app.ui.components.ErrorState
 import com.remotly.app.ui.components.LoadingState
 import com.remotly.app.ui.components.RemotlyScreen
+import com.remotly.app.ui.components.RemotlyTextField
 import com.remotly.app.ui.components.transferBarClearance
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.Dispatchers
@@ -338,13 +335,11 @@ private fun HostsContent(nav: NavHostController) {
                         } else {
                             Modifier.fillMaxWidth()
                         }
-                        OutlinedTextField(
+                        RemotlyTextField(
                             value = query,
                             onValueChange = { query = it },
-                            label = { Text("Search hosts") },
-                            placeholder = { Text("Name, host, or username") },
+                            placeholder = { Text("Search hosts") },
                             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                            singleLine = true,
                             modifier = searchModifier.padding(
                                 horizontal = ScreenHorizontalPadding,
                                 vertical = 8.dp,
@@ -447,7 +442,7 @@ private fun CompactHosts(
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = ScreenHorizontalPadding, vertical = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(visible, key = { it.host.id }) { row ->
             HostRowItem(
@@ -491,12 +486,13 @@ private fun ExpandedHosts(
             Text(
                 "Saved hosts",
                 style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
             )
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(visible, key = { it.host.id }) { row ->
                     HostRowItem(
@@ -513,7 +509,6 @@ private fun ExpandedHosts(
                 }
             }
         }
-        VerticalDivider(Modifier.fillMaxHeight())
         visible.firstOrNull { it.host.id == selectedHostId }?.let { row ->
             HostDetailPane(
                 row = row,
@@ -561,51 +556,42 @@ private fun HostRowItem(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 64.dp)
             .then(activation),
         color = if (selected) {
-            MaterialTheme.colorScheme.primaryContainer
+            MaterialTheme.colorScheme.secondaryContainer
         } else {
-            MaterialTheme.colorScheme.surfaceContainerLow
+            MaterialTheme.colorScheme.surfaceContainer
         },
-        shape = RoundedCornerShape(12.dp),
+        shape = MaterialTheme.shapes.large,
     ) {
         Column {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 12.dp, end = if (expanded) 12.dp else 0.dp),
+                    .padding(start = 12.dp, end = if (expanded) 12.dp else 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
                     modifier = Modifier
                         .size(32.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(
-                            if (selected) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.secondaryContainer
-                            },
-                        ),
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         Icons.Filled.Dns,
                         contentDescription = null,
-                        tint = if (selected) {
-                            MaterialTheme.colorScheme.onPrimary
-                        } else {
-                            MaterialTheme.colorScheme.onSecondaryContainer
-                        },
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(18.dp),
                     )
                 }
-                Spacer(Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f).padding(vertical = 8.dp)) {
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f).padding(vertical = 10.dp)) {
                     Text(
                         row.name,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Medium,
                     )
                     Text(
@@ -662,7 +648,7 @@ private fun HostRowItem(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                        .padding(start = 4.dp, end = 4.dp, bottom = 4.dp),
                 ) {
                     HostRowAction(
                         label = "Terminal",
@@ -689,11 +675,10 @@ private fun RowScope.HostRowAction(
 ) {
     TextButton(
         onClick = onClick,
-        modifier = Modifier
-            .weight(1f)
-            .heightIn(min = 48.dp),
+        modifier = Modifier.weight(1f),
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
     ) {
-        Text(label, maxLines = 1)
+        Text(label, maxLines = 1, style = MaterialTheme.typography.labelLarge)
     }
 }
 
@@ -709,27 +694,26 @@ private fun HostDetailPane(
 ) {
     Surface(
         modifier = modifier,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = MaterialTheme.shapes.large,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("Selected host", style = MaterialTheme.typography.labelLarge)
             Text(
                 row.name,
-                style = MaterialTheme.typography.headlineSmall,
+                style = MaterialTheme.typography.titleMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.semantics { heading() },
             )
             Text(
                 row.detail,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (row.sessions > 0) {
@@ -739,8 +723,7 @@ private fun HostDetailPane(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-            Text("Quick actions", style = MaterialTheme.typography.labelLarge)
+            Spacer(Modifier.height(8.dp))
             HostDetailAction(
                 icon = Icons.Filled.Terminal,
                 title = "Open terminal",
@@ -760,21 +743,15 @@ private fun HostDetailPane(
                 description = "Open Herdr workspaces on this host",
                 onClick = onOpenWorkspaces,
             )
-            Spacer(Modifier.heightIn(min = 4.dp))
+            Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
-                    onClick = onEdit,
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                ) {
-                    Icon(Icons.Filled.Edit, contentDescription = null)
+                FilledTonalButton(onClick = onEdit, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("Edit")
                 }
-                TextButton(
-                    onClick = onRemove,
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                ) {
-                    Icon(Icons.Filled.Delete, contentDescription = null)
+                TextButton(onClick = onRemove, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Filled.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("Remove", color = MaterialTheme.colorScheme.error)
                 }
@@ -791,35 +768,37 @@ private fun HostDetailAction(
     primary: Boolean = false,
     onClick: () -> Unit,
 ) {
-    val content: @Composable RowScope.() -> Unit = {
-        Icon(icon, contentDescription = null)
-        Spacer(Modifier.width(8.dp))
-        Column {
-            Text(title)
-            Text(
-                description,
-                style = MaterialTheme.typography.bodySmall,
-                color = if (primary) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
-        }
-    }
-    if (primary) {
-        FilledTonalButton(
-            onClick = onClick,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-            content = content,
-        )
+    val container = if (primary) {
+        MaterialTheme.colorScheme.primaryContainer
     } else {
-        OutlinedButton(
-            onClick = onClick,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-            content = content,
-        )
+        MaterialTheme.colorScheme.surfaceContainerHigh
+    }
+    val foreground = if (primary) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+    Surface(
+        onClick = onClick,
+        color = container,
+        contentColor = foreground,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (primary) foreground else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }

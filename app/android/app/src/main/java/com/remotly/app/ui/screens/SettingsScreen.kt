@@ -31,11 +31,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -60,6 +57,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.remotly.app.platform.openAppSettings
 import com.remotly.app.settings.AppSettings
 import com.remotly.app.settings.SettingsState
+import com.remotly.app.ui.ScreenHorizontalPadding
+import com.remotly.app.ui.components.ChoiceRow
 import com.remotly.app.ui.components.RemotlyScreen
 import java.net.URLDecoder
 
@@ -146,7 +145,7 @@ fun SettingsContent() {
             SettingsSectionHeader("Appearance")
 
             SettingsGroup {
-                Text("Theme", style = MaterialTheme.typography.labelLarge)
+                Text("Theme", style = MaterialTheme.typography.bodyLarge)
                 SettingsSingleChoice(
                     options = THEME_OPTIONS,
                     selected = settings.themeMode,
@@ -169,7 +168,7 @@ fun SettingsContent() {
             SettingsSectionHeader("Terminal")
 
             SettingsGroup {
-                Text("Font size", style = MaterialTheme.typography.labelLarge)
+                Text("Font size", style = MaterialTheme.typography.bodyLarge)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
                         onClick = {
@@ -183,6 +182,7 @@ fun SettingsContent() {
                     Text(
                         "${settings.terminalFontSize} sp",
                         modifier = Modifier.padding(horizontal = 8.dp),
+                        style = MaterialTheme.typography.bodyLarge,
                         textAlign = TextAlign.Center,
                     )
                     IconButton(
@@ -198,7 +198,7 @@ fun SettingsContent() {
             }
 
             SettingsGroup {
-                Text("Cursor", style = MaterialTheme.typography.labelLarge)
+                Text("Cursor", style = MaterialTheme.typography.bodyLarge)
                 SettingsSingleChoice(
                     options = CURSOR_OPTIONS,
                     selected = settings.cursorStyle,
@@ -221,7 +221,7 @@ fun SettingsContent() {
             )
 
             SettingsGroup {
-                Text("Hold an extra key to repeat after", style = MaterialTheme.typography.labelLarge)
+                Text("Hold an extra key to repeat after", style = MaterialTheme.typography.bodyLarge)
                 SettingsSingleChoice(
                     options = REPEAT_DELAY_OPTIONS,
                     selected = settings.keyRepeatDelayMs,
@@ -246,7 +246,7 @@ fun SettingsContent() {
                     folderLabel(settings.downloadFolderUri)
                 },
                 trailing = {
-                    OutlinedButton(onClick = { folderPicker.launch(null) }) { Text("Change") }
+                    FilledTonalButton(onClick = { folderPicker.launch(null) }) { Text("Change") }
                 },
             )
 
@@ -307,10 +307,10 @@ fun SettingsContent() {
 private fun SettingsSectionHeader(title: String) {
     Text(
         title,
-        style = MaterialTheme.typography.titleSmall,
+        style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(start = ScreenHorizontalPadding, end = ScreenHorizontalPadding, top = 16.dp, bottom = 4.dp)
             .semantics { heading() },
     )
 }
@@ -318,18 +318,16 @@ private fun SettingsSectionHeader(title: String) {
 @Composable
 private fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
     Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenHorizontalPadding, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
         content = content,
     )
 }
 
 /**
- * Three options fit comfortably in one row at the default text size. At
- * accessibility text sizes, equal-width segments force labels to wrap and
- * produce uneven controls, so use a full-width radio list instead.
+ * Three options fit in one row of chips at the default text size. At
+ * accessibility text sizes the labels would wrap, so a radio list takes over.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun <T> SettingsSingleChoice(
     options: List<Pair<T, String>>,
@@ -354,26 +352,17 @@ private fun <T> SettingsSingleChoice(
                                 onClick = { onSelected(value) },
                                 role = Role.RadioButton,
                             )
-                            .padding(horizontal = 8.dp),
+                            .padding(horizontal = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RadioButton(selected = selected == value, onClick = null)
                         Spacer(Modifier.width(8.dp))
-                        Text(label, modifier = Modifier.weight(1f))
+                        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }
         } else {
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                options.forEachIndexed { index, (value, label) ->
-                    SegmentedButton(
-                        selected = selected == value,
-                        onClick = { onSelected(value) },
-                        shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
-                        label = { Text(label) },
-                    )
-                }
-            }
+            ChoiceRow(options = options, selected = selected, onSelected = onSelected)
         }
     }
 }
@@ -400,12 +389,12 @@ private fun SettingsSwitchRow(
                 role = Role.Switch,
                 onValueChange = onCheckedChange,
             )
-            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .padding(horizontal = ScreenHorizontalPadding, vertical = 6.dp)
             .semantics(mergeDescendants = true) {},
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(title)
+            Text(title, style = MaterialTheme.typography.bodyLarge)
             if (description != null) {
                 Text(
                     description,
@@ -443,10 +432,10 @@ private fun SettingRow(
             }
         }
         .heightIn(min = 48.dp)
-        .padding(horizontal = 16.dp, vertical = 4.dp)
+        .padding(horizontal = ScreenHorizontalPadding, vertical = 6.dp)
     Row(modifier = rowModifier, verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(title, color = titleColor)
+            Text(title, color = titleColor, style = MaterialTheme.typography.bodyLarge)
             if (description != null) {
                 Text(
                     description,

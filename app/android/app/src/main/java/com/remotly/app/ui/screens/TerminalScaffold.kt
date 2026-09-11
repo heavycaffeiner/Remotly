@@ -54,7 +54,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -98,7 +98,7 @@ private val BAR_MIN_HEIGHT = 56.dp
 private val TOUCH_TARGET = 48.dp
 
 /** Height of one pill in the tab strip. Tall enough on its own to need no touch-target trick. */
-private val TAB_HEIGHT = 48.dp
+private val TAB_HEIGHT = 36.dp
 
 /**
  * How a tab in [TerminalScaffold]'s strip is doing. Drives the icon shown
@@ -274,10 +274,7 @@ private fun TerminalTopBar(
     onKeyboard: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
-    Surface(
-        tonalElevation = 0.dp,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-    ) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
         Column {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -329,9 +326,8 @@ private fun TerminalTopBar(
                             Text(
                                 section.title,
                                 style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                             )
                             for (action in section.actions) {
                                 DropdownMenuItem(
@@ -358,7 +354,6 @@ private fun TerminalTopBar(
                     }
                 }
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         }
     }
 }
@@ -475,30 +470,27 @@ private fun TerminalTabStrip(
         }
     }
 
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                LazyRow(
-                    state = listState,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                    modifier = Modifier.weight(1f),
-                ) {
-                    items(tabs, key = { it.id }) { tab ->
-                        TerminalTabChip(
-                            tab = tab,
-                            active = tab.id == activeTabId,
-                            onSelect = { onSelect(tab.id) },
-                            onClose = { onClose(tab.id) },
-                            onRename = onRename?.let { rename -> { rename(tab.id) } },
-                        )
-                    }
-                }
-                if (onAdd != null) {
-                    CompactIconAction(icon = Icons.Filled.Add, label = "New session", onClick = onAdd, enabled = canAdd)
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            LazyRow(
+                state = listState,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                modifier = Modifier.weight(1f),
+            ) {
+                items(tabs, key = { it.id }) { tab ->
+                    TerminalTabChip(
+                        tab = tab,
+                        active = tab.id == activeTabId,
+                        onSelect = { onSelect(tab.id) },
+                        onClose = { onClose(tab.id) },
+                        onRename = onRename?.let { rename -> { rename(tab.id) } },
+                    )
                 }
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            if (onAdd != null) {
+                CompactIconAction(icon = Icons.Filled.Add, label = "New session", onClick = onAdd, enabled = canAdd)
+            }
         }
     }
 }
@@ -511,8 +503,8 @@ private fun TerminalTabChip(
     onClose: () -> Unit,
     onRename: (() -> Unit)?,
 ) {
-    val background = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer
-    val foreground = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
+    val background = if (active) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
+    val foreground = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface
     val icon = iconFor(tab.phase)
     val accessibleLabel = "${tab.label}${suffixFor(tab.phase)}"
 
@@ -520,7 +512,7 @@ private fun TerminalTabChip(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .height(TAB_HEIGHT)
-            .clip(CircleShape)
+            .clip(MaterialTheme.shapes.small)
             .background(background),
     ) {
         Row(
@@ -547,7 +539,7 @@ private fun TerminalTabChip(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.labelLarge,
-                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
                 color = foreground,
                 modifier = Modifier.widthIn(max = 140.dp),
             )
@@ -573,11 +565,10 @@ private fun TerminalBannerOverlay(banner: TerminalBanner, modifier: Modifier = M
     val error = banner.tone == TerminalBannerTone.Error
     val ink = if (error) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurface
     Surface(
-        tonalElevation = 2.dp,
         color = if (error) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-        shape = MaterialTheme.shapes.small,
+        shape = MaterialTheme.shapes.medium,
         modifier = modifier
-            .padding(8.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
             .semantics {
                 liveRegion = if (error) LiveRegionMode.Assertive else LiveRegionMode.Polite
                 if (error) this.error("")
@@ -632,9 +623,9 @@ private fun TerminalFailureCard(failure: TerminalFailure) {
                     .fillMaxWidth()
                     .widthIn(max = 640.dp)
                     .verticalScroll(rememberScrollState())
-                    .padding(24.dp),
+                    .padding(horizontal = 16.dp, vertical = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Icon(
                     failure.icon ?: Icons.Filled.ErrorOutline,
@@ -644,14 +635,14 @@ private fun TerminalFailureCard(failure: TerminalFailure) {
                 )
                 Text(
                     failure.title,
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.semantics { heading() },
                 )
                 if (!failure.message.isNullOrBlank()) {
                     Text(
                         failure.message,
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -664,7 +655,7 @@ private fun TerminalFailureCard(failure: TerminalFailure) {
                     }
                 }
                 if (failure.secondaryActionLabel != null && failure.onSecondaryAction != null) {
-                    OutlinedButton(
+                    FilledTonalButton(
                         onClick = failure.onSecondaryAction,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
@@ -680,7 +671,8 @@ private fun TerminalFailureCard(failure: TerminalFailure) {
                     }
                     if (detailsExpanded) {
                         Surface(
-                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            color = MaterialTheme.colorScheme.surfaceContainer,
+                            shape = MaterialTheme.shapes.medium,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text(

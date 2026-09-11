@@ -140,10 +140,15 @@ fun NoticeBar(message: String, tone: NoticeTone = NoticeTone.Info, modifier: Mod
         NoticeTone.Info -> MaterialTheme.colorScheme.onSecondaryContainer
         NoticeTone.Danger -> MaterialTheme.colorScheme.onErrorContainer
     }
-    Surface(color = container, contentColor = content, modifier = modifier.fillMaxWidth()) {
+    Surface(
+        color = container,
+        contentColor = content,
+        shape = MaterialTheme.shapes.medium,
+        modifier = modifier.fillMaxWidth(),
+    ) {
         Row(
             modifier = Modifier
-                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
                 .semantics { liveRegion = LiveRegionMode.Polite },
         ) {
             Text(message, style = MaterialTheme.typography.bodyMedium)

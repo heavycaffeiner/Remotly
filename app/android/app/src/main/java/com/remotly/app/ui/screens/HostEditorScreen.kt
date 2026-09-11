@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -32,11 +31,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -70,11 +65,14 @@ import com.remotly.app.ssh.SshHost
 import com.remotly.app.ssh.SshHostStore
 import com.remotly.app.ssh.SshModule
 import com.remotly.app.ssh.engine.SftpConnection
+import com.remotly.app.ui.ScreenHorizontalPadding
+import com.remotly.app.ui.components.ChoiceRow
 import com.remotly.app.ui.components.ErrorState
 import com.remotly.app.ui.components.LoadingState
 import com.remotly.app.ui.components.NoticeBar
 import com.remotly.app.ui.components.NoticeTone
 import com.remotly.app.ui.components.RemotlyScreen
+import com.remotly.app.ui.components.RemotlyTextField
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
@@ -327,7 +325,7 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
         onBack = onDone,
         bottomBar = {
             Surface(
-                tonalElevation = 2.dp,
+                color = MaterialTheme.colorScheme.surfaceContainer,
                 modifier = Modifier
                     .fillMaxWidth()
                     .imePadding()
@@ -336,19 +334,11 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(horizontal = ScreenHorizontalPadding, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 ) {
-                    OutlinedButton(
-                        onClick = onDone,
-                        enabled = !busy,
-                        modifier = Modifier.heightIn(min = 48.dp),
-                    ) { Text("Cancel") }
-                    Button(
-                        onClick = { save() },
-                        enabled = !busy,
-                        modifier = Modifier.heightIn(min = 48.dp),
-                    ) {
+                    TextButton(onClick = onDone, enabled = !busy) { Text("Cancel") }
+                    Button(onClick = { save() }, enabled = !busy) {
                         if (busy) {
                             CircularProgressIndicator(
                                 modifier = Modifier
@@ -370,7 +360,7 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                 .padding(padding)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = ScreenHorizontalPadding, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             if (saveAttempted && !formValid) {
@@ -384,7 +374,7 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                 title = "Identity",
                 description = "Label is optional.",
             ) {
-                OutlinedTextField(
+                RemotlyTextField(
                     value = displayName,
                     onValueChange = { displayName = it },
                     label = { Text("Label (optional)") },
@@ -403,7 +393,7 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                 description = "Host, port, and username are required.",
             ) {
                 val hostError = saveAttempted && !hostValid
-                OutlinedTextField(
+                RemotlyTextField(
                     value = host,
                     onValueChange = { host = it },
                     label = { Text("Host (required)") },
@@ -434,7 +424,7 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                 )
                 val portError = saveAttempted && !portValid
-                OutlinedTextField(
+                RemotlyTextField(
                     value = port,
                     onValueChange = { port = it },
                     label = { Text("Port (required)") },
@@ -458,7 +448,7 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                 )
                 val userError = saveAttempted && !userValid
-                OutlinedTextField(
+                RemotlyTextField(
                     value = username,
                     onValueChange = { username = it },
                     label = { Text("Username (required)") },
@@ -498,34 +488,35 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                     } else {
                         "A password is saved for this host."
                     }
-                    Text(savedKind, style = MaterialTheme.typography.bodyMedium)
-                    OutlinedButton(
-                        onClick = { replaceCredential = true },
-                        modifier = Modifier.heightIn(min = 48.dp),
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Replace credential")
-                    }
-                } else {
-                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                        AuthMethod.entries.forEachIndexed { index, method ->
-                            SegmentedButton(
-                                selected = auth == method,
-                                onClick = { auth = method },
-                                modifier = Modifier.heightIn(min = 48.dp),
-                                shape = SegmentedButtonDefaults.itemShape(
-                                    index = index,
-                                    count = AuthMethod.entries.size,
-                                ),
-                                label = { Text(method.label) },
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                savedKind,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f),
                             )
+                            TextButton(onClick = { replaceCredential = true }) {
+                                Text("Replace")
+                            }
                         }
                     }
+                } else {
+                    ChoiceRow(
+                        options = AuthMethod.entries.map { it to it.label },
+                        selected = auth,
+                        onSelected = { auth = it },
+                    )
                     if (auth == AuthMethod.Key) {
-                        OutlinedButton(
-                            onClick = { keyPicker.launch(arrayOf("*/*")) },
-                            modifier = Modifier.heightIn(min = 48.dp),
-                        ) {
-                            Icon(Icons.Filled.Upload, contentDescription = null)
+                        FilledTonalButton(onClick = { keyPicker.launch(arrayOf("*/*")) }) {
+                            Icon(Icons.Filled.Upload, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(if (keyFileName.isNotEmpty()) "Imported $keyFileName" else "Import a key file")
                         }
@@ -535,7 +526,7 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                         if (saveAttempted && keyBytes == null) {
                             AnnouncedError("Import a private key.")
                         }
-                        OutlinedTextField(
+                        RemotlyTextField(
                             value = passphrase,
                             onValueChange = { passphrase = it },
                             label = { Text("Passphrase (optional)") },
@@ -549,7 +540,7 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                         )
                     } else {
                         val passwordError = saveAttempted && password.isEmpty()
-                        OutlinedTextField(
+                        RemotlyTextField(
                             value = password,
                             onValueChange = { password = it },
                             label = { Text("Password (required)") },
@@ -579,12 +570,11 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                     "Connects once to check the address and credential. Nothing is saved."
                 },
             ) {
-                OutlinedButton(
+                FilledTonalButton(
                     onClick = { runTest() },
                     enabled = canTest,
-                    modifier = Modifier.heightIn(min = 48.dp),
                 ) {
-                    Icon(Icons.Filled.Wifi, contentDescription = null)
+                    Icon(Icons.Filled.Wifi, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Test connection")
                 }
@@ -702,7 +692,7 @@ private fun FormSection(
     description: String? = null,
     content: @Composable () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             title,
             modifier = Modifier.semantics { heading() },

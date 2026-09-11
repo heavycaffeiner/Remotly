@@ -51,7 +51,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -106,7 +105,9 @@ import com.remotly.app.ui.components.EmptyState
 import com.remotly.app.ui.components.ErrorState
 import com.remotly.app.ui.components.LoadingState
 import com.remotly.app.ui.components.RemotlyScreen
+import com.remotly.app.ui.components.RemotlyTextField
 import com.remotly.app.ui.components.ScreenAction
+import com.remotly.app.ui.components.tonalChipColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -533,7 +534,11 @@ fun FilesScreen(hostId: String, onClose: () -> Unit, tabId: String) {
                 )
 
                 Phase.Ready -> {
-                    Breadcrumbs(parseBreadcrumbs(cwd, "/"), onNavigate = { openDir(it) })
+                    Breadcrumbs(
+                        crumbs = parseBreadcrumbs(cwd, "/"),
+                        count = countLabel(shown.size, ordered.size, loading),
+                        onNavigate = { openDir(it) },
+                    )
                     if (error.isNotEmpty() && entries != null) {
                         ConnectionNotice(error, onReconnect = ::reconnect)
                     }
@@ -541,9 +546,6 @@ fun FilesScreen(hostId: String, onClose: () -> Unit, tabId: String) {
                     // grows a third control row when the field is open.
                     SortBar(
                         order = order,
-                        shown = shown.size,
-                        total = ordered.size,
-                        loading = loading,
                         searchOpen = searchOpen,
                         query = query,
                         onQueryChange = { query = it },
@@ -885,25 +887,37 @@ private fun ConnectionNotice(message: String, onReconnect: () -> Unit) {
 }
 
 @Composable
-private fun Breadcrumbs(crumbs: List<Breadcrumb>, onNavigate: (String) -> Unit) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
+private fun Breadcrumbs(crumbs: List<Breadcrumb>, count: String, onNavigate: (String) -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.surface) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = ScreenHorizontalPadding, vertical = 2.dp),
+                .padding(horizontal = ScreenHorizontalPadding),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            crumbs.forEachIndexed { i, crumb ->
-                // The root crumb's own name is the separator ("/", or a
-                // drive root ending in one), so another after it draws
-                // "/ / config".
-                val previous = crumbs.getOrNull(i - 1)?.name.orEmpty()
-                if (i > 0 && !previous.endsWith('/') && !previous.endsWith('\\')) {
-                    Text("/", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(
+                Modifier
+                    .weight(1f)
+                    .horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                crumbs.forEachIndexed { i, crumb ->
+                    // The root crumb's own name is the separator ("/", or a
+                    // drive root ending in one), so another after it draws
+                    // "/ / config".
+                    val previous = crumbs.getOrNull(i - 1)?.name.orEmpty()
+                    if (i > 0 && !previous.endsWith('/') && !previous.endsWith('\\')) {
+                        Text("/", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    TextButton(onClick = { onNavigate(crumb.path) }) { Text(crumb.name) }
                 }
-                TextButton(onClick = { onNavigate(crumb.path) }) { Text(crumb.name) }
             }
+            Text(
+                count,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 8.dp),
+            )
         }
     }
 }
@@ -911,16 +925,13 @@ private fun Breadcrumbs(crumbs: List<Breadcrumb>, onNavigate: (String) -> Unit) 
 @Composable
 private fun SortBar(
     order: FileOrder,
-    shown: Int,
-    total: Int,
-    loading: Boolean,
     searchOpen: Boolean,
     query: String,
     onQueryChange: (String) -> Unit,
     onClearSearch: () -> Unit,
     onOrderChange: (FileOrder) -> Unit,
 ) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
+    Surface(color = MaterialTheme.colorScheme.surface) {
         // Keep every folder control in one horizontally scrollable row. At
         // normal widths this is the second compact row after breadcrumbs,
         // while narrow screens can still reach every control.
@@ -928,16 +939,15 @@ private fun SortBar(
             Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(horizontal = ScreenHorizontalPadding, vertical = 2.dp),
+                .padding(horizontal = ScreenHorizontalPadding, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (searchOpen) {
-                OutlinedTextField(
+                RemotlyTextField(
                     value = query,
                     onValueChange = onQueryChange,
-                    label = { Text("Search") },
-                    singleLine = true,
+                    placeholder = { Text("Search") },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     modifier = Modifier.width(220.dp),
                 )
@@ -956,6 +966,8 @@ private fun SortBar(
                 FilterChip(
                     selected = active,
                     label = { Text(label) },
+                    border = null,
+                    colors = tonalChipColors(),
                     onClick = {
                         onOrderChange(
                             if (active) {
@@ -1007,10 +1019,6 @@ private fun SortBar(
                     },
                 )
             }
-            Text(
-                countLabel(shown, total, loading),
-                style = MaterialTheme.typography.bodySmall,
-            )
         }
     }
 }
@@ -1042,22 +1050,23 @@ private fun iconFor(entry: FileEntry): ImageVector = when {
 @Composable
 private fun FileRow(entry: FileEntry, onOpen: () -> Unit, onMenu: () -> Unit) {
     ListItem(
-        headlineContent = { Text(entry.name, maxLines = 1) },
+        headlineContent = { Text(entry.name, maxLines = 1, style = MaterialTheme.typography.bodyLarge) },
         supportingContent = {
             val detail = entryDescription(entry)
-            if (detail.isNotEmpty()) Text(detail, maxLines = 1)
+            if (detail.isNotEmpty()) Text(detail, maxLines = 1, style = MaterialTheme.typography.bodySmall)
         },
         leadingContent = {
             Box(
                 Modifier
                     .size(36.dp)
-                    .background(MaterialTheme.colorScheme.secondaryContainer, CircleShape),
+                    .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     iconFor(entry),
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(20.dp),
                 )
             }
         },
@@ -1137,7 +1146,7 @@ private fun PromptDialog(
                 )
             } else {
                 Column {
-                    OutlinedTextField(
+                    RemotlyTextField(
                         value = text,
                         onValueChange = onTextChange,
                         singleLine = true,

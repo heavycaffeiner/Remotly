@@ -23,7 +23,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.OutlinedTextField
+import com.remotly.app.ui.components.RemotlyTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -446,7 +446,7 @@ fun HerdrWorkspaceScreen(
             onDismissRequest = { renameTabId = null },
             title = { Text("Rename tab") },
             text = {
-                OutlinedTextField(
+                RemotlyTextField(
                     value = renameDraft,
                     onValueChange = { renameDraft = it },
                     label = { Text("Label") },

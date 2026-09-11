@@ -33,7 +33,7 @@ import androidx.compose.material.icons.filled.PowerOff
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import com.remotly.app.ui.components.RemotlyTextField
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -525,7 +525,7 @@ private fun RenameTabDialog(currentLabel: String, onDismiss: () -> Unit, onConfi
         onDismissRequest = onDismiss,
         title = { Text("Rename session") },
         text = {
-            OutlinedTextField(
+            RemotlyTextField(
                 value = draft,
                 onValueChange = { draft = it },
                 label = { Text("Session name") },
