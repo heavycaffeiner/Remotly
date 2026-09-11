@@ -1,184 +1,188 @@
 # Remotly
 
-A standalone SSH and SFTP client for Android.
+A native SSH and SFTP client for Android, with optional Herdr workspace control.
 
-| Hosts | Terminal | Files | Herdr workspaces |
-| --- | --- | --- | --- |
-| ![Hosts screen](docs/images/hosts.png) | ![SSH terminal](docs/images/terminal.png) | ![File browser](docs/images/files.png) | ![Herdr workspaces](docs/images/workspaces.png) |
+[![Release](https://img.shields.io/github/v/release/heavycaffeiner/Remotly)](https://github.com/heavycaffeiner/Remotly/releases/latest)
+[![Android](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)](https://github.com/heavycaffeiner/Remotly/releases/latest)
+[![License](https://img.shields.io/github/license/heavycaffeiner/Remotly)](LICENSE)
 
-## What it does
+Remotly connects directly to an SSH host. It does not require a relay, cloud
+account, or Remotly service on the server. Herdr integration is optional and
+uses an existing Herdr installation on the host.
 
-- **SSH and SFTP, no server side.** Add a host and connect directly: several
-  terminal tabs per host, host-key verification on first use, and file
-  transfer in both directions.
-- **A file browser that holds the whole folder.** A directory is read once and
-  kept, so search covers every entry in it rather than the part that happened
-  to be on screen, sorting is instant, and a folder already visited is redrawn
-  on the way back up while it refreshes behind the list. It opens as a tab
-  beside the shells and keeps its directory, so copying between two places on
-  one host does not mean leaving the terminal.
-- **Transfers that stay out of the app's memory.** The native path moves
-  bytes straight between the content URI and the server, with SFTP requests
-  pipelined rather than one round trip at a time, and progress throttled so a
-  transfer does not repaint the screen thousands of times. A chunked fallback
-  remains for a backend that cannot reach the local file itself. A resumed
-  upload rewinds past anything the server cannot vouch for instead of
-  appending to whatever length it reports. A name collision asks Keep both or
-  Replace rather than picking one.
-- **Full shell environment.** Every session starts from a login shell, so
-  PATH, aliases, functions, and version managers (nvm, pyenv, asdf) are all
-  present.
-- **CJK input.** Korean input commits one syllable at a time rather than one
-  word, so a TUI reading keys as they arrive behaves the way it does on a
-  desktop terminal.
-- **Inline images.** The Kitty graphics protocol renders images in the grid,
-  so a tool that draws one has somewhere to draw it.
-- **Desktop notifications.** A program can raise one with OSC 9 or OSC 777,
-  which is how a long build says it finished.
-- **Clipboard.** Tapping a link copies it, OSC 8 or bare URL alike. A program
-  can write the clipboard with OSC 52, and a multi-line paste arrives as one
-  block through bracketed paste rather than as a run of Enter keys.
-- **Image paste.** Pick an image and it uploads over SFTP, then types the
-  remote path, which is what an agent reading files from disk expects.
-- **Herdr workspaces in a sidebar.** Where herdr is installed on the host and
-  `herdr server` is running, one sidebar holds its sessions, their workspaces,
-  and each workspace's tabs, with rename, close, and new-tab on the row they
-  belong to. They keep running on the machine, so closing Remotly or losing
-  the connection leaves every workspace where it was. Entering one attaches a
-  terminal whose tab strip is that workspace's herdr tabs. The app's own SSH
-  tabs stay in their own screen, so a workspace and a plain shell never share a
-  strip. One terminal per herdr session, because the focused workspace is
-  session state rather than per client; a second session gets a terminal of its
-  own. Verified against herdr 0.9.0; the wire format has been stable since
-  0.8.2.
-- **Kept current by herdr's events.** One SSH connection is held per host and
-  the app subscribes to herdr's control socket over it, so a workspace renamed
-  or focused on the desktop shows up here at once. herdr publishes nothing for
-  a move made by its own key bindings, so a tab switched by typing `prefix+n`
-  in the terminal is picked up by a re-read every three seconds while a screen
-  is up and the app is in front. A host with no way to run the reader falls
-  back to re-reading every four seconds.
-- **Herdr plugin.** `plugin/` is a herdr plugin the app drives from the
-  workspace terminal's menu: a tab in the focused pane's directory, every pane
-  of a tab spread into tabs of their own, and pane zoom. Install it with
-  `herdr plugin install heavycaffeiner/Remotly/plugin`.
-- **Terminal gestures.** In a terminal attached to herdr, a sideways swipe
-  moves between its tabs and a double tap moves to the next workspace. Two
-  fingers stay the terminal's pinch, so panes are moved from its menu. The
-  sidebar is the path for anyone who cannot make the gestures.
+## Screenshots
 
-## Layout
-
-| Path | What it is |
+| Hosts | Terminal |
 | --- | --- |
-| `app/android/` | The Android app: Kotlin and Jetpack Compose, Material 3 |
-| `app/android/terminal-native/` | JNI bridge to libghostty-vt, the terminal core |
-| `mobile/sshcore/` | Go SSH and SFTP core, built as an AAR for the app |
+| <img src="docs/images/hosts.png" alt="Saved SSH hosts in dark mode" width="360"> | <img src="docs/images/terminal.png" alt="SSH terminal in dark mode" width="360"> |
 
-## Security
+| Files | Herdr workspaces |
+| --- | --- |
+| <img src="docs/images/files.png" alt="SFTP file browser in dark mode" width="360"> | <img src="docs/images/workspaces.png" alt="Herdr workspace sidebar in dark mode" width="360"> |
 
-Host keys are verified on first use (TOFU) and pinned per host. If a host's
-key later changes, the app refuses to connect until the change is confirmed.
+## Install
 
-The herdr screen runs each command as its own one-shot SSH exec, which has
-nowhere to show the first-use prompt, so a host is unreachable there until its
-key has been accepted in the terminal once. The screen says so and offers the
-way in.
+1. Download `app-release.apk` from the [latest release](https://github.com/heavycaffeiner/Remotly/releases/latest).
+2. Install the APK on an Android device.
+3. Add a host and accept its host key on the first connection.
 
-## Building
+Requirements:
 
-Requires JDK 17 or later, the Android SDK with an NDK, and Go 1.26.
+- Android 7.0 or later (API 24+)
+- ARMv7, ARM64, or x86_64
+- An SSH server reachable from the device
 
-The app links a Go SSH/SFTP core built with gomobile. It is a build output
-rather than a checked-in binary, so a fresh clone builds it once before Gradle
-can resolve it. gomobile runs `javac` and reads `ANDROID_HOME` itself, so a
-JRE on `PATH` or an SDK found only through `ANDROID_SDK_ROOT` fails there
-while Gradle's own toolchain is fine:
+Updates must be signed with the same key as the installed APK. Install releases
+from this repository to keep the signing identity consistent.
+
+## Features
+
+### Terminal
+
+- Multiple shell tabs per host
+- Login-shell startup, including the host's normal `PATH` and shell setup
+- Sessions that remain connected while navigating elsewhere in the app
+- Korean and other CJK input without waiting for a whole word to commit
+- Bracketed paste, OSC 52 clipboard writes, OSC 8 links, and bare URL detection
+- OSC 9 and OSC 777 notifications
+- Kitty graphics protocol images rendered in the terminal grid
+- Configurable font size, cursor style, haptics, and an extra terminal key row
+- Image selection that uploads to `~/.remotly/` and inserts the remote path
+
+### Files
+
+- SFTP browsing in tabs beside shell sessions
+- Full-directory search, sorting, hidden-file control, and breadcrumbs
+- Uploads and downloads through Android's document picker
+- Transfer progress that remains visible across screens
+- Resume support where the remote and local files can be verified safely
+- Explicit conflict handling instead of silent replacement
+
+### Herdr workspaces
+
+- Browse Herdr sessions, workspaces, and tabs from a host sidebar
+- Attach a terminal to the focused workspace
+- Create, rename, focus, and close workspaces and tabs
+- Follow workspace and tab changes made from another Herdr client
+- Swipe across the terminal to change tabs
+- Double tap the terminal to move to the next workspace
+- Select and upload images from the workspace terminal
+
+The optional plugin adds actions that need the focused pane as context:
+
+- Open a tab in the focused pane's current directory
+- Move the focused tab's panes into separate tabs
+- Toggle focused-pane zoom
+
+## Herdr setup
+
+Herdr workspace browsing requires Herdr 0.9.0 or later and a running
+`herdr server` on the SSH host.
+
+Install the optional Remotly Bridge plugin for the pane-aware actions:
 
 ```sh
-# Produces app/android/app/libs/sshcore.aar. Needed again only after a change
-# under mobile/sshcore.
+herdr plugin install heavycaffeiner/Remotly/plugin
+herdr plugin action list --plugin remotly.bridge
+```
+
+The first host-key decision must be made from a normal terminal connection.
+Herdr control commands use non-interactive SSH channels, which cannot present
+the first-use host-key prompt.
+
+See [`plugin/README.md`](plugin/README.md) for plugin actions and local linking.
+
+## Security model
+
+- SSH and SFTP traffic goes directly between the device and the configured host.
+- Host keys use trust on first use and are pinned per saved host.
+- A changed host key blocks the connection until the user confirms it.
+- Release signing keys and passwords are not stored in the repository.
+- A release build without signing credentials stays unsigned and cannot be
+  installed as a published update.
+
+## Build from source
+
+### Requirements
+
+| Tool | Version |
+| --- | --- |
+| JDK | 17 or later |
+| Android SDK | compile SDK 37, build-tools 37.0.0 |
+| Android NDK | 28.2.13676358 |
+| Go | 1.26 or later |
+| gomobile | Installed by `scripts/build-sshcore.sh` |
+| Zig | Only required to rebuild the terminal native library |
+
+Set `ANDROID_HOME` before building the Go SSH core. Set `ANDROID_NDK_HOME` or
+install the configured NDK under the Android SDK.
+
+```sh
+git clone https://github.com/heavycaffeiner/Remotly.git
+cd Remotly
+
+export ANDROID_HOME=/path/to/android-sdk
 scripts/build-sshcore.sh
 
-# Everything that runs without a device.
+cd app/android
+./gradlew assembleDebug
+```
+
+The debug APK is written to:
+
+```text
+app/android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Install it on a connected device:
+
+```sh
+cd app/android
+./gradlew installDebug
+```
+
+## Checks
+
+Run every host-side check:
+
+```sh
 scripts/check.sh
-
-# Debug APK.
-cd app/android && ./gradlew assembleDebug
 ```
 
-### Release builds
-
-Release signing credentials are never committed. Provide them through
-`app/android/keystore.properties`:
-
-```properties
-storeFile=/absolute/path/to/release.jks
-storePassword=...
-keyAlias=...
-keyPassword=...
-```
-
-or through the environment, which is what CI uses:
+Useful variants:
 
 ```sh
-export REMOTLY_KEYSTORE=/absolute/path/to/release.jks
-export REMOTLY_KEYSTORE_PASSWORD=...
-export REMOTLY_KEY_ALIAS=...
-export REMOTLY_KEY_PASSWORD=...
-cd app/android && ./gradlew assembleRelease
+scripts/check.sh --fast       # repository checks and Go tests, no Gradle
+scripts/check.sh --release    # also build and inspect the release APK
+GRADLE_ONLINE=1 scripts/check.sh  # allow dependency resolution
 ```
 
-Without credentials the release task still runs and produces
-`app-release-unsigned.apk`, which fails to install. That is deliberate: a release must
-never be signed with the debug key, which is shared and committed so debug builds stay
-reproducible.
+The standard check covers repository hygiene, Kotlin unit tests, a debug APK,
+and the Go modules under `mobile/`.
 
-### CI signing
+## Release process
 
-The release workflow signs from repository secrets, so no key material lives on a
-developer machine or in the repository. Register these under
-**Settings > Secrets and variables > Actions**:
+The version comes from `app/android/gradle.properties`. Pushing a `v*` tag
+runs the GitHub release workflow, builds a signed APK, verifies its signature,
+and attaches it to the matching GitHub release.
 
-| Secret | Value |
+Local signed distributions can be built with `scripts/release.sh`. Signing
+configuration and APK inspection details are documented in
+[`app/README.md`](app/README.md).
+
+## Repository layout
+
+| Path | Purpose |
 | --- | --- |
-| `REMOTLY_KEYSTORE_BASE64` | `base64 -w0 release.jks` |
-| `REMOTLY_KEYSTORE_PASSWORD` | Keystore password |
-| `REMOTLY_KEY_ALIAS` | Key alias |
-| `REMOTLY_KEY_PASSWORD` | Key password |
+| `app/android/app/` | Android application, Kotlin, Jetpack Compose, and Material 3 |
+| `app/android/terminal-native/` | JNI bridge and host tests for libghostty-vt |
+| `mobile/sshcore/` | Go SSH and SFTP implementation built as an Android AAR |
+| `plugin/` | Optional Herdr plugin used by workspace terminal actions |
+| `scripts/` | Toolchain checks, builds, release packaging, and APK inspection |
+| `docs/` | Design notes, internal verification records, and images |
 
-The keystore is decoded to the runner's temp directory, outside the working tree, and
-deleted when the job ends. Secrets reach Gradle through the environment rather than the
-command line, because an expression expanded into a `run:` script appears in the log
-before masking applies. The signature is verified but not printed, since
-`apksigner --print-certs` would write the signing identity into a public build log.
-
-Losing the release key means no existing install can ever be updated. Back it up
-somewhere durable and outside this repository.
-
-### Release artifacts
-
-Pushing a `v*` tag builds and attaches to the GitHub release:
-
-| Artifact | What it is |
-| --- | --- |
-| `app-release.apk` | Signed Android app |
-
-`scripts/release.sh` builds the same APK locally into `dist/`, with a
-`SHA256SUMS` file and the signing identity beside it. It reads its keystore
-from a different set of variables than Gradle does:
-
-```sh
-export ANDROID_KEYSTORE=/absolute/path/to/release.jks
-export ANDROID_KEYSTORE_PASSWORD=...
-export ANDROID_KEY_ALIAS=...
-export ANDROID_KEY_PASSWORD=...   # only when the key has its own password
-scripts/release.sh
-```
-
-Without `ANDROID_KEYSTORE` it produces `remotly-android-development.apk`,
-signed with the debug key and named so nobody mistakes it for a release.
+More implementation detail is available in [`app/README.md`](app/README.md).
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+[MIT](LICENSE)
