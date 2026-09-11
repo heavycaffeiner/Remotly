@@ -279,7 +279,9 @@ object SshSessions {
     fun closeHost(hostId: String) {
         val e = hosts.remove(hostId) ?: return
         synchronized(e) {
-            for (tab in e.flow.value.tabs.tabs) transport.close(hostId, tab.sessionId)
+            for (tab in e.flow.value.tabs.tabs) {
+                if (tab.kind == SshTabKind.Files) FilesTabs.forget(tab.sessionId) else transport.close(hostId, tab.sessionId)
+            }
             transport.setEventSink(hostId, null)
             e.flow.value = SshHostSessionState(createSshTabs(hostId))
         }
@@ -289,7 +291,9 @@ object SshSessions {
         val e = entry(hostId)
         synchronized(e) {
             val current = e.flow.value
-            if (findSshTab(current.tabs, sessionId) == null) return
+            val tab = findSshTab(current.tabs, sessionId) ?: return
+            // A browser has nothing to reconnect; it would get a shell.
+            if (tab.kind == SshTabKind.Files) return
             e.flow.value = current.copy(tabs = setSshTabPhase(current.tabs, sessionId, SshTabPhase.Connecting))
             startSession(hostId, sessionId, e)
         }

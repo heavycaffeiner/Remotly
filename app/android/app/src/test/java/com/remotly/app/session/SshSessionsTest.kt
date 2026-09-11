@@ -385,6 +385,18 @@ class SshSessionsTest {
     }
 
     @Test
+    fun `disconnecting a host closes its shells and no browser ids`() {
+        val id = freshHost()
+        SshSessions.openTab(id)
+        val shell = tabsOf(id).tabs.single().sessionId
+        SshSessions.openTab(id, kind = SshTabKind.Files)
+
+        SshSessions.closeHost(id)
+
+        assertEquals(listOf(id to shell), ssh.closeCalls)
+    }
+
+    @Test
     fun `writes input under the active tab's bare session id`() {
         val id = freshHost()
         SshSessions.openTab(id)
