@@ -129,30 +129,16 @@ class SftpTransferService : Service() {
         private const val ACTION_START = "com.remotly.app.ssh.XFER_START"
         private const val ACTION_STOP = "com.remotly.app.ssh.XFER_STOP"
 
-        /**
-         * Who currently needs the service.
-         *
-         * Two independent owners ask for it: native SFTP transfers tracked in
-         * SftpTransfers, and the JS side, which also reports every transfer it
-         * knows about through NativeFileIO.setTransfersActive. Without
-         * counting them, whichever finished first would stop the service
-         * under the other.
-         */
-        private val owners = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+        private val lock = Any()
+        private var active = false
 
-        /** Native SFTP transfers. */
-        const val OWNER_SFTP = "sftp"
-
-        /** Transfers reported from the JS side. */
-        const val OWNER_JS = "js"
-
-        /** Starts or stops the service so it runs while any owner needs it. */
-        fun setActive(context: Context, owner: String, active: Boolean) {
-            val wasEmpty = owners.isEmpty()
-            if (active) owners.add(owner) else owners.remove(owner)
-            val needed = owners.isNotEmpty()
-            if (needed && wasEmpty) start(context)
-            if (!needed && !wasEmpty) stop(context)
+        /** Starts or stops the service so it runs while transfers need it. */
+        fun setActive(context: Context, needed: Boolean) {
+            synchronized(lock) {
+                if (active == needed) return
+                active = needed
+            }
+            if (needed) start(context) else stop(context)
         }
 
         private fun start(context: Context) {

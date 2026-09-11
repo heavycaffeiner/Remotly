@@ -152,7 +152,7 @@ object HerdrBridge {
     }
 
     // What a dial produced: a live connection, or the connect code that
-    // stopped it. Reported as a value rather than thrown, because the JS layer
+    // stopped it. Reported as a value rather than thrown, because the caller
     // maps a connect code to a user-facing failure and a host that is simply
     // down is not an app fault.
     private class Dialed(

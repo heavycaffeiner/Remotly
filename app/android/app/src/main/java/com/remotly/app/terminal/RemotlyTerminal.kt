@@ -59,7 +59,7 @@ object RemotlyTerminal {
    * Points an existing terminal at a new listener.
    *
    * A terminal retained across screens holds a reference to the view that
-   * created it, which React has already dropped by the time it is adopted.
+   * created it, which the pane has already dropped by the time it is adopted.
    */
   external fun nativeRebind(handle: Long, listener: Listener)
 

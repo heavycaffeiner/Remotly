@@ -185,18 +185,9 @@ object SshHub {
     }
 
     /**
-     * Routes terminal output to the terminal that renders it.
-     *
-     * A tab with a terminal takes the native path: the bytes go straight into
-     * it and the bound view repaints, so no base64 round trip through JS is
-     * paid for output the user is watching. The event still crosses, carrying
-     * the length only, because the container tracks activity from it.
-     *
-     * SSH replays nothing, so there is no history to batch and no gate to
-     * hold output behind.
-     *
-     * A tab with no terminal yet falls back to the base64 event, which is
-     * what lib/sshSessions buffers and writes once one exists.
+     * Routes terminal output to the terminal that renders it. The bytes go
+     * straight into the retained terminal; the event carries only the length,
+     * because the session state tracks activity from it.
      */
     private fun deliverTerminal(hostId: String, sessionId: String, data: ByteArray) {
         val size = sizes[sessionKey(hostId, sessionId)]

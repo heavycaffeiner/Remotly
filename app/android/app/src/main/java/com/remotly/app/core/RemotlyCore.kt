@@ -62,7 +62,7 @@ object RemotlyCore {
         // The SSH terminal and SFTP engines are the Go sshcore .aar.
         SshModule.engineFactory = SshEngineFactory { GoSshEngine(it) }
         SshModule.sftpConnectionFactory = SftpConnectionFactory { GoSftpConnection(it) }
-        // Bridge events must reach JS on the main thread.
+        // Session events are delivered on the main thread.
         val mainHandler = Handler(Looper.getMainLooper())
         SshHub.poster = SshHub.MainPoster { r -> mainHandler.post(r) }
     }

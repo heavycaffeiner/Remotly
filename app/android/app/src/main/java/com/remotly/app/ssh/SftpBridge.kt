@@ -162,7 +162,7 @@ object SftpBridge {
     fun startDownload(hostId: String, path: String): String =
         op(hostId) { SftpTransfers.startDownload(it, hostId, path) }
 
-    /** Streams a download into a content URI, without routing bytes through JS. */
+    /** Streams a download into a content URI without copying chunks through the app layer. */
     fun startDownloadToUri(
         hostId: String,
         path: String,
@@ -173,7 +173,7 @@ object SftpBridge {
         SftpTransfers.startDownloadToUri(it, hostId, path, context, uri, resumeFrom)
     }
 
-    /** Uploads a content URI straight into the file, without routing bytes through JS. */
+    /** Uploads a content URI straight into the file without copying chunks through the app layer. */
     fun startUploadFromUri(
         hostId: String,
         path: String,

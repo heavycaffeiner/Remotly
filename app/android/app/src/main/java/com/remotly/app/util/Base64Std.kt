@@ -1,10 +1,8 @@
 package com.remotly.app.util
 
-// Standard base64 with `+/` and `=` padding (RFC 4648 section 4). This is the
-// alphabet the JS base64 helper (app/src/lib/base64.ts) uses for raw
-// terminal bytes crossing the bridge, so native and JS round-trip byte for
-// byte. Hand-rolled because java.util.Base64 needs API 26 while the app
-// targets 24, and the codec must run on the JVM for tests.
+// Standard base64 with `+/` and `=` padding (RFC 4648 section 4). Hand-rolled
+// because java.util.Base64 needs API 26 while the app targets 24, and the
+// codec must run on the JVM for tests.
 object Base64Std {
     private const val ALPHABET =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
@@ -44,8 +42,7 @@ object Base64Std {
         return out.toString()
     }
 
-    // Tolerates optional `=` padding and surrounding whitespace, matching the
-    // JS decoder's leniency so a value produced on either side decodes here.
+    // Tolerates optional `=` padding and surrounding whitespace.
     fun decode(s: String): ByteArray {
         val clean = s.replace(" ", "").replace("\t", "").replace("\n", "").replace("\r", "")
         if (clean.length % 4 == 1) throw IllegalArgumentException("bad base64 length")

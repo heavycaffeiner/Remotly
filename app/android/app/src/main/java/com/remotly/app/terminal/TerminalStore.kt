@@ -7,7 +7,7 @@ import android.util.Log
 /**
  * Native terminals, kept alive across screens by session id.
  *
- * A terminal owns its scrollback. Navigating away pops the React screen and
+ * A terminal owns its scrollback. Navigating away pops the screen and
  * drops the view, so a terminal tied to the view's lifetime lost every line it
  * had: coming back showed an empty screen for a session that was still
  * running. Keeping the handle here means the view is a renderer for a terminal
@@ -79,7 +79,7 @@ object TerminalStore {
     /**
      * True when this view is the one currently rendering the session.
      *
-     * A view keeps its handle across a tab switch until React drops it, and
+     * A view keeps its handle across a tab switch until the pane drops it, and
      * the store rebinds that handle to the incoming view first. Anything that
      * writes to the session, rather than merely drawing it, checks this so a
      * gesture outliving the switch cannot reach the tab switched to.
@@ -160,9 +160,9 @@ object TerminalStore {
      * [onDone] is what applies backpressure: the caller waits for it before
      * sending the next chunk. Reporting success at post time instead lets a
      * busy session queue main-thread jobs faster than they run, and the UI
-     * then stalls behind the backlog. No thread is blocked here, because the
-     * caller is the React JS thread and blocking it against the main thread
-     * risks a deadlock rather than a stall.
+     * then stalls behind the backlog. No thread is blocked here: the caller is
+     * the SSH read thread, and blocking it against the main thread risks a
+     * deadlock rather than a stall.
      */
     fun feed(
         sessionId: String,
