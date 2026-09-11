@@ -8,8 +8,11 @@ package com.remotly.app.ui.screens
 // active one draws into the terminal; the rest stay connected and keep
 // buffering their output in TerminalStore.
 
-import android.content.ClipboardManager
-import android.content.Context
+import android.Manifest
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +30,7 @@ import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PowerOff
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.AlertDialog
@@ -61,6 +65,9 @@ import com.remotly.app.core.ErrorKind
 import com.remotly.app.core.RemotlyError
 import com.remotly.app.core.RemotlyException
 import com.remotly.app.core.toRemotlyError
+import com.remotly.app.files.ImagePaste
+import com.remotly.app.notify.TerminalNotifications
+import com.remotly.app.platform.readClipboardText
 import com.remotly.app.session.HostKeyDecision
 import com.remotly.app.session.SshHostKeyPrompt
 import com.remotly.app.session.SshSessions
@@ -227,6 +234,44 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
         focusPolicy.onSessionSwitch()
     }
 
+    var pendingNotify by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val notifyPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        val pending = pendingNotify
+        pendingNotify = null
+        if (granted && pending != null) TerminalNotifications.show(context, pending.first, pending.second)
+    }
+
+    // Requested the moment a remote program actually asks for a notification,
+    // not proactively on opening the screen. A refusal here is quiet: the
+    // terminal session must not be affected either way.
+    fun notifyFromTerminal(notifyTitle: String, notifyBody: String) {
+        if (TerminalNotifications.canPost(context)) {
+            TerminalNotifications.show(context, notifyTitle, notifyBody)
+        } else if (TerminalNotifications.needsRuntimePermission()) {
+            pendingNotify = notifyTitle to notifyBody
+            notifyPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    val imagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri: Uri? ->
+        if (uri != null && hostId.isNotEmpty()) {
+            scope.launch {
+                notify("Uploading the image")
+                when (val result = ImagePaste.paste(context, hostId, uri)) {
+                    is ImagePaste.Result.Ok -> {
+                        ImagePaste.typeResult(hostId, result.path)
+                        notify("Pasted the image path")
+                    }
+                    is ImagePaste.Result.Failed -> notify(result.message)
+                }
+            }
+        }
+    }
+
     // The latched Ctrl/Alt modifier for the extra key row. Owned here, not
     // inside the row, so committed IME input can consume it too: a Ctrl+C
     // typed as "hold Ctrl, tap c" latches on the row and applies to the next
@@ -324,9 +369,7 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
             title = "Paste",
             enabled = activeTab != null,
             onClick = {
-                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                val text = clipboard?.primaryClip?.takeIf { it.itemCount > 0 }
-                    ?.getItemAt(0)?.coerceToText(context)?.toString()
+                val text = readClipboardText(context)
                 if (text.isNullOrEmpty()) {
                     notify("The clipboard is empty")
                 } else {
@@ -336,6 +379,13 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
                     terminal.paste(text)
                 }
             },
+        ),
+        ScreenAction(
+            key = "paste-image",
+            icon = Icons.Filled.Image,
+            title = "Paste an image",
+            enabled = activeTab != null,
+            onClick = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
         ),
         ScreenAction(
             key = "disconnect",
@@ -410,6 +460,7 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
                 // The setting is honoured here rather than on a timer: this
                 // is the first moment the terminal can actually take input.
                 onReady = { if (settings.openKeyboardOnTerminal) requestKeyboard.value() },
+                onNotify = ::notifyFromTerminal,
             )
         }
 

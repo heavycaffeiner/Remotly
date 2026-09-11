@@ -4,7 +4,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
-import android.provider.Settings as AndroidSettings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -51,6 +50,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.remotly.app.platform.openAppSettings
 import com.remotly.app.settings.AppSettings
 import com.remotly.app.settings.SettingsState
 import com.remotly.app.ui.components.RemotlyScreen
@@ -267,13 +267,7 @@ fun SettingsContent() {
             SettingRow(
                 title = "Android system settings",
                 description = "Permissions for this app.",
-                onClick = {
-                    context.startActivity(
-                        Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                            data = Uri.fromParts("package", context.packageName, null)
-                        },
-                    )
-                },
+                onClick = { openAppSettings(context) },
             )
 
             SettingRow(

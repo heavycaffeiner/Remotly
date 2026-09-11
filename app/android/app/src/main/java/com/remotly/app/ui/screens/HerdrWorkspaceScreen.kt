@@ -73,6 +73,8 @@ import com.remotly.app.ui.terminal.ModifierKey
 import com.remotly.app.ui.terminal.TerminalBackground
 import com.remotly.app.ui.terminal.TerminalPane
 import com.remotly.app.ui.terminal.transformKey
+import androidx.compose.ui.platform.LocalContext
+import com.remotly.app.notify.TerminalNotifications
 import kotlin.math.abs
 import kotlin.math.hypot
 import kotlinx.coroutines.channels.awaitClose
@@ -493,6 +495,7 @@ fun HerdrWorkspaceScreen(
                 onKeyboard = { ViewCompat.getWindowInsetsController(view)?.show(WindowInsetsCompat.Type.ime()) },
                 content = { modifier ->
                     val activeSessionId = sessionId
+                    val context = LocalContext.current
                     if (activeSessionId == null) {
                         Box(modifier.background(TerminalBackground))
                     } else {
@@ -507,6 +510,15 @@ fun HerdrWorkspaceScreen(
                             // clipboard confirmation already cover this; no
                             // separate affordance is needed at the screen level.
                             onLinkCopied = {},
+                            // The same shared behaviour as the shell terminal
+                            // screen's onNotify, but without proactively
+                            // requesting POST_NOTIFICATIONS from here: quiet
+                            // when the permission has not been granted yet.
+                            onNotify = { title, body ->
+                                if (TerminalNotifications.canPost(context)) {
+                                    TerminalNotifications.show(context, title, body)
+                                }
+                            },
                             onFontSizeChanged = { size -> SettingsState.update { it.copy(terminalFontSize = size) } },
                             modifier = modifier.herdrMuxGestures(onAction = ::onMuxGesture),
                         )

@@ -199,10 +199,15 @@ object TransferRegistry {
         settle(id, TransferPhase.Cancelled)
     }
 
-    /** True when a stopped transfer offers a way to pick it back up. */
+    /**
+     * True when a stopped transfer offers a way to pick it back up.
+     *
+     * A transfer that finished has nothing to pick up, and offering it
+     * Resume would send the same bytes a second time.
+     */
     fun canRetry(id: String): Boolean = synchronized(lock) {
         val r = records[id] ?: return false
-        r.phase != TransferPhase.Active && restarts.containsKey(id)
+        r.phase != TransferPhase.Active && r.phase != TransferPhase.Done && restarts.containsKey(id)
     }
 
     /**
@@ -218,7 +223,7 @@ object TransferRegistry {
         val resume: Pair<(Long) -> Unit, Long> = synchronized(lock) {
             val r = records[id] ?: return
             val restart = restarts[id] ?: return
-            if (r.phase == TransferPhase.Active) return
+            if (r.phase == TransferPhase.Active || r.phase == TransferPhase.Done) return
             val from = if (r.resumable) r.transferred else 0L
             records.remove(id)
             restarts.remove(id)

@@ -1,5 +1,11 @@
 package com.remotly.app.ui.screens
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -23,6 +29,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
@@ -70,9 +77,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.remotly.app.core.ErrorKind
 import com.remotly.app.core.toRemotlyError
+import com.remotly.app.fileio.FileModule
 import com.remotly.app.files.Breadcrumb
 import com.remotly.app.files.FileEntry
 import com.remotly.app.files.FileOrder
+import com.remotly.app.files.SftpTransferOps
 import com.remotly.app.files.SortDirection
 import com.remotly.app.files.SortKey
 import com.remotly.app.files.entryAccessibilityLabel
@@ -80,6 +89,7 @@ import com.remotly.app.files.entryDescription
 import com.remotly.app.files.filterEntries
 import com.remotly.app.files.isPlainName
 import com.remotly.app.files.joinPath
+import com.remotly.app.files.nameExists
 import com.remotly.app.files.orderEntries
 import com.remotly.app.files.parentPath
 import com.remotly.app.files.parseBreadcrumbs
@@ -133,6 +143,39 @@ private fun SftpEntry.toFileEntry() = FileEntry(
     mtime = modifyTimeMillis / 1000,
     perm = permissions,
 )
+
+private data class DownloadTarget(val name: String, val remotePath: String, val size: Long)
+
+/** A download whose name already exists in the destination folder. */
+private data class DownloadCollision(val target: DownloadTarget, val folder: Uri, val existing: Uri)
+
+private data class PickedUpload(val name: String, val size: Long)
+
+/** A picked upload whose name already exists in the current remote directory. */
+private data class UploadPick(val uri: Uri, val name: String, val size: Long)
+
+/** True when a previously granted download folder can still be written to. */
+private fun hasFolderAccess(context: Context, folder: Uri): Boolean =
+    context.contentResolver.persistedUriPermissions.any {
+        it.uri == folder && it.isReadPermission && it.isWritePermission
+    }
+
+/** The display name and byte size a content provider reports for a picked upload. */
+private fun queryPickedUpload(context: Context, uri: Uri): PickedUpload {
+    var name = ""
+    var size = -1L
+    runCatching {
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+            if (cursor.moveToFirst()) {
+                if (nameIndex >= 0) name = cursor.getString(nameIndex) ?: ""
+                if (sizeIndex >= 0) size = cursor.getLong(sizeIndex)
+            }
+        }
+    }
+    return PickedUpload(name, size)
+}
 
 /**
  * The SFTP file browser.
@@ -218,6 +261,109 @@ fun FilesScreen(hostId: String, onBack: () -> Unit) {
         val cached = cache[path]
         entries = cached
         scope.launch { loadDir(path, cached == null) }
+    }
+
+    val context = LocalContext.current
+    var downloadCollision by remember { mutableStateOf<DownloadCollision?>(null) }
+    var pendingDownload by remember { mutableStateOf<DownloadTarget?>(null) }
+    var uploadCollision by remember { mutableStateOf<UploadPick?>(null) }
+
+    fun runDownload(destination: Uri, name: String, remotePath: String, size: Long, freshDestination: Boolean) {
+        scope.launch {
+            val result = SftpTransferOps.download(context, hostId, remotePath, name, destination, size, resumeFrom = 0L)
+            if (result is SftpTransferOps.Result.Failed) {
+                if (SftpTransferOps.shouldDiscardDestination(freshDestination, result.keepPartial)) {
+                    withContext(Dispatchers.IO) { FileModule.discard(context, destination) }
+                    snackbar.showSnackbar(result.message)
+                } else {
+                    snackbar.showSnackbar("${result.message} The partial file was kept and can be resumed.")
+                }
+            }
+        }
+    }
+
+    fun createAndDownload(folder: Uri, target: DownloadTarget) {
+        scope.launch {
+            val dest = withContext(Dispatchers.IO) {
+                runCatching { FileModule.createInTree(context, folder, target.name) }.getOrNull()
+            }
+            if (dest == null) {
+                snackbar.showSnackbar("Could not create ${target.name} in the download folder.")
+                return@launch
+            }
+            runDownload(dest, target.name, target.remotePath, target.size, freshDestination = true)
+        }
+    }
+
+    fun resolveDownloadDestination(folder: Uri, target: DownloadTarget) {
+        scope.launch {
+            val existing = withContext(Dispatchers.IO) {
+                runCatching { FileModule.findInTree(context, folder, target.name) }.getOrNull()
+            }
+            if (existing == null) {
+                createAndDownload(folder, target)
+            } else {
+                downloadCollision = DownloadCollision(target, folder, existing)
+            }
+        }
+    }
+
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+        val target = pendingDownload
+        pendingDownload = null
+        if (uri == null || target == null) return@rememberLauncherForActivityResult
+        val granted = try {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+            true
+        } catch (e: SecurityException) {
+            false
+        }
+        if (!granted) {
+            scope.launch { snackbar.showSnackbar("Could not get permission to use that folder.") }
+            return@rememberLauncherForActivityResult
+        }
+        SettingsState.update(
+            onFailure = { scope.launch { snackbar.showSnackbar("Could not save the download folder.") } },
+        ) { it.copy(downloadFolderUri = uri.toString()) }
+        resolveDownloadDestination(uri, target)
+    }
+
+    fun beginDownload(target: DownloadTarget) {
+        val stored = settings.downloadFolderUri
+        val folder = if (stored.isEmpty()) null else Uri.parse(stored)
+        if (folder == null || !hasFolderAccess(context, folder)) {
+            pendingDownload = target
+            folderPicker.launch(null)
+            return
+        }
+        resolveDownloadDestination(folder, target)
+    }
+
+    fun runUpload(uri: Uri, name: String, size: Long, replace: Boolean) {
+        scope.launch {
+            val result = SftpTransferOps.upload(context, hostId, joinPath(cwd, name), name, uri, size, replace)
+            if (result is SftpTransferOps.Result.Failed) snackbar.showSnackbar(result.message)
+            loadDir(cwd, false)
+        }
+    }
+
+    val uploadPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val picked = withContext(Dispatchers.IO) { queryPickedUpload(context, uri) }
+            when {
+                !isPlainName(picked.name) ->
+                    snackbar.showSnackbar("That file's name cannot be uploaded as-is.")
+                picked.size <= 0 ->
+                    snackbar.showSnackbar("This file has an unknown size and cannot be uploaded.")
+                nameExists(entries.orEmpty(), picked.name) ->
+                    uploadCollision = UploadPick(uri, picked.name, picked.size)
+                else -> runUpload(uri, picked.name, picked.size, replace = false)
+            }
+        }
     }
 
     LaunchedEffect(hostId) {
@@ -314,6 +460,15 @@ fun FilesScreen(hostId: String, onBack: () -> Unit) {
                     promptError = ""
                     prompt = Prompt.Mkdir
                 },
+                enabled = phase == Phase.Ready,
+            ),
+        )
+        add(
+            ScreenAction(
+                key = "upload",
+                icon = Icons.Filled.Upload,
+                title = "Upload a file",
+                onClick = { uploadPicker.launch(arrayOf("*/*")) },
                 enabled = phase == Phase.Ready,
             ),
         )
@@ -441,7 +596,13 @@ fun FilesScreen(hostId: String, onBack: () -> Unit) {
             )
             MenuRow(Icons.Filled.Download, "Download") {
                 menuFor = null
-                scope.launch { snackbar.showSnackbar("Downloads are not wired up yet.") }
+                beginDownload(
+                    DownloadTarget(
+                        name = target.name,
+                        remotePath = joinPath(cwd, target.name),
+                        size = if (target.size > 0) target.size else -1,
+                    ),
+                )
             }
             MenuRow(Icons.Filled.Edit, "Rename") {
                 promptText = target.name
@@ -452,6 +613,85 @@ fun FilesScreen(hostId: String, onBack: () -> Unit) {
             MenuRow(Icons.Filled.Delete, "Delete", destructive = true) {
                 prompt = Prompt.Remove(target.name, target.isDir)
                 menuFor = null
+            }
+        }
+    }
+
+    val dCollision = downloadCollision
+    if (dCollision != null) {
+        ModalBottomSheet(onDismissRequest = { downloadCollision = null }) {
+            Text(
+                "${dCollision.target.name} already exists",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+            )
+            Text(
+                "A file with this name is already in your download folder.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+            )
+            MenuRow(Icons.Filled.ContentCopy, "Keep both") {
+                downloadCollision = null
+                scope.launch {
+                    val freeName = withContext(Dispatchers.IO) {
+                        SftpTransferOps.resolvedTransferName(dCollision.target.name, replace = false) { candidate ->
+                            FileModule.findInTree(context, dCollision.folder, candidate) != null
+                        }
+                    }
+                    val dest = withContext(Dispatchers.IO) {
+                        runCatching { FileModule.createInTree(context, dCollision.folder, freeName) }.getOrNull()
+                    }
+                    if (dest == null) {
+                        snackbar.showSnackbar("Could not create $freeName in the download folder.")
+                        return@launch
+                    }
+                    runDownload(
+                        dest,
+                        freeName,
+                        dCollision.target.remotePath,
+                        dCollision.target.size,
+                        freshDestination = true,
+                    )
+                }
+            }
+            MenuRow(Icons.Filled.Refresh, "Replace") {
+                downloadCollision = null
+                runDownload(
+                    dCollision.existing,
+                    dCollision.target.name,
+                    dCollision.target.remotePath,
+                    dCollision.target.size,
+                    freshDestination = false,
+                )
+            }
+        }
+    }
+
+    val uCollision = uploadCollision
+    if (uCollision != null) {
+        ModalBottomSheet(onDismissRequest = { uploadCollision = null }) {
+            Text(
+                "${uCollision.name} already exists",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+            )
+            Text(
+                "A file with this name is already in this folder.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+            )
+            MenuRow(Icons.Filled.ContentCopy, "Keep both") {
+                uploadCollision = null
+                val freeName = SftpTransferOps.resolvedTransferName(uCollision.name, replace = false) { candidate ->
+                    nameExists(entries.orEmpty(), candidate)
+                }
+                runUpload(uCollision.uri, freeName, uCollision.size, replace = false)
+            }
+            MenuRow(Icons.Filled.Refresh, "Replace") {
+                uploadCollision = null
+                runUpload(uCollision.uri, uCollision.name, uCollision.size, replace = true)
             }
         }
     }

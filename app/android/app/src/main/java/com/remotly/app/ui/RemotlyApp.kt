@@ -10,6 +10,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import com.remotly.app.ui.components.TransferBar
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
@@ -49,6 +51,10 @@ fun RemotlyApp() {
         Surface(color = MaterialTheme.colorScheme.background) {
             Box(Modifier.fillMaxSize()) {
                 if (ready) RemotlyNavHost()
+                // Pinned to the bottom edge over whatever screen is up,
+                // because a transfer belongs to the app rather than to the
+                // screen that started it.
+                TransferBar(Modifier.align(Alignment.BottomCenter))
             }
         }
     }

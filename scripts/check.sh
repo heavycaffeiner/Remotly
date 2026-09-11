@@ -6,7 +6,7 @@
 # working notes under docs/internal/.
 #
 # Usage:
-#   scripts/check.sh              typecheck, lint, format, JS tests, Kotlin tests, Go tests
+#   scripts/check.sh              Kotlin tests, the debug APK, Go tests
 #   scripts/check.sh --fast       skips the Android build (no Gradle)
 #   scripts/check.sh --release    adds the release APK build and its inspection
 set -uo pipefail

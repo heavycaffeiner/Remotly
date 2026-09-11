@@ -1,51 +1,19 @@
 # Remotly app
 
-The React Native client: a standalone SSH terminal and SFTP client. Several
-shells per host, SFTP browsing and transfer, herdr workspace management over
-SSH, and a terminal rendered by libghostty-vt with inline images, desktop
-notifications, and bracketed paste.
+The native Android app: a standalone SSH terminal and SFTP client, built with
+Kotlin and Jetpack Compose. Several shells per host, SFTP browsing and
+transfer, herdr workspace management over SSH, and a terminal rendered by
+libghostty-vt with inline images, desktop notifications, and bracketed paste.
 
-The interface is React Native Paper (Material Design 3): every color comes
-from the Paper theme, which follows the wallpaper on devices that support
-dynamic color.
+The interface is Compose Material 3: every color comes from the Material
+theme, which follows the wallpaper on devices that support dynamic color.
 
-Android is the shipped platform. iOS builds from the same source but is not
-feature-complete and is not released.
-
-## Known issues
-
-### A release build can die when the first host is saved
-
-A release build sometimes dies when the first host is saved. Measured on an
-emulator by installing fresh and driving the form: 5 crashes in 29 runs on
-1.8.x, 0 in 8 on 1.7.1 and 0 in 7 on 1.8.2, which is too few on the older
-builds to attribute it to anything in particular.
-
-The stack, from a release build with R8 turned off so the names are real:
-
-```text
-java.lang.IllegalStateException: addViewAt: failed to insert view [750]
-  into parent [756] at index 0
-  at SurfaceMountingManager.addViewAt(SurfaceMountingManager.kt:372)
-  at IntBufferBatchMountItem.execute(IntBufferBatchMountItem.kt:122)
-Caused by: The specified child already has a parent.
-```
-
-A plain `ReactViewGroup` is moved between two parents inside one Fabric mount
-transaction, and no app frame appears in the stack. Two guesses were measured
-and both failed: `removeClippedSubviews={false}` on the hosts list (1 crash in
-8) and waiting for the keyboard to report itself down before popping the editor
-(3 in 10). Neither is in the tree.
-
-The next step is to name the moving view rather than guess: log the mount
-instructions from Fabric for the commit that follows the save, then remove the
-reparent at its source.
+The module lives at `app/android/app`, package root `com.remotly.app`.
 
 ## Requirements
 
 | Tool | Version |
 | --- | --- |
-| Node | 22.11.0 or later |
 | JDK | 17 or later (Gradle refuses older) |
 | Android SDK | compileSdk 37, build-tools 37.0.0 |
 | Android NDK | 28.2.13676358 |
@@ -57,58 +25,57 @@ reparent at its source.
 
 Shipped ABIs: `armeabi-v7a`, `arm64-v8a`, `x86_64`.
 
-Set `ANDROID_HOME` and `ANDROID_NDK_HOME` before any native build.
+Set `ANDROID_HOME` before running `scripts/build-sshcore.sh`, and either
+`ANDROID_NDK_HOME` or an NDK installed under `$ANDROID_HOME/ndk`. Gradle reads
+the SDK location from `ANDROID_SDK_ROOT` or from `app/android/local.properties`.
 
-## Install and run
+## Build and run
+
+The Go SSH core is a build output, not a checked-in binary, so a fresh clone
+needs it once before Gradle can resolve it:
 
 ```sh
-pnpm install
-pnpm android            # debug build onto a connected device
+scripts/build-sshcore.sh          # produces app/android/app/libs/sshcore.aar
+cd app/android
+./gradlew installDebug            # builds and installs onto a connected device
 ```
 
-Metro starts automatically with `run-android`. Start it separately with
-`pnpm exec react-native start` when attaching to an already-installed build.
+Rebuild `sshcore.aar` again only after a change under `mobile/sshcore`.
 
 ## Checks
 
 ```sh
-pnpm check               # typecheck, lint, format check, jest
-pnpm typecheck
-pnpm lint
-pnpm test
+scripts/check.sh               # toolchain, repo hygiene, Kotlin tests and build, Go tests
+scripts/check.sh --fast        # skips the Gradle build and tests
+scripts/check.sh --release     # adds a release APK build and its inspection
 ```
 
-Android unit tests, from a JDK 17 or later shell:
+`scripts/check.sh` runs, in order: a toolchain version check
+(`scripts/check-toolchain.sh`); repository hygiene, meaning no generated
+artifact would be committed (`scripts/check-artifacts.sh`) and no secret or
+terminal content reaches a log line (`scripts/check-secrets.sh`); the Android
+build, `./gradlew testDebugUnitTest` and `./gradlew assembleDebug`, offline by
+default (`GRADLE_ONLINE=1` to resolve dependencies online after a change);
+and the Go modules under `mobile`, `go test ./...`. `--release` adds
+`./gradlew assembleRelease` and `scripts/check-apk.sh`.
+
+Gradle directly, from a JDK 17 or later shell:
 
 ```sh
-cd android
+cd app/android
 ./gradlew testDebugUnitTest
 ./gradlew assembleDebug
 ./gradlew assembleRelease
 ```
 
-## Codegen
-
-The native module and view specs live in `src/specs`. Codegen runs as part of
-the Gradle build (`codegenConfig` in `package.json`, java package
-`com.remotly.app.specs`). After changing a spec, rebuild the Android app so the
-generated interfaces and delegates are regenerated:
-
-```sh
-cd android && ./gradlew generateCodegenArtifactsFromSchema
-```
-
-A spec change is not complete until the spec, the Kotlin implementation, the JS
-wrapper, and the tests are updated together.
-
 ## Terminal native library
 
 The terminal is libghostty-vt behind a JNI bridge. Source, build scripts, host
 tests, the upstream pin, and the upstream license live in
-`android/terminal-native/`.
+`app/android/terminal-native/`.
 
 ```sh
-cd android/terminal-native
+cd app/android/terminal-native
 GHOSTTY_DIR=~/opt/ghostty ./build-android.sh          # all shipped ABIs
 GHOSTTY_DIR=~/opt/ghostty ./build-android.sh aarch64-linux-android.24
 ./run-host-tests.sh                                    # host-side terminal core tests
@@ -116,25 +83,26 @@ GHOSTTY_DIR=~/opt/ghostty ./build-android.sh aarch64-linux-android.24
 
 `build-android.sh` verifies the ghostty checkout matches `PIN.txt` and refuses
 to build otherwise. The C API is untagged, so a drifted checkout miscompiles
-silently. Output goes to `android/app/src/main/jniLibs/<abi>/`.
+silently. Output goes to `app/android/app/src/main/jniLibs/<abi>/`.
 
 ## SSH core
 
 SSH and SFTP run on a Go core bound through gomobile.
 
 ```sh
-cd ..                    # repository root
 ./scripts/build-sshcore.sh
 cd mobile && go test ./...
 ```
 
-The result is `android/app/libs/sshcore.aar`, consumed as an AAR dependency.
+The result is `app/android/app/libs/sshcore.aar`, consumed as a local AAR
+dependency in `app/android/app/build.gradle`.
 
 ## Herdr
 
 The sidebar and the workspace terminal drive the `herdr` CLI on the remote
-host. `src/lib/herdr.ts` builds each command string and parses the document it
-prints; `src/lib/herdrClient.ts` runs it through the herdr bridge.
+host. `com.remotly.app.herdr.HerdrCommands` builds each command string and
+parses the document it prints; `com.remotly.app.herdr.HerdrClient` runs it
+through the herdr bridge, `com.remotly.app.ssh.HerdrBridge`.
 
 One authenticated SSH connection is held per host and every command runs as a
 channel on it (`HerdrBridge`, `sshcore.Control`). The handshake was most of
@@ -181,14 +149,15 @@ drawer on that edge would fight it. The sidebar is also the whole non-gesture
 path, which is why the terminal's menu no longer carries tab and workspace
 moves.
 
-What both draw comes from one store per host and session (`lib/herdrStore.ts`).
-It bootstraps from `api snapshot` and then follows herdr's own events, so a
+What both draw comes from one store per host and session (`HerdrStore`). It
+bootstraps from `api snapshot` and then follows herdr's own events, so a
 change made in the app, by a gesture, or on the desktop lands without a timer.
 There is no streaming CLI command (`herdr api` has `snapshot` and `schema`), so
 the events come from the control socket: the app runs a reader on the host over
-one channel that stays open, `socat`, `nc -U`, `python3`, or `perl`, whichever
-answers the subscription first. A host where none of them acknowledges falls
-back to re-reading every four seconds, which is what every host did before.
+one channel that stays open, `socat`, `python3`, or `perl`, whichever answers
+the subscription first. A host where none of them acknowledges falls back to
+re-reading every four seconds, which is what every host did before event
+support existed.
 
 Only the workspace and tab events are subscribed to. The `pane.*` family
 includes a per-scroll event, and asking for it would deliver a line on every
@@ -213,9 +182,9 @@ That is the price of following what herdr's own keys did. Without it, typing
 `prefix+n` left the strip and the title on the tab the user had just left.
 
 The terminal it attaches lives in the ordinary session store but with
-`kind: 'workspace'`, and SshTerminal filters that kind out of its strip. So the
-app's SSH tabs and a workspace's tabs never mix, and coming back from a
-workspace lands on the shell the user last had.
+`kind = SshTabKind.Workspace`, and `SshTerminalScreen` filters that kind out of
+its strip. So the app's SSH tabs and a workspace's tabs never mix, and coming
+back from a workspace lands on the shell the user last had.
 
 There is one such terminal per session, not per workspace: the focused
 workspace is session state rather than per client, so a second attached
@@ -243,11 +212,11 @@ Workspaces have no chord to send in any case: `next_workspace` and
 `previous_workspace` ship unbound, and a typed `prefix+w` did not open herdr's
 picker either. Panes still move as chords, since nothing here draws them.
 
-The second tap is claimed in the capture phase, which cancels that touch in the
-terminal below, so it opens no keyboard and sends no click. What disarms a tap
-is its own movement: a touch the terminal keeps handling reports no release
-here, so a fast scroll used to read as a run of taps landing in the same place.
-Past 40px of travel the tap is no longer a candidate.
+The second tap is claimed in the capture phase, which cancels that touch in
+the terminal below, so it opens no keyboard and sends no click. What disarms a
+tap is its own movement: a touch the terminal keeps handling reports no
+release here, so a fast scroll used to read as a run of taps landing in the
+same place. Past 40px of travel the tap is no longer a candidate.
 
 The first tap is an ordinary one and herdr's own view has mouse reporting on,
 so it clicks: the pane under the finger takes focus in the workspace being
@@ -269,21 +238,31 @@ host pointing at it (`10.0.2.2:2222` from an emulator).
 A directory is fetched whole, once per visit. SFTP readdir has no cursor a
 client can resume from, so a page was a slice of a listing the server had
 already sent and asking for the next one re-read the directory from the
-start. `FilesBackend.list` therefore takes a path and nothing else; ordering
-and search run over the full array and `FlatList` virtualizes the rows. Rows
-are a fixed height derived from the system font scale, which is what lets
-`getItemLayout` place a row without laying it out.
+start. `SftpBridge.list(hostId, path)` is the only call; ordering and search run
+over the full list and a `LazyColumn` virtualizes the rows.
 
 Listings are kept per screen in a small LRU, so a directory already read is
 drawn immediately and refreshed behind the list. A refresh never blanks what
 is on screen, and a listing that arrives after the user has navigated on is
 dropped by a generation counter.
 
-Both transfer directions have a native path that never hands file bytes to
-JS: `startDownloadToUri` and `startUploadFromUri` move between the content
-URI and the server inside Kotlin, and only throttled progress events cross
-the bridge. The chunked `writeChunk` path remains for a backend that cannot
-reach the local file itself.
+Both transfer directions have a native path that never copies file bytes
+through an intermediate buffer: the app moves between the content URI and the
+server inside Kotlin, and only throttled progress events reach the screen. The
+chunked `FileModule.writeChunk` path remains for a backend that cannot reach
+the local file itself.
+
+A name that already exists is a question, never a guess. Both directions ask
+Keep both or Replace, and Keep both numbers the name with `uniqueName`. The
+create-document picker is deliberately not used to settle a download
+collision: it renames on its own and never says that it did.
+
+A download needs a destination folder, taken from the `downloadFolderUri`
+setting. When none is granted yet the picker opens and the download the user
+asked for then continues, rather than being dropped so they can ask twice.
+A failed transfer that cannot be resumed does not keep a partial file wearing
+the name the user chose; one that can be resumed is kept, and the message
+says so. A file that already existed is never deleted on a failed replace.
 
 The Go client runs with `UseConcurrentWrites`, so a write is pipelined rather
 than paying a round trip per 32KB packet. That costs an invariant: a write
@@ -297,34 +276,92 @@ the server acknowledged in full. `SftpTransfers.RESUME_REWIND_BYTES` is that
 figure, one value shared by both upload paths, since what has to be covered
 is the chunk the interrupted attempt wrote and not the one resuming it.
 
-## Release
+## Compose UI
 
-```sh
-cd ..                    # repository root
-./scripts/release.sh
-```
+One activity, `MainActivity`, hosts every screen as a destination in one
+`NavHost` (`RemotlyApp.kt`, route table in `Routes.kt`). The activity is
+`singleTask` and its configuration changes are handled rather than triggering
+a recreate, so a terminal session and its native view survive the user
+leaving through the launcher and coming back.
 
-Signing keys are not in source control. The development keystore is not
-production guidance; supply your own for distribution.
+`com.remotly.app.ui.terminal.TerminalPane` hosts the native `TerminalView`
+through `AndroidView`. It owns the view's lifetime for one session: a screen
+never holds the view itself, only a `TerminalHandle`
+(`rememberTerminalHandle()`) exposing `openKeyboard`, `hideKeyboard`,
+`selectAll`, `copySelection`, and `paste`. The view is recreated, not rebound,
+whenever the session key changes; rebinding one instance across a session
+switch once let a second shell render over the first one's screen.
+
+### Four things the rewrite got wrong once
+
+1. **`TerminalView.Host.onReady` carries the first grid, not `onResize`.**
+   `onResize` fires only when the grid changes, so a screen that opens a
+   session and waits for `onResize` before showing it hangs forever: the very
+   first measurement only ever arrives through `onReady`.
+2. **The failure card sits over the viewport, never in place of it.** The
+   viewport is what measures the grid; swapping it out for the card would
+   stop a session's first resize from ever landing. `TerminalScaffold` keeps
+   `content(...)` composed underneath and draws `TerminalFailureCard` as an
+   overlay in the same `Box`.
+3. **The window is edge to edge, so chrome has to consume insets itself.** A
+   control laid out under the navigation bar is invisible in a screenshot and
+   silently untappable, because the system takes those touches before the app
+   ever sees them. `TerminalScaffold` applies `safeDrawingPadding()` to its
+   whole column for exactly this reason; the extra key row shipped without it
+   once, and its keys did nothing at the bottom of the screen.
+4. **A session key is the bare session id, never `hostId:sessionId`.**
+   `TerminalStore` keys retained terminals and routes pty output by that id
+   alone. A composite key makes `TerminalPane` mount an empty terminal while
+   the real session's output sits under a key nobody is rendering.
 
 ## Source tree
 
 ```text
-src/
-  components/    shared UI and the terminal viewport mount point
-  features/      screen-level features
-  lib/           pure logic: ssh, sftp, files, sessions, herdr, errors
-  navigation/    route map, linking, navigators
-  specs/         TurboModule and Fabric component specs (codegen input)
-  theme/         Paper theme, dynamic color, and the terminal's own colors
-android/
+app/android/
   app/src/main/java/com/remotly/app/
-    bridge/      TurboModule implementations
-    camera/      clipboard reads for the terminal paste actions
-    ssh/         SSH session, host store, secret store, host key verification
-    terminal/    TerminalView and the Fabric view manager
-  terminal-native/  JNI terminal source, build scripts, host tests, pin
+    MainActivity.kt         the single activity
+    RemotlyApplication.kt   brings up RemotlyCore before any screen exists
+    core/                   process-wide store wiring (RemotlyCore)
+    ui/
+      RemotlyApp.kt         theme root and nav graph
+      Routes.kt             destinations and their arguments
+      screens/              one file per screen: hosts, editor, terminal,
+                             files, herdr workspace, settings, the sidebar
+      terminal/             TerminalPane, the key row, focus and resize policy
+      components/           RemotlyScreen shell, loading/empty/error states
+      theme/                Material 3 theme, dynamic color
+    ssh/                    SSH session, host store, secret store, host key
+                             verification, the herdr control bridge, transfers
+      engine/               SftpOps/SshEngine interfaces and the Go binding
+    herdr/                  herdr command building, parsing, and event store
+    files/                  file listing and presentation model
+    fileio/                 content URI reads and writes for transfers
+    transfers/              the transfer registry behind the transfer bar
+    session/                the tab model and its swipe gesture
+    settings/               settings state and its on-disk store
+    util/                   small shared helpers
+  terminal-native/          JNI terminal source, build scripts, host tests, pin
+mobile/sshcore/              Go SSH and SFTP core, built as an AAR for the app
 ```
+
+## Release
+
+```sh
+scripts/release.sh
+```
+
+`scripts/release.sh` builds `sshcore.aar` fresh, builds the release APK,
+zipaligns it, and signs it. Without `ANDROID_KEYSTORE`, `ANDROID_KEY_ALIAS`,
+and `ANDROID_KEYSTORE_PASSWORD` set, it signs with the development keystore
+and writes `dist/remotly-android-development.apk`, which is for local testing
+only. With those set it writes `dist/remotly-android.apk`, signed with the
+supplied keystore. Either way it also writes `dist/signing-identity.txt` (the
+fingerprint an upgrade install has to match), `dist/SHA256SUMS`, and a short
+`dist/README.md` naming the artifact that was actually produced. `SKIP_APK=1`
+skips the Android build entirely, for when only the checksums step is needed.
+
+Signing keys are not in source control. The development keystore is not
+production guidance; supply your own for distribution.
 
 ## Physical device requirements
 

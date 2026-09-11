@@ -1,7 +1,5 @@
 package com.remotly.app.ui.terminal
 
-import android.content.ClipboardManager
-import android.content.Context
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -18,6 +16,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.viewinterop.AndroidView
+import com.remotly.app.platform.readClipboardText
 import com.remotly.app.terminal.TerminalView
 import com.remotly.app.ui.components.ErrorState
 import com.remotly.app.ui.components.LoadingState
@@ -93,6 +92,7 @@ fun TerminalPane(
     modifier: Modifier = Modifier,
     handle: TerminalHandle? = null,
     onReady: (() -> Unit)? = null,
+    onNotify: ((title: String, body: String) -> Unit)? = null,
 ) {
     val onInputState = rememberUpdatedState(onInput)
     val onPtyWriteState = rememberUpdatedState(onPtyWrite)
@@ -100,6 +100,7 @@ fun TerminalPane(
     val onLinkCopiedState = rememberUpdatedState(onLinkCopied)
     val onFontSizeChangedState = rememberUpdatedState(onFontSizeChanged)
     val onReadyState = rememberUpdatedState(onReady)
+    val onNotifyState = rememberUpdatedState(onNotify)
 
     // retryToken forces a fresh native view without a new session: a startup
     // failure or timeout retries by bumping this rather than by rebinding the
@@ -210,10 +211,7 @@ fun TerminalPane(
                             }
 
                             override fun onNotify(title: String, body: String) {
-                                // A desktop notification needs a channel and a
-                                // permission decision that belongs to the app,
-                                // not this pane; dropped rather than guessed
-                                // at.
+                                onNotifyState.value?.invoke(title, body)
                             }
 
                             override fun onLinkCopied(link: String) {
@@ -250,10 +248,3 @@ private fun toCursorStyle(cursorStyle: String): TerminalView.CursorStyle = when 
     else -> TerminalView.CursorStyle.BLOCK
 }
 
-/** The paste toolbar action needs no screen decision: it just reads the clip. */
-private fun readClipboardText(context: Context): String? {
-    val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return null
-    val clip = manager.primaryClip ?: return null
-    if (clip.itemCount == 0) return null
-    return clip.getItemAt(0).coerceToText(context)?.toString()
-}

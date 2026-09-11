@@ -93,6 +93,17 @@ class TransferRegistryTest {
     }
 
     @Test
+    fun `a finished transfer is never offered again`() {
+        var restarted = false
+        register("t1", restart = { restarted = true })
+        TransferRegistry.settle("t1", TransferPhase.Done)
+        assertFalse(TransferRegistry.canRetry("t1"))
+        TransferRegistry.retry("t1")
+        assertFalse(restarted)
+        assertEquals(TransferPhase.Done, TransferRegistry.list().single().phase)
+    }
+
+    @Test
     fun `settled transfers are capped and the oldest goes first`() {
         for (i in 1..25) {
             register("t$i")
