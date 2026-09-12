@@ -92,12 +92,12 @@ private data class KeyDef(
 )
 
 private val KEYS: List<KeyDef> = listOf(
+    KeyDef(key = "esc", label = "Escape", text = "Esc"),
+    KeyDef(key = "tab", label = "Tab", text = "Tab"),
+    KeyDef(key = "shift-tab", label = "Shift plus Tab", text = "Shift+Tab"),
     KeyDef(key = "ctrl", label = "Control", text = "Ctrl", modifier = ModifierKey.CTRL),
     KeyDef(key = "alt", label = "Alt", text = "Alt", modifier = ModifierKey.ALT),
     KeyDef(key = "shift", label = "Shift", text = "Shift", modifier = ModifierKey.SHIFT),
-    KeyDef(key = "shift-tab", label = "Shift plus Tab", text = "Shift+Tab"),
-    KeyDef(key = "esc", label = "Escape", text = "Esc"),
-    KeyDef(key = "tab", label = "Tab", text = "Tab"),
     KeyDef(key = "slash", label = "Slash", text = "/"),
     KeyDef(key = "pipe", label = "Pipe", text = "|"),
     KeyDef(key = "backslash", label = "Backslash", text = "\\"),

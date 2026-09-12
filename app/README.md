@@ -319,7 +319,7 @@ and `sendKey`. The view is recreated, not rebound, whenever the session key
 changes; rebinding one instance across a session switch once let a second
 shell render over the first one's screen.
 
-The extra-key row starts with Ctrl, Alt, Shift, and Shift+Tab. A modifier
+The extra-key row starts with Esc, Tab, Shift+Tab, Ctrl, Alt, and Shift. A modifier
 applies to the next typed key or tool key and can be tapped again to cancel.
 Keys are encoded through the terminal's negotiated keyboard protocol.
 Composed or multi-character IME input is preserved; Ctrl reports when it
