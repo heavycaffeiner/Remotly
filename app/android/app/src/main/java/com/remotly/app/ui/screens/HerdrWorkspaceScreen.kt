@@ -19,6 +19,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Dashboard
@@ -63,12 +66,13 @@ import com.remotly.app.session.SshTabPhase
 import com.remotly.app.session.findSshTab
 import com.remotly.app.settings.SettingsState
 import com.remotly.app.ui.Routes
+import com.remotly.app.ui.openRoute
 import com.remotly.app.session.SshTabKind
 import com.remotly.app.ui.components.ScreenAction
+import com.remotly.app.ui.components.DiscardChangesDialog
 import com.remotly.app.ui.terminal.ModifierKey
 import com.remotly.app.ui.terminal.TerminalBackground
 import com.remotly.app.ui.terminal.TerminalPane
-import com.remotly.app.ui.terminal.transformKey
 import androidx.compose.ui.platform.LocalContext
 import com.remotly.app.notify.TerminalNotifications
 import com.remotly.app.ui.terminal.rememberTerminalHandle
@@ -104,6 +108,7 @@ private fun herdrFailureMessage(e: Throwable): String {
 /** What a mux gesture over the terminal asks for. */
 private enum class MuxAction { TabNext, TabPrevious, WorkspaceNext }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HerdrWorkspaceScreen(
     hostId: String,
@@ -166,6 +171,8 @@ fun HerdrWorkspaceScreen(
     var notice by remember { mutableStateOf<TerminalBanner?>(null) }
     var renameTabId by remember { mutableStateOf<String?>(null) }
     var renameDraft by remember { mutableStateOf("") }
+    var renameOriginal by remember { mutableStateOf("") }
+    var confirmDiscardRename by remember { mutableStateOf(false) }
     var activeModifier by remember { mutableStateOf<ModifierKey?>(null) }
     var hasSelection by remember { mutableStateOf(false) }
     var confirmDetach by remember { mutableStateOf(false) }
@@ -173,6 +180,7 @@ fun HerdrWorkspaceScreen(
 
     val hostState by SshSessions.state(hostId).collectAsStateWithLifecycle()
     val terminal = rememberTerminalHandle()
+    val imeVisible = WindowInsets.isImeVisible
     val tab = sessionId?.let { findSshTab(hostState.tabs, it) }
 
     // Which workspace this terminal is on is herdr's own focus, not a copy of
@@ -279,7 +287,12 @@ fun HerdrWorkspaceScreen(
 
     fun startRenameTab(tabId: String) {
         renameDraft = tabs.firstOrNull { it.tabId == tabId }?.label.orEmpty()
+        renameOriginal = renameDraft
         renameTabId = tabId
+    }
+
+    fun dismissRename() {
+        if (renameDraft != renameOriginal) confirmDiscardRename = true else renameTabId = null
     }
 
     /**
@@ -319,11 +332,7 @@ fun HerdrWorkspaceScreen(
     }
 
     fun onKeyPress(key: String) {
-        terminal.clearComposition()
-        val result = transformKey(key, activeModifier) ?: return
-        SshSessions.sendInput(hostId, result.bytes)
-        if (result.clearModifier) activeModifier = null
-        result.notice?.let { notice = TerminalBanner(TerminalBannerTone.Error, it) }
+        terminal.sendKey(key)
     }
 
     // Terminal content actions only. Everything that manages a workspace or a
@@ -395,22 +404,48 @@ fun HerdrWorkspaceScreen(
             permanent = permanent,
             currentWorkspaceId = workspaceIdCurrent,
             onEnterWorkspace = { request ->
-                store.applyLocal(hostId, request.session, HerdrEvent.WorkspaceFocused(request.workspaceId))
-                act { client.focusHerdrWorkspace(hostId, request.workspaceId, request.session) }
+                if (request.session == session) {
+                    store.applyLocal(hostId, session, HerdrEvent.WorkspaceFocused(request.workspaceId))
+                    act { client.focusHerdrWorkspace(hostId, request.workspaceId, session) }
+                } else {
+                    nav.openRoute(
+                        Routes.herdrWorkspace(hostId, hostName, request.workspaceId, request.label, request.session),
+                    )
+                }
             },
-            onOpenShells = { nav.navigate(Routes.sshTerminal(hostId)) },
+            onOpenShells = {
+                val shell = hostState.tabs.tabs.lastOrNull { it.kind == SshTabKind.Shell }
+                val opened = shell?.sessionId ?: SshSessions.openTab(hostId, kind = SshTabKind.Shell)
+                if (opened == null) {
+                    notice = TerminalBanner(TerminalBannerTone.Error, "This host has no room for another session.")
+                } else {
+                    SshSessions.selectTab(hostId, opened)
+                    nav.openRoute(Routes.sshTerminal(hostId))
+                }
+            },
             onOpenFiles = {
-                SshSessions.openTab(hostId, kind = SshTabKind.Files)
-                nav.navigate(Routes.sshTerminal(hostId))
+                if (SshSessions.openTab(hostId, kind = SshTabKind.Files) == null) {
+                    notice = TerminalBanner(TerminalBannerTone.Error, "This host has no room for another files tab.")
+                } else {
+                    nav.openRoute(Routes.sshTerminal(hostId))
+                }
             },
         ) {
             TerminalScaffold(
-                title = effectiveLabel,
+                title = effectiveLabel.ifBlank { "Workspaces" },
                 subtitle = "$hostName, ${session ?: "default"}",
                 onBack = {
-                    if (drawerOpen && !permanent) sidebarOpen = false else nav.popBackStack()
+                    when {
+                        drawerOpen && !permanent -> sidebarOpen = false
+                        hasSelection -> terminal.clearSelection()
+                        imeVisible -> terminal.hideKeyboard()
+                        else -> nav.popBackStack()
+                    }
                 },
-                onMenu = { sidebarOpen = true },
+                onMenu = {
+                    terminal.hideKeyboard()
+                    sidebarOpen = !drawerOpen
+                },
                 actions = actions,
                 actionGroups = listOf(
                     TerminalActionGroup(
@@ -450,6 +485,9 @@ fun HerdrWorkspaceScreen(
                             fontSizeSp = settings.terminalFontSize,
                             cursorStyle = settings.cursorStyle,
                             onInput = { bytes -> SshSessions.sendInput(hostId, bytes) },
+                            inputModifier = activeModifier,
+                            onModifierConsumed = { activeModifier = null },
+                            onInputNotice = { notice = TerminalBanner(TerminalBannerTone.Error, it) },
                             onPtyWrite = { bytes -> SshSessions.sendInput(hostId, bytes) },
                             onResize = { cols, rows -> SshSessions.resizeHost(hostId, cols, rows) },
                             // The native selection toolbar and the system's own
@@ -465,7 +503,13 @@ fun HerdrWorkspaceScreen(
                                     TerminalNotifications.show(context, title, body)
                                 }
                             },
-                            onFontSizeChanged = { size -> SettingsState.update { it.copy(terminalFontSize = size) } },
+                            onFontSizeChanged = { size ->
+                                SettingsState.update(
+                                    onFailure = {
+                                        notice = TerminalBanner(TerminalBannerTone.Error, "The font size could not be saved.")
+                                    },
+                                ) { it.copy(terminalFontSize = size) }
+                            },
                             // Double taps are recognized by the native view:
                             // it receives both taps, while a Compose modifier
                             // around it is not shown an unclaimed first tap.
@@ -526,7 +570,7 @@ fun HerdrWorkspaceScreen(
 
     if (renameTabId != null) {
         AlertDialog(
-            onDismissRequest = { renameTabId = null },
+            onDismissRequest = ::dismissRename,
             title = { Text("Rename tab") },
             text = {
                 RemotlyTextField(
@@ -539,7 +583,16 @@ fun HerdrWorkspaceScreen(
             confirmButton = {
                 TextButton(onClick = ::commitRenameTab, enabled = renameDraft.isNotBlank()) { Text("Rename") }
             },
-            dismissButton = { TextButton(onClick = { renameTabId = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = ::dismissRename) { Text("Cancel") } },
+        )
+    }
+    if (confirmDiscardRename) {
+        DiscardChangesDialog(
+            onDiscard = {
+                confirmDiscardRename = false
+                renameTabId = null
+            },
+            onKeepEditing = { confirmDiscardRename = false },
         )
     }
 }

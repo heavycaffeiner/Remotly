@@ -215,7 +215,7 @@ fun SettingsContent() {
 
             SettingsSwitchRow(
                 title = "Show the extra key row",
-                description = "Esc, Tab, Ctrl, Alt, arrows, and symbols above the keyboard.",
+                description = "Esc, Tab, Shift+Tab, Ctrl, Alt, Shift, arrows, and symbols above the keyboard.",
                 checked = settings.showExtraKeyRow,
                 onCheckedChange = { value -> apply { it.copy(showExtraKeyRow = value) } },
             )

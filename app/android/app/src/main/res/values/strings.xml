@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">Remotly</string>
     <string name="terminal_view_label">Terminal</string>
+    <string name="terminal_font_size">Font size: %1$d sp</string>
 </resources>

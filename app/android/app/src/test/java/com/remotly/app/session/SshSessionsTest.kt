@@ -243,6 +243,33 @@ class SshSessionsTest {
     }
 
     @Test
+    fun `reconnect reenters a workspace once after the new shell becomes active`() {
+        val id = freshHost()
+        SshSessions.openWorkspaceTab(
+            id,
+            workspaceId = "w1",
+            label = "api",
+            runs = "herdr --session work",
+            session = "work",
+        )
+        val sessionId = tabsOf(id).tabs.single().sessionId
+        ssh.emitState(id, sessionId, mapOf("state" to "active"))
+        ssh.emitState(id, sessionId, mapOf("state" to "closed", "userInitiated" to false))
+
+        SshSessions.reconnectTab(id, sessionId)
+        assertEquals(2, ssh.connectCalls.size)
+        assertEquals(1, ssh.writeCalls.size)
+
+        ssh.emitState(id, sessionId, mapOf("state" to "active"))
+        ssh.emitState(id, sessionId, mapOf("state" to "active"))
+
+        assertEquals(
+            listOf("herdr --session work\n", "herdr --session work\n"),
+            ssh.writeCalls.map { String(it.bytes, Charsets.UTF_8) },
+        )
+    }
+
+    @Test
     fun `keeps the given name when the program repaints the title`() {
         val id = freshHost()
         SshSessions.openTab(id, title = "api", runs = "herdr")

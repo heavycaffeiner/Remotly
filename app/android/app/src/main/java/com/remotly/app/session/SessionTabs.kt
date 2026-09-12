@@ -53,6 +53,13 @@ data class SshTab(
     val muxSession: String? = null,
     /** The herdr workspace a workspace tab is attached to. */
     val workspaceId: String? = null,
+    /**
+     * Command that rejoins the workspace manager after a new SSH connection
+     * reaches its shell. The manager owns the focused workspace and tab, so
+     * rejoining resumes those ids when they still exist and otherwise lands
+     * on the manager's current valid focus. Null for ordinary shells.
+     */
+    val reconnectCommand: String? = null,
 )
 
 data class SshTabsState(

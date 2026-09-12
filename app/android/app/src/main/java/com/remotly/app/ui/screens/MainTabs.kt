@@ -1,5 +1,6 @@
 package com.remotly.app.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -83,6 +84,7 @@ import com.remotly.app.ssh.SshHostStoreException
 import com.remotly.app.ssh.SshModule
 import com.remotly.app.ui.EXPANDED_LAYOUT_MIN_WIDTH_DP
 import com.remotly.app.ui.Routes
+import com.remotly.app.ui.openRoute
 import com.remotly.app.ui.ScreenHorizontalPadding
 import com.remotly.app.ui.WideHostListWidth
 import com.remotly.app.ui.WideSidebarWidth
@@ -243,6 +245,8 @@ private fun HostsContent(nav: NavHostController) {
     val snackbarHostState = remember { SnackbarHostState() }
     val expanded = LocalConfiguration.current.screenWidthDp >= EXPANDED_LAYOUT_MIN_WIDTH_DP
 
+    BackHandler(enabled = query.isNotEmpty()) { query = "" }
+
     fun load() {
         val gen = generation.incrementAndGet()
         phase = HostsPhase.Loading
@@ -293,7 +297,7 @@ private fun HostsContent(nav: NavHostController) {
     }
 
     fun openTerminal(row: HostRow) {
-        nav.navigate(Routes.sshTerminal(row.host.id))
+        nav.openRoute(Routes.sshTerminal(row.host.id))
     }
 
     fun openFiles(row: HostRow) {
@@ -302,12 +306,12 @@ private fun HostsContent(nav: NavHostController) {
             notice = "This host has no room for another files tab."
         } else {
             // Files is a tab in the terminal destination, not a separate route.
-            nav.navigate(Routes.sshTerminal(row.host.id))
+            nav.openRoute(Routes.sshTerminal(row.host.id))
         }
     }
 
     fun openWorkspaces(row: HostRow) {
-        nav.navigate(Routes.herdrWorkspace(row.host.id, row.name))
+        nav.openRoute(Routes.herdrWorkspace(row.host.id, row.name))
     }
 
     RemotlyScreen(title = "Hosts", snackbarHostState = snackbarHostState) { padding ->
@@ -326,7 +330,7 @@ private fun HostsContent(nav: NavHostController) {
                         icon = Icons.Filled.Dns,
                         title = "No hosts yet",
                         message = "Add an SSH host to connect directly.",
-                        action = "Add SSH host" to { nav.navigate(Routes.hostEditor()) },
+                        action = "Add SSH host" to { nav.openRoute(Routes.hostEditor()) },
                     )
                 } else {
                     Column(Modifier.fillMaxSize()) {
@@ -360,7 +364,7 @@ private fun HostsContent(nav: NavHostController) {
                                 onOpenTerminal = ::openTerminal,
                                 onOpenFiles = ::openFiles,
                                 onOpenWorkspaces = ::openWorkspaces,
-                                onEdit = { row -> nav.navigate(Routes.hostEditor(row.host.id)) },
+                                onEdit = { row -> nav.openRoute(Routes.hostEditor(row.host.id)) },
                                 onRemove = { removeTarget = it },
                             )
                         } else {
@@ -369,7 +373,7 @@ private fun HostsContent(nav: NavHostController) {
                                 onOpenTerminal = ::openTerminal,
                                 onOpenFiles = ::openFiles,
                                 onOpenWorkspaces = ::openWorkspaces,
-                                onEdit = { row -> nav.navigate(Routes.hostEditor(row.host.id)) },
+                                onEdit = { row -> nav.openRoute(Routes.hostEditor(row.host.id)) },
                                 onRemove = { removeTarget = it },
                             )
                         }
@@ -379,7 +383,7 @@ private fun HostsContent(nav: NavHostController) {
 
             if (phase == HostsPhase.Ready) {
                 FloatingActionButton(
-                    onClick = { nav.navigate(Routes.hostEditor()) },
+                    onClick = { nav.openRoute(Routes.hostEditor()) },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(ScreenHorizontalPadding)

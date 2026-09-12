@@ -223,6 +223,18 @@ object TerminalStore {
     fun has(sessionId: String): Boolean =
         synchronized(lock) { handles.containsKey(sessionId) }
 
+    // Keep the native handle and history, but clear modes negotiated by the
+    // previous PTY before the replacement shell receives input.
+    fun resetForConnection(sessionId: String) {
+        if (sessionId.isEmpty()) return
+        onMain {
+            renderers[sessionId]?.resetConnectionInput()
+            val handle = synchronized(lock) { handles[sessionId] } ?: return@onMain
+            RemotlyTerminal.nativeWrite(handle, CONNECTION_RESET)
+            renderers[sessionId]?.onExternalWrite()
+        }
+    }
+
     /**
      * Creates a terminal for a session that has no view.
      *
@@ -264,6 +276,14 @@ object TerminalStore {
     private const val DEFAULT_COLS = 80
     private const val DEFAULT_ROWS = 24
     private const val SCROLLBACK_BYTES = 8L * 1024 * 1024
+
+    // Cancel incomplete controls, leave the alternate screen, reset input
+    // modes and keyboard flags. RIS would also erase retained scrollback.
+    private val CONNECTION_RESET = (
+        "\u0018\u001b[?1049l\u001b[?1047l\u001b[?47l" +
+            "\u001b[?1;9;66;1000;1001;1002;1003;1004;1005;1006;1007;1015;1016;2004;2026l" +
+            "\u001b[?25h\u001b[!p\u001b>\u001b[=0u"
+        ).toByteArray(Charsets.US_ASCII)
 
     /** Destroys the handle for a session, if one is retained and has no active view. */
     fun release(sessionId: String) {

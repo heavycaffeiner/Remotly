@@ -57,12 +57,15 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
@@ -102,6 +105,7 @@ import com.remotly.app.ssh.SftpBridge
 import com.remotly.app.ssh.SftpEntry
 import com.remotly.app.ui.ScreenHorizontalPadding
 import com.remotly.app.ui.components.EmptyState
+import com.remotly.app.ui.components.DiscardChangesDialog
 import com.remotly.app.ui.components.ErrorState
 import com.remotly.app.ui.components.LoadingState
 import com.remotly.app.ui.components.RemotlyScreen
@@ -181,6 +185,13 @@ private fun queryPickedUpload(context: Context, uri: Uri): PickedUpload {
     return PickedUpload(name, size)
 }
 
+/** Shares the file browser's local Back action with the terminal app bar. */
+class FilesNavigation {
+    internal var handleBack: (() -> Boolean)? = null
+
+    fun goBack(): Boolean = handleBack?.invoke() ?: false
+}
+
 /**
  * The SFTP file browser. A directory is read once and held whole, since SFTP
  * readdir has no resumable cursor; sorting and search run over the full list.
@@ -191,7 +202,7 @@ private fun queryPickedUpload(context: Context, uri: Uri): PickedUpload {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FilesScreen(hostId: String, onClose: () -> Unit, tabId: String) {
+fun FilesScreen(hostId: String, onClose: () -> Unit, tabId: String, navigation: FilesNavigation) {
     val scope = rememberCoroutineScope()
     val settings by SettingsState.settings.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -206,15 +217,16 @@ fun FilesScreen(hostId: String, onClose: () -> Unit, tabId: String) {
     // not reconnect: the paused connection continues with the decision.
     var connectRequested by remember { mutableStateOf(true) }
     var keyAnswered by remember { mutableStateOf(false) }
-    var cwd by remember { mutableStateOf(FilesTabs.remembered(tabId) ?: "/") }
+    var cwd by rememberSaveable(tabId) { mutableStateOf(FilesTabs.remembered(tabId) ?: "/") }
+    var history by rememberSaveable(tabId) { mutableStateOf(emptyList<String>()) }
     var entries by remember { mutableStateOf<List<FileEntry>?>(null) }
     var error by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     // The search is about the folder in front of you, not a preference, so it
     // lives here rather than in settings.
-    var query by remember { mutableStateOf("") }
-    var searchOpen by remember { mutableStateOf(false) }
+    var query by rememberSaveable(tabId) { mutableStateOf("") }
+    var searchOpen by rememberSaveable(tabId) { mutableStateOf(false) }
     var addMenuOpen by remember { mutableStateOf(false) }
     var menuFor by remember { mutableStateOf<FileEntry?>(null) }
     var prompt by remember { mutableStateOf<Prompt?>(null) }
@@ -265,7 +277,11 @@ fun FilesScreen(hostId: String, onClose: () -> Unit, tabId: String) {
         }
     }
 
-    fun openDir(path: String) {
+    fun openDir(path: String, rememberPrevious: Boolean = true) {
+        if (path != cwd) {
+            if (rememberPrevious) history = history + cwd
+            query = ""
+        }
         cwd = path
         FilesTabs.setCwd(tabId, path)
         // Navigating abandons a pull refresh of the old directory; its load
@@ -274,6 +290,27 @@ fun FilesScreen(hostId: String, onClose: () -> Unit, tabId: String) {
         val cached = cache[path]
         entries = cached
         scope.launch { loadDir(path, cached == null) }
+    }
+
+    val handleBack = rememberUpdatedState {
+        when {
+            searchOpen || query.isNotEmpty() -> {
+                searchOpen = false
+                query = ""
+                true
+            }
+            phase == Phase.Ready && history.isNotEmpty() -> {
+                val previous = history.last()
+                history = history.dropLast(1)
+                openDir(previous, rememberPrevious = false)
+                true
+            }
+            else -> false
+        }
+    }
+    DisposableEffect(navigation) {
+        navigation.handleBack = { handleBack.value() }
+        onDispose { navigation.handleBack = null }
     }
 
     val context = LocalContext.current
@@ -356,10 +393,11 @@ fun FilesScreen(hostId: String, onClose: () -> Unit, tabId: String) {
     }
 
     fun runUpload(uri: Uri, name: String, size: Long, replace: Boolean) {
+        val directory = cwd
         scope.launch {
-            val result = SftpTransferOps.upload(context, hostId, joinPath(cwd, name), name, uri, size, replace)
+            val result = SftpTransferOps.upload(context, hostId, joinPath(directory, name), name, uri, size, replace)
             if (result is SftpTransferOps.Result.Failed) snackbar.showSnackbar(result.message)
-            loadDir(cwd, false)
+            if (cwd == directory) loadDir(directory, false)
         }
     }
 
@@ -410,7 +448,7 @@ fun FilesScreen(hostId: String, onClose: () -> Unit, tabId: String) {
                     }
                     // A tab that has been here before goes back to where it
                     // was, not to the home directory it first landed in.
-                    openDir(FilesTabs.remembered(tabId) ?: home.ifEmpty { "/" })
+                    openDir(FilesTabs.remembered(tabId) ?: home.ifEmpty { "/" }, rememberPrevious = false)
                     return@LaunchedEffect
                 }
 
@@ -519,7 +557,18 @@ fun FilesScreen(hostId: String, onClose: () -> Unit, tabId: String) {
                 )
                 Phase.HostKey -> HostKeyApproval(
                     prompt = hostKey,
-                    onReject = onClose,
+                    onReject = {
+                        scope.launch {
+                            val result = withContext(Dispatchers.IO) {
+                                runCatching { SftpBridge.decideHostKey(hostId, false) }
+                            }
+                            if (result.isSuccess) {
+                                onClose()
+                            } else {
+                                snackbar.showSnackbar("The host key decision could not be sent.")
+                            }
+                        }
+                    },
                     onAccept = {
                         phase = Phase.Connecting
                         hostKey = null
@@ -794,25 +843,27 @@ fun FilesScreen(hostId: String, onClose: () -> Unit, tabId: String) {
                     return@PromptDialog
                 }
                 val request = open
+                val directory = cwd
+                val name = promptText.trim()
                 prompt = null
                 scope.launch {
                     val failure = withContext(Dispatchers.IO) {
                         runCatching {
                             when (request) {
                                 is Prompt.Mkdir ->
-                                    SftpBridge.mkdir(hostId, joinPath(cwd, promptText.trim()))
+                                    SftpBridge.mkdir(hostId, joinPath(directory, name))
 
                                 is Prompt.Rename -> SftpBridge.rename(
                                     hostId,
-                                    joinPath(cwd, request.target),
-                                    joinPath(cwd, promptText.trim()),
+                                    joinPath(directory, request.target),
+                                    joinPath(directory, name),
                                 )
 
                                 is Prompt.Remove ->
                                     if (request.isDir) {
-                                        SftpBridge.removeDir(hostId, joinPath(cwd, request.target))
+                                        SftpBridge.removeDir(hostId, joinPath(directory, request.target))
                                     } else {
-                                        SftpBridge.removeFile(hostId, joinPath(cwd, request.target))
+                                        SftpBridge.removeFile(hostId, joinPath(directory, request.target))
                                     }
                             }
                         }.exceptionOrNull()
@@ -820,7 +871,7 @@ fun FilesScreen(hostId: String, onClose: () -> Unit, tabId: String) {
                     if (failure != null) {
                         snackbar.showSnackbar(toRemotlyError(failure, ErrorKind.Network).message)
                     }
-                    loadDir(cwd, false)
+                    if (cwd == directory) loadDir(directory, false)
                 }
             },
         )
@@ -1127,8 +1178,13 @@ private fun PromptDialog(
     onConfirm: () -> Unit,
 ) {
     val remove = prompt is Prompt.Remove
+    var confirmDiscard by remember(prompt) { mutableStateOf(false) }
+    val initialText = (prompt as? Prompt.Rename)?.target.orEmpty()
+    fun requestCancel() {
+        if (!remove && text != initialText) confirmDiscard = true else onCancel()
+    }
     AlertDialog(
-        onDismissRequest = onCancel,
+        onDismissRequest = ::requestCancel,
         title = {
             Text(
                 when (prompt) {
@@ -1164,6 +1220,15 @@ private fun PromptDialog(
         confirmButton = {
             TextButton(onClick = onConfirm) { Text(if (remove) "Delete" else "OK") }
         },
-        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = ::requestCancel) { Text("Cancel") } },
     )
+    if (confirmDiscard) {
+        DiscardChangesDialog(
+            onDiscard = {
+                confirmDiscard = false
+                onCancel()
+            },
+            onKeepEditing = { confirmDiscard = false },
+        )
+    }
 }

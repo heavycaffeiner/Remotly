@@ -58,13 +58,17 @@ class KeyMapTest {
       KeyEvent.KEYCODE_PAGE_DOWN to KeyMap.KEY_PAGE_DOWN,
       KeyEvent.KEYCODE_INSERT to KeyMap.KEY_INSERT,
       KeyEvent.KEYCODE_SEMICOLON to KeyMap.KEY_SEMICOLON,
+      KeyEvent.KEYCODE_APOSTROPHE to KeyMap.KEY_QUOTE,
       KeyEvent.KEYCODE_COMMA to KeyMap.KEY_COMMA,
       KeyEvent.KEYCODE_PERIOD to KeyMap.KEY_PERIOD,
       KeyEvent.KEYCODE_SLASH to KeyMap.KEY_SLASH,
       KeyEvent.KEYCODE_GRAVE to KeyMap.KEY_BACKQUOTE,
+      KeyEvent.KEYCODE_BACKSLASH to KeyMap.KEY_BACKSLASH,
       KeyEvent.KEYCODE_LEFT_BRACKET to KeyMap.KEY_BRACKET_LEFT,
       KeyEvent.KEYCODE_RIGHT_BRACKET to KeyMap.KEY_BRACKET_RIGHT,
+      KeyEvent.KEYCODE_EQUALS to KeyMap.KEY_EQUAL,
       KeyEvent.KEYCODE_AT to KeyMap.KEY_EQUAL,
+      KeyEvent.KEYCODE_MINUS to KeyMap.KEY_MINUS,
     )
     for ((android, ghostty) in cases) {
       assertEquals("keyCode $android", ghostty, KeyMap.keyCodeToGhostty(android))

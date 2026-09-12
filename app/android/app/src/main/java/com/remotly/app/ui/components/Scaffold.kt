@@ -101,7 +101,7 @@ fun RemotlyScreen(
                     },
                     navigationIcon = {
                         if (onBack != null) {
-                            IconButton(onClick = onBack) {
+                            IconButton(onClick = { if (menuOpen) menuOpen = false else onBack() }) {
                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                             }
                         }

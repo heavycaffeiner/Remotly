@@ -286,7 +286,11 @@ private fun TerminalTopBar(
                     .heightIn(min = BAR_MIN_HEIGHT)
                     .padding(horizontal = 8.dp, vertical = 4.dp),
             ) {
-                CompactIconAction(icon = Icons.AutoMirrored.Filled.ArrowBack, label = "Back", onClick = onBack)
+                CompactIconAction(
+                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                    label = "Back",
+                    onClick = { if (menuOpen) menuOpen = false else onBack() },
+                )
                 if (onMenu != null) {
                     CompactIconAction(icon = Icons.Filled.Menu, label = "Workspaces and tabs", onClick = onMenu)
                 }
@@ -492,7 +496,7 @@ private fun TerminalTabStrip(
                 }
             }
             if (onAdd != null) {
-                CompactIconAction(icon = Icons.Filled.Add, label = "New session", onClick = onAdd, enabled = canAdd)
+                CompactIconAction(icon = Icons.Filled.Add, label = "New tab", onClick = onAdd, enabled = canAdd)
             }
         }
     }

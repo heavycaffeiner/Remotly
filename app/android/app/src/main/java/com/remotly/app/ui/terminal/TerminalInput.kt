@@ -1,173 +1,151 @@
 package com.remotly.app.ui.terminal
 
-// Pure terminal input transformation: key sequences and the Ctrl and Alt
-// modifiers.
+import com.remotly.app.terminal.KeyEncoding
+import com.remotly.app.terminal.KeyMap
+
+// Pure terminal input transformation at the native key encoder boundary.
 //
-// The rules here are the ones a per-screen copy could easily get wrong. Ctrl
-// must never take the first byte of whatever was committed: that truncates a
-// multibyte CJK commit to a meaningless control byte and corrupts the input.
+// Tool keys and one-shot modifiers must enter through nativeSendKey. Building
+// terminal bytes before that boundary bypasses application keyboard modes such
+// as Kitty keyboard protocol and cannot safely distinguish typing from paste.
 
 /** A latched input modifier. */
-enum class ModifierKey { CTRL, ALT }
+enum class ModifierKey { CTRL, ALT, SHIFT }
 
-private val SEQUENCES: Map<String, IntArray> = mapOf(
-    "esc" to intArrayOf(0x1b),
-    "tab" to intArrayOf(0x09),
-    "up" to intArrayOf(0x1b, 0x5b, 0x41),
-    "down" to intArrayOf(0x1b, 0x5b, 0x42),
-    "right" to intArrayOf(0x1b, 0x5b, 0x43),
-    "left" to intArrayOf(0x1b, 0x5b, 0x44),
-    "home" to intArrayOf(0x1b, 0x5b, 0x48),
-    "end" to intArrayOf(0x1b, 0x5b, 0x46),
-    "pageup" to intArrayOf(0x1b, 0x5b, 0x35, 0x7e),
-    "pagedown" to intArrayOf(0x1b, 0x5b, 0x36, 0x7e),
-    "slash" to intArrayOf(0x2f),
-    "pipe" to intArrayOf(0x7c),
-    "backslash" to intArrayOf(0x5c),
-)
+private fun modifierMask(modifier: ModifierKey): Int = when (modifier) {
+    ModifierKey.CTRL -> KeyMap.MOD_CTRL
+    ModifierKey.ALT -> KeyMap.MOD_ALT
+    ModifierKey.SHIFT -> KeyMap.MOD_SHIFT
+}
 
-/**
- * The xterm modifier parameter, as used in CSI 1;<n><final>.
- *
- * The encoding is a bitfield offset by one: shift 1, alt 2, ctrl 4.
- */
-private val MODIFIER_PARAM: Map<ModifierKey, Int> = mapOf(
-    ModifierKey.ALT to 3, // 1 + 2
-    ModifierKey.CTRL to 5, // 1 + 4
-)
+private fun shiftAscii(c: Char): Char = when (c) {
+    in 'a'..'z' -> c.uppercaseChar()
+    '`' -> '~'
+    '1' -> '!'
+    '2' -> '@'
+    '3' -> '#'
+    '4' -> '$'
+    '5' -> '%'
+    '6' -> '^'
+    '7' -> '&'
+    '8' -> '*'
+    '9' -> '('
+    '0' -> ')'
+    '-' -> '_'
+    '=' -> '+'
+    '[' -> '{'
+    ']' -> '}'
+    '\\' -> '|'
+    ';' -> ':'
+    '\'' -> '"'
+    ',' -> '<'
+    '.' -> '>'
+    '/' -> '?'
+    else -> c
+}
 
-/**
- * The final byte of a CSI cursor or editing sequence, when the key has one.
- *
- * These are the keys a terminal expects to receive with a modifier
- * parameter, rather than with an ESC prefix or a control byte.
- */
-private val CSI_FINAL: Map<String, Int> = mapOf(
-    "up" to 0x41,
-    "down" to 0x42,
-    "right" to 0x43,
-    "left" to 0x44,
-    "home" to 0x48,
-    "end" to 0x46,
-)
+private fun unshiftAscii(c: Char): Char = when (c) {
+    in 'A'..'Z' -> c.lowercaseChar()
+    '~' -> '`'
+    '!' -> '1'
+    '@' -> '2'
+    '#' -> '3'
+    '$' -> '4'
+    '%' -> '5'
+    '^' -> '6'
+    '&' -> '7'
+    '*' -> '8'
+    '(' -> '9'
+    ')' -> '0'
+    '_' -> '-'
+    '+' -> '='
+    '{' -> '['
+    '}' -> ']'
+    '|' -> '\\'
+    ':' -> ';'
+    '"' -> '\''
+    '<' -> ','
+    '>' -> '.'
+    '?' -> '/'
+    else -> c
+}
 
-/** Keys sent as CSI <n> ~, which take their modifier in a second parameter. */
-private val CSI_TILDE: Map<String, Int> = mapOf(
-    "pageup" to 0x35, // 5~
-    "pagedown" to 0x36, // 6~
-)
+/** Native key identity and inherent modifier for one printable ASCII character. */
+private fun printableEncoding(c: Char): KeyEncoding? {
+    if (c.code !in 0x20..0x7e) return null
 
-/** Raw bytes for a logical key, or null when the key is unknown. */
-fun keySequence(key: String): ByteArray? =
-    SEQUENCES[key]?.let { seq -> ByteArray(seq.size) { i -> seq[i].toByte() } }
+    val base = unshiftAscii(c)
+    val key = when (base) {
+        in 'a'..'z' -> KeyMap.KEY_A + (base - 'a')
+        in '0'..'9' -> KeyMap.KEY_DIGIT_0 + (base - '0')
+        '`' -> KeyMap.KEY_BACKQUOTE
+        '\\' -> KeyMap.KEY_BACKSLASH
+        '[' -> KeyMap.KEY_BRACKET_LEFT
+        ']' -> KeyMap.KEY_BRACKET_RIGHT
+        ',' -> KeyMap.KEY_COMMA
+        '=' -> KeyMap.KEY_EQUAL
+        '-' -> KeyMap.KEY_MINUS
+        '.' -> KeyMap.KEY_PERIOD
+        '\'' -> KeyMap.KEY_QUOTE
+        ';' -> KeyMap.KEY_SEMICOLON
+        '/' -> KeyMap.KEY_SLASH
+        ' ' -> KeyMap.KEY_SPACE
+        else -> return null
+    }
+    val mods = if (base == c) 0 else KeyMap.MOD_SHIFT
+    return KeyEncoding(key = key, mods = mods, utf8 = c.toString())
+}
 
-/**
- * Maps an ASCII byte to its control code (Ctrl+C to 0x03).
- *
- * Only defined for bytes Ctrl actually applies to; callers must check
- * [ctrlApplies] first.
- */
-fun ctrlCode(b: Int): Int = when {
-    b in 0x41..0x5a -> b - 0x40 // A-Z
-    b in 0x61..0x7a -> b - 0x60 // a-z
-    b == 0x40 -> 0x00 // @
-    b == 0x5b -> 0x1b // [
-    b == 0x5c -> 0x1c // backslash
-    b == 0x5d -> 0x1d // ]
-    b == 0x5e -> 0x1e // ^
-    b == 0x5f -> 0x1f // _
-    b == 0x20 -> 0x00 // space
-    b == 0x3f -> 0x7f // ? to DEL
-    else -> b and 0x7f
+private fun withModifier(encoding: KeyEncoding, modifier: ModifierKey): KeyEncoding {
+    var utf8 = encoding.utf8
+    if (modifier == ModifierKey.SHIFT) {
+        val c = utf8?.singleOrNull()
+        if (c != null && c.code in 0x20..0x7e) utf8 = shiftAscii(c).toString()
+    }
+    return encoding.copy(mods = encoding.mods or modifierMask(modifier), utf8 = utf8)
 }
 
 /**
- * True when Ctrl can be applied to this committed input.
+ * Native key encoding for an extra-key press.
  *
- * Ctrl is only meaningful for a single ASCII character. A multibyte commit,
- * such as a Hangul syllable, has no control equivalent.
+ * The native encoder applies the active terminal protocol. Shift+Tab is a Tab
+ * key with the Shift modifier, which becomes ESC [ Z in legacy mode and the
+ * negotiated key form in extended keyboard modes.
  */
-fun ctrlApplies(bytes: ByteArray): Boolean =
-    bytes.size == 1 && (bytes[0].toInt() and 0xff) < 0x80
-
-/** The outcome of applying a modifier to committed input or a key press. */
-data class TransformResult(
-    /** The bytes to send. */
-    val bytes: ByteArray,
-    /** True when the latch was consumed and should be cleared. */
-    val clearModifier: Boolean,
-    /**
-     * Set when the modifier could not be applied. The caller shows this once
-     * and sends the input unchanged, so the keystroke is never silently
-     * eaten.
-     */
-    val notice: String? = null,
-)
-
-private const val CTRL_ASCII_ONLY = "Ctrl applies to ASCII keys"
-
-/**
- * Applies a latched modifier to committed input.
- *
- * Ctrl on a non-ASCII commit sends the text unchanged, clears the latch, and
- * returns a notice. Alt prefixes ESC to the complete byte sequence, which is
- * well defined for any commit including CJK.
- */
-fun applyModifier(bytes: ByteArray, modifier: ModifierKey?): TransformResult {
-    if (modifier == null || bytes.isEmpty()) {
-        return TransformResult(bytes, clearModifier = false)
-    }
-    if (modifier == ModifierKey.ALT) {
-        val out = ByteArray(bytes.size + 1)
-        out[0] = 0x1b
-        bytes.copyInto(out, destinationOffset = 1)
-        return TransformResult(out, clearModifier = true)
-    }
-    if (!ctrlApplies(bytes)) {
-        return TransformResult(bytes, clearModifier = true, notice = CTRL_ASCII_ONLY)
-    }
-    val code = ctrlCode(bytes[0].toInt() and 0xff)
-    return TransformResult(byteArrayOf(code.toByte()), clearModifier = true)
+fun extraKeyEncoding(key: String, modifier: ModifierKey?): KeyEncoding? {
+    val base = when (key) {
+        "esc" -> KeyEncoding(KeyMap.KEY_ESCAPE, 0, null)
+        "tab" -> KeyEncoding(KeyMap.KEY_TAB, 0, null)
+        "shift-tab" -> KeyEncoding(KeyMap.KEY_TAB, KeyMap.MOD_SHIFT, null)
+        "up" -> KeyEncoding(KeyMap.KEY_ARROW_UP, 0, null)
+        "down" -> KeyEncoding(KeyMap.KEY_ARROW_DOWN, 0, null)
+        "right" -> KeyEncoding(KeyMap.KEY_ARROW_RIGHT, 0, null)
+        "left" -> KeyEncoding(KeyMap.KEY_ARROW_LEFT, 0, null)
+        "home" -> KeyEncoding(KeyMap.KEY_HOME, 0, null)
+        "end" -> KeyEncoding(KeyMap.KEY_END, 0, null)
+        "pageup" -> KeyEncoding(KeyMap.KEY_PAGE_UP, 0, null)
+        "pagedown" -> KeyEncoding(KeyMap.KEY_PAGE_DOWN, 0, null)
+        "slash" -> printableEncoding('/')
+        "pipe" -> printableEncoding('|')
+        "backslash" -> printableEncoding('\\')
+        else -> null
+    } ?: return null
+    return if (modifier == null) base else withModifier(base, modifier)
 }
 
 /**
- * Encodes a modified cursor or editing key.
+ * Encodes one committed printable ASCII character with a latched modifier.
  *
- * Returns null when the key has no CSI form, so the caller falls back to the
- * ordinary ESC-prefix or control-byte handling.
+ * Multi-character and non-ASCII commits return null. They have no portable
+ * physical key identity, so callers preserve the original text rather than
+ * inventing a key or splitting an IME commit.
  */
-private fun modifiedKeySequence(key: String, modifier: ModifierKey): ByteArray? {
-    val param = MODIFIER_PARAM.getValue(modifier)
-    val final = CSI_FINAL[key]
-    if (final != null) {
-        // CSI 1 ; <param> <final>
-        return byteArrayOf(0x1b, 0x5b, 0x31, 0x3b, (0x30 + param).toByte(), final.toByte())
-    }
-    val tilde = CSI_TILDE[key]
-    if (tilde != null) {
-        // CSI <n> ; <param> ~
-        return byteArrayOf(0x1b, 0x5b, tilde.toByte(), 0x3b, (0x30 + param).toByte(), 0x7e)
-    }
-    return null
+fun modifiedTextEncoding(text: String, modifier: ModifierKey): KeyEncoding? {
+    val c = text.singleOrNull() ?: return null
+    val base = printableEncoding(c) ?: return null
+    return withModifier(base, modifier)
 }
 
-/**
- * Builds the bytes for an extra-key press, applying a latched modifier.
- *
- * Returns null for an unknown key so the caller can ignore it rather than
- * sending something arbitrary to a live shell.
- */
-fun transformKey(key: String, modifier: ModifierKey?): TransformResult? {
-    val seq = keySequence(key) ?: return null
-    if (modifier == null) return TransformResult(seq, clearModifier = false)
-
-    // A cursor or editing key carries its modifier inside the CSI sequence.
-    // Prefixing ESC instead produces a doubled escape (ESC ESC [ A), which a
-    // terminal reads as Escape followed by an unmodified arrow; applying
-    // Ctrl byte-wise would instead mangle the sequence into a single control
-    // code.
-    val modified = modifiedKeySequence(key, modifier)
-    if (modified != null) return TransformResult(modified, clearModifier = true)
-
-    return applyModifier(seq, modifier)
-}
+/** Adds a latched modifier to a hardware key already mapped by [KeyMap]. */
+fun modifiedHardwareKey(encoding: KeyEncoding, modifier: ModifierKey): KeyEncoding =
+    withModifier(encoding, modifier)

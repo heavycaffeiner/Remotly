@@ -32,7 +32,9 @@ object KeyMap {
   const val KEY_EQUAL = 16
   const val KEY_A = 20
   private const val KEY_Z = 45
+  const val KEY_MINUS = 46
   const val KEY_PERIOD = 47
+  const val KEY_QUOTE = 48
   const val KEY_SEMICOLON = 49
   const val KEY_SLASH = 50
   const val KEY_BACKSPACE = 53
@@ -94,13 +96,16 @@ object KeyMap {
     KeyEvent.KEYCODE_PAGE_DOWN -> KEY_PAGE_DOWN
     KeyEvent.KEYCODE_INSERT -> KEY_INSERT
     KeyEvent.KEYCODE_SEMICOLON -> KEY_SEMICOLON
+    KeyEvent.KEYCODE_APOSTROPHE -> KEY_QUOTE
     KeyEvent.KEYCODE_COMMA -> KEY_COMMA
     KeyEvent.KEYCODE_PERIOD -> KEY_PERIOD
     KeyEvent.KEYCODE_SLASH -> KEY_SLASH
     KeyEvent.KEYCODE_GRAVE -> KEY_BACKQUOTE
+    KeyEvent.KEYCODE_BACKSLASH -> KEY_BACKSLASH
     KeyEvent.KEYCODE_LEFT_BRACKET -> KEY_BRACKET_LEFT
     KeyEvent.KEYCODE_RIGHT_BRACKET -> KEY_BRACKET_RIGHT
-    KeyEvent.KEYCODE_AT -> KEY_EQUAL
+    KeyEvent.KEYCODE_EQUALS, KeyEvent.KEYCODE_AT -> KEY_EQUAL
+    KeyEvent.KEYCODE_MINUS -> KEY_MINUS
     in KeyEvent.KEYCODE_F1..KeyEvent.KEYCODE_F12 ->
       KEY_F1 + (code - KeyEvent.KEYCODE_F1)
     in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z ->

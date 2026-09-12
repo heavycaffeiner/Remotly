@@ -28,7 +28,6 @@ import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -71,6 +70,7 @@ import com.remotly.app.ssh.SshModule
 import com.remotly.app.ssh.engine.SftpConnection
 import com.remotly.app.ui.ScreenHorizontalPadding
 import com.remotly.app.ui.components.ChoiceRow
+import com.remotly.app.ui.components.DiscardChangesDialog
 import com.remotly.app.ui.components.ErrorState
 import com.remotly.app.ui.components.LoadingState
 import com.remotly.app.ui.components.NoticeBar
@@ -127,6 +127,7 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
     var loading by remember { mutableStateOf(editing) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var existing by remember { mutableStateOf<SshHost?>(null) }
+    var formInitialized by rememberSaveable(hostId) { mutableStateOf(false) }
 
     var displayName by rememberSaveable { mutableStateOf("") }
     var host by rememberSaveable { mutableStateOf("") }
@@ -158,11 +159,14 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                 loadError = "That host is no longer saved."
             } else {
                 existing = found
-                displayName = found.displayName
-                host = found.host
-                port = found.port.toString()
-                username = found.username
-                auth = if (found.authKind == SshHost.AUTH_KEY) AuthMethod.Key else AuthMethod.Password
+                if (!formInitialized) {
+                    displayName = found.displayName
+                    host = found.host
+                    port = found.port.toString()
+                    username = found.username
+                    auth = if (found.authKind == SshHost.AUTH_KEY) AuthMethod.Key else AuthMethod.Password
+                    formInitialized = true
+                }
             }
         }.onFailure { e ->
             loadError = e.message ?: "The host could not be loaded."
@@ -225,12 +229,13 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
     } ?: listOf(displayName, host, username, password, passphrase, keyFileName).any { it.isNotEmpty() } ||
         port != "22" || auth != AuthMethod.Key
 
-    fun requestClose() {
-        if (busy) return
-        if (dirty) confirmDiscard = true else onDone()
+    val requestClose: () -> Unit = {
+        if (!busy) {
+            if (dirty) confirmDiscard = true else onDone()
+        }
     }
 
-    BackHandler(onBack = ::requestClose)
+    BackHandler(onBack = requestClose)
 
     fun buildCredential(): SshCredential = if (auth == AuthMethod.Key) {
         SshCredential.Key(
@@ -334,7 +339,7 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
     }
 
     if (loading) {
-        RemotlyScreenShell(editing = editing, onBack = ::requestClose) { padding ->
+        RemotlyScreenShell(editing = editing, onBack = requestClose) { padding ->
             LoadingState(label = "Loading host", modifier = Modifier.padding(padding))
         }
         return
@@ -343,7 +348,7 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
     RemotlyScreen(
         title = if (editing) "Edit SSH host" else "Add SSH host",
         subtitle = existing?.let { sshHostDisplayName(it) },
-        onBack = ::requestClose,
+        onBack = requestClose,
         bottomBar = {
             Surface(
                 color = MaterialTheme.colorScheme.surfaceContainer,
@@ -359,7 +364,7 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     TextButton(
-                        onClick = ::requestClose,
+                        onClick = requestClose,
                         enabled = !busy,
                         modifier = Modifier.weight(1f),
                     ) {
@@ -680,20 +685,12 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
     }
 
     if (confirmDiscard) {
-        AlertDialog(
-            onDismissRequest = { confirmDiscard = false },
-            title = { Text("Discard changes?") },
-            text = { Text("Your unsaved host changes will be lost.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmDiscard = false
-                        onDone()
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                ) { Text("Discard") }
+        DiscardChangesDialog(
+            onDiscard = {
+                confirmDiscard = false
+                onDone()
             },
-            dismissButton = { TextButton(onClick = { confirmDiscard = false }) { Text("Keep editing") } },
+            onKeepEditing = { confirmDiscard = false },
         )
     }
     if (confirmEndpoint) {

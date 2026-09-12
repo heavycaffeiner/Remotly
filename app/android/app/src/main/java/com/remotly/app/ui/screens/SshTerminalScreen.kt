@@ -48,6 +48,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -77,14 +78,14 @@ import com.remotly.app.settings.SettingsState
 import com.remotly.app.ssh.SshHost
 import com.remotly.app.ssh.SshModule
 import com.remotly.app.ui.Routes
+import com.remotly.app.ui.openRoute
 import com.remotly.app.ui.components.ScreenAction
+import com.remotly.app.ui.components.DiscardChangesDialog
 import com.remotly.app.ui.terminal.FocusPolicy
 import com.remotly.app.ui.terminal.TerminalPane
 import com.remotly.app.ui.terminal.rememberTerminalHandle
 import com.remotly.app.ui.terminal.terminalTabSwipe
 import com.remotly.app.ui.terminal.ModifierKey
-import com.remotly.app.ui.terminal.applyModifier
-import com.remotly.app.ui.terminal.transformKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -143,9 +144,12 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
     val shellTabs = hostState.tabs.tabs.filter { it.kind != SshTabKind.Workspace }
     val activeTab: SshTab? = shellTabs.firstOrNull { it.sessionId == hostState.tabs.activeSessionId }
     val filesTab = activeTab?.takeIf { it.kind == SshTabKind.Files }
+    val filesNavigation = remember(filesTab?.sessionId) { FilesNavigation() }
+    val filesState = rememberSaveableStateHolder()
+    val shellSelected = activeTab?.kind == SshTabKind.Shell
 
     // The shell the terminal keeps showing while a files tab is in front.
-    var lastShellId by remember { mutableStateOf<String?>(null) }
+    var lastShellId by rememberSaveable(hostId) { mutableStateOf<String?>(null) }
     LaunchedEffect(activeTab?.sessionId, activeTab?.kind) {
         val shell = activeTab?.takeIf { it.kind == SshTabKind.Shell } ?: return@LaunchedEffect
         lastShellId = shell.sessionId
@@ -160,7 +164,7 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
     // this screen does not show. Land on the shell tab that was last open.
     LaunchedEffect(hostState.tabs.activeSessionId, shellTabs) {
         if (activeTab != null || shellTabs.isEmpty()) return@LaunchedEffect
-        val last = shellTabs.lastOrNull() ?: return@LaunchedEffect
+        val last = shellTabs.firstOrNull { it.sessionId == lastShellId } ?: shellTabs.lastOrNull() ?: return@LaunchedEffect
         SshSessions.selectTab(hostId, last.sessionId)
     }
 
@@ -202,14 +206,6 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
         if (focusPolicy.requestFocus()) terminal.openKeyboard()
     }
 
-    fun goBack() {
-        val files = filesTab
-        if (files != null) {
-            SshSessions.closeTab(hostId, files.sessionId)
-        } else {
-            nav.popBackStack()
-        }
-    }
 
     fun selectSession(sessionId: String) {
         SshSessions.selectTab(hostId, sessionId)
@@ -253,13 +249,32 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
         }
     }
 
-    // The latched Ctrl/Alt modifier for the extra key row. Owned here, not
-    // inside the row, so committed IME input can consume it too.
+    // The latched Ctrl, Alt, or Shift modifier for the extra key row. Owned
+    // here, not inside the row, so committed IME input can consume it too.
     var latchedModifier by remember { mutableStateOf<ModifierKey?>(null) }
     var hasSelection by remember { mutableStateOf(false) }
     var renameTargetId by remember(hostId) { mutableStateOf<String?>(null) }
     var confirmDisconnect by remember { mutableStateOf(false) }
     var closeTargetId by remember { mutableStateOf<String?>(null) }
+
+    fun goBack() {
+        when {
+            filesTab == null && hasSelection -> terminal.clearSelection()
+            imeVisible -> terminal.hideKeyboard()
+            filesTab != null -> {
+                if (filesNavigation.goBack()) return
+                val shell = shellTabs.firstOrNull { it.sessionId == lastShellId && it.kind == SshTabKind.Shell }
+                    ?: shellTabs.lastOrNull { it.kind == SshTabKind.Shell }
+                if (shell != null) selectSession(shell.sessionId) else nav.popBackStack()
+            }
+            else -> nav.popBackStack()
+        }
+    }
+
+    fun closeFilesTab(sessionId: String) {
+        filesState.removeState(sessionId)
+        SshSessions.closeTab(hostId, sessionId)
+    }
 
     val title = host?.let(::hostDisplayName) ?: "SSH"
     // The header already names the host. The second line identifies the
@@ -288,7 +303,7 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
             actionLabel = "Retry",
             onAction = { SshSessions.reconnectTab(hostId, failedTab.sessionId) },
             secondaryActionLabel = "Edit connection",
-            onSecondaryAction = { nav.navigate(Routes.hostEditor(hostId)) },
+            onSecondaryAction = { nav.openRoute(Routes.hostEditor(hostId)) },
             details = failedTab.detail.ifBlank { "No additional connection details were provided." },
         )
         lookup?.error != null -> TerminalFailure(
@@ -332,7 +347,7 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
         ScreenAction(
             key = "rename",
             icon = Icons.Filled.Edit,
-            title = "Rename session",
+            title = if (filesTab != null) "Rename files tab" else "Rename session",
             enabled = activeTab != null,
             onClick = { renameTargetId = activeTab?.sessionId },
         ),
@@ -341,10 +356,11 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
             icon = Icons.Filled.Close,
             title = if (activeTab?.kind == SshTabKind.Files) "Close files tab" else "Close session",
             enabled = activeTab != null,
+            destructive = activeTab?.kind == SshTabKind.Shell,
             onClick = {
                 activeTab?.let { active ->
                     if (active.kind == SshTabKind.Files) {
-                        SshSessions.closeTab(hostId, active.sessionId)
+                        closeFilesTab(active.sessionId)
                     } else {
                         closeTargetId = active.sessionId
                     }
@@ -355,14 +371,14 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
             key = "selectAll",
             icon = Icons.Filled.SelectAll,
             title = "Select all",
-            enabled = activeTab != null,
+            enabled = shellSelected,
             onClick = { terminal.selectAll() },
         ),
         ScreenAction(
             key = "copy",
             icon = Icons.Filled.ContentCopy,
             title = "Copy",
-            enabled = activeTab != null,
+            enabled = shellSelected && hasSelection,
             onClick = {
                 val text = terminal.copySelection()
                 if (text.isNullOrEmpty()) notify("Nothing is selected") else notify("Copied")
@@ -372,7 +388,7 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
             key = "paste",
             icon = Icons.Filled.ContentPaste,
             title = "Paste",
-            enabled = activeTab != null,
+            enabled = shellSelected,
             onClick = {
                 val text = readClipboardText(context)
                 if (text.isNullOrEmpty()) {
@@ -389,7 +405,7 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
             key = "paste-image",
             icon = Icons.Filled.Image,
             title = "Paste an image",
-            enabled = activeTab != null,
+            enabled = shellSelected,
             onClick = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
         ),
         ScreenAction(
@@ -432,7 +448,7 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
             onCloseTab = { closedId ->
                 val closed = shellTabs.firstOrNull { it.sessionId == closedId }
                 if (closed?.kind == SshTabKind.Files) {
-                    SshSessions.closeTab(hostId, closedId)
+                    closeFilesTab(closedId)
                 } else {
                     closeTargetId = closedId
                 }
@@ -448,15 +464,7 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
             failure = failure,
             showKeyRow = settings.showExtraKeyRow,
             activeModifier = latchedModifier,
-            onKey = { key ->
-                terminal.clearComposition()
-                val result = transformKey(key, latchedModifier)
-                if (result != null) {
-                    if (result.clearModifier) latchedModifier = null
-                    if (result.notice != null) notify(result.notice)
-                    SshSessions.sendInput(hostId, result.bytes)
-                }
-            },
+            onKey = { key -> terminal.sendKey(key) },
             onModifier = { pressed ->
                 terminal.clearComposition()
                 latchedModifier = if (latchedModifier == pressed) null else pressed
@@ -466,11 +474,14 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
             onKeyboard = { requestKeyboard.value() },
             pane = if (filesTab == null) null else {
                 {
-                    FilesScreen(
-                        hostId = hostId,
-                        onClose = { SshSessions.closeTab(hostId, filesTab.sessionId) },
-                        tabId = filesTab.sessionId,
-                    )
+                    filesState.SaveableStateProvider(filesTab.sessionId) {
+                        FilesScreen(
+                            hostId = hostId,
+                            onClose = { closeFilesTab(filesTab.sessionId) },
+                            tabId = filesTab.sessionId,
+                            navigation = filesNavigation,
+                        )
+                    }
                 }
             },
         ) { paneModifier ->
@@ -478,12 +489,10 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
                 sessionKey = paneSessionKey,
                 fontSizeSp = settings.terminalFontSize,
                 cursorStyle = settings.cursorStyle,
-                onInput = { bytes ->
-                    val result = applyModifier(bytes, latchedModifier)
-                    if (result.clearModifier) latchedModifier = null
-                    if (result.notice != null) notify(result.notice)
-                    SshSessions.sendInput(hostId, result.bytes)
-                },
+                onInput = { bytes -> SshSessions.sendInput(hostId, bytes) },
+                inputModifier = latchedModifier,
+                onModifierConsumed = { latchedModifier = null },
+                onInputNotice = ::notify,
                 onPtyWrite = { bytes -> SshSessions.sendInput(hostId, bytes) },
                 onResize = { cols, rows -> SshSessions.resizeHost(hostId, cols, rows) },
                 onLinkCopied = { link -> notify("Copied $link") },
@@ -491,7 +500,6 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
                     SettingsState.update(onFailure = { notify("The font size could not be saved.") }) {
                         it.copy(terminalFontSize = sp)
                     }
-                    notify("Terminal text: $sp sp")
                 },
                 modifier = paneModifier.terminalTabSwipe(
                     enabled = shellTabs.size > 1 && !hasSelection,
@@ -550,7 +558,7 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
                     onClick = {
                         confirmDisconnect = false
                         SshSessions.closeHost(hostId)
-                        goBack()
+                        nav.popBackStack()
                     },
                 ) { Text("Disconnect", color = MaterialTheme.colorScheme.error) }
             },
@@ -589,9 +597,13 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
 @Composable
 private fun RenameTabDialog(currentLabel: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
     var draft by rememberSaveable(currentLabel) { mutableStateOf(currentLabel) }
+    var confirmDiscard by remember(currentLabel) { mutableStateOf(false) }
+    fun requestDismiss() {
+        if (draft != currentLabel) confirmDiscard = true else onDismiss()
+    }
     AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Rename session") },
+        onDismissRequest = ::requestDismiss,
+        title = { Text("Rename tab") },
         text = {
             RemotlyTextField(
                 value = draft,
@@ -604,9 +616,18 @@ private fun RenameTabDialog(currentLabel: String, onDismiss: () -> Unit, onConfi
             TextButton(onClick = { onConfirm(draft) }, enabled = draft.isNotBlank()) { Text("Rename") }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = ::requestDismiss) { Text("Cancel") }
         },
     )
+    if (confirmDiscard) {
+        DiscardChangesDialog(
+            onDiscard = {
+                confirmDiscard = false
+                onDismiss()
+            },
+            onKeepEditing = { confirmDiscard = false },
+        )
+    }
 }
 
 /**

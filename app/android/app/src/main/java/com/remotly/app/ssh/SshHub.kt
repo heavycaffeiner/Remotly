@@ -45,7 +45,7 @@ object SshHub {
     fun sessionKey(hostId: String, sessionId: String): String = "$hostId:$sessionId"
 
     fun setEventSink(hostId: String, sink: SshEventSink?) {
-        sinks[hostId] = sink
+        if (sink == null) sinks.remove(hostId) else sinks[hostId] = sink
     }
 
     // Starts a terminal to a stored host. The credential is resolved from the
@@ -84,6 +84,11 @@ object SshHub {
                 return
             }
             closeLocked(key)
+            // A retry reuses the terminal identity so its mounted view stays
+            // valid. Reset the emulator before the new PTY starts, or mouse
+            // mode left by the disconnected application can turn a scroll
+            // over the fresh shell into terminal input.
+            TerminalStore.resetForConnection(sessionId)
             lateinit var session: SshSession
             session = SshSession(
                 host = host,
@@ -91,12 +96,19 @@ object SshHub {
                 store = store,
                 engineFactory = engineFactory,
                 onState = { state ->
-                    emit(hostId, sessionId, "state", stateMap(state))
-                    if (state is SshSessionState.Closed || state is SshSessionState.Failed) {
-                        retire(key, session)
+                    poster.post {
+                        if (sessions[key] !== session) return@post
+                        publish(hostId, sessionId, "state", stateMap(state))
+                        if (state is SshSessionState.Closed || state is SshSessionState.Failed) {
+                            retire(key, session)
+                        }
                     }
                 },
-                onTerminal = { data -> deliverTerminal(hostId, sessionId, data) },
+                onTerminal = { data ->
+                    poster.post {
+                        if (sessions[key] === session) deliverTerminal(hostId, sessionId, data)
+                    }
+                },
             )
             sessions[key] = session
             sizes[key] = cols to rows
@@ -194,12 +206,15 @@ object SshHub {
         val cols = size?.first ?: 80
         val rows = size?.second ?: 24
         TerminalStore.feed(sessionId, data, cols, rows) {}
-        emit(hostId, sessionId, "data", mapOf("data" to "", "length" to data.size, "fastPath" to true))
+        publish(hostId, sessionId, "data", mapOf("data" to "", "length" to data.size, "fastPath" to true))
     }
 
     private fun emit(hostId: String, sessionId: String, name: String, data: Map<String, Any?>) {
-        val sink = sinks[hostId] ?: return
-        poster.post { sink(name, data + ("hostId" to hostId) + ("sessionId" to sessionId)) }
+        poster.post { publish(hostId, sessionId, name, data) }
+    }
+
+    private fun publish(hostId: String, sessionId: String, name: String, data: Map<String, Any?>) {
+        sinks[hostId]?.invoke(name, data + ("hostId" to hostId) + ("sessionId" to sessionId))
     }
 
     // Flattens an SshSessionState for the container. The host-key prompt carries

@@ -10,14 +10,14 @@ package com.remotly.app.ui.terminal
 // visual state drift once the caller has already consumed and cleared it.
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -35,12 +35,22 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -51,8 +61,10 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.launch
 
 /**
  * How long a touch waits before it counts as a key press.
@@ -66,11 +78,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  */
 private const val PRESS_DELAY_MS = 80L
 
-/** Every key keeps at least this touch width; the row itself is the 48dp target. */
-private val KEY_MIN_SIZE = 44.dp
-
-/** Visible key height; the row's height carries the rest of the touch target. */
-private val KEY_HEIGHT = 36.dp
+/** Every key has a full 48dp touch target without changing the row height. */
+private val KEY_MIN_SIZE = 48.dp
 
 private data class KeyDef(
     val key: String,
@@ -83,10 +92,12 @@ private data class KeyDef(
 )
 
 private val KEYS: List<KeyDef> = listOf(
-    KeyDef(key = "esc", label = "Escape", text = "Esc"),
-    KeyDef(key = "tab", label = "Tab", text = "Tab"),
     KeyDef(key = "ctrl", label = "Control", text = "Ctrl", modifier = ModifierKey.CTRL),
     KeyDef(key = "alt", label = "Alt", text = "Alt", modifier = ModifierKey.ALT),
+    KeyDef(key = "shift", label = "Shift", text = "Shift", modifier = ModifierKey.SHIFT),
+    KeyDef(key = "shift-tab", label = "Shift plus Tab", text = "Shift+Tab"),
+    KeyDef(key = "esc", label = "Escape", text = "Esc"),
+    KeyDef(key = "tab", label = "Tab", text = "Tab"),
     KeyDef(key = "slash", label = "Slash", text = "/"),
     KeyDef(key = "pipe", label = "Pipe", text = "|"),
     KeyDef(key = "backslash", label = "Backslash", text = "\\"),
@@ -139,21 +150,23 @@ fun TerminalKeyRow(
     val haptic = LocalHapticFeedback.current
 
     val scrollState = rememberScrollState()
+    val scope = rememberCoroutineScope()
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = modifier,
     ) {
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(48.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(KEY_MIN_SIZE)) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .weight(1f)
                         .horizontalScroll(scrollState)
-                        .padding(horizontal = 8.dp, vertical = 6.dp)
-                        .semantics { contentDescription = "Extra terminal keys. Swipe horizontally to browse." },
+                        .padding(horizontal = 8.dp)
+                        .semantics {
+                            contentDescription = "Extra terminal keys. Swipe horizontally or use More terminal keys to browse."
+                        },
                 ) {
                     for (def in KEYS) {
                         KeyButton(
@@ -176,6 +189,32 @@ fun TerminalKeyRow(
                         )
                     }
                 }
+                // Always reserve this target, so reaching either end never
+                // shifts the key strip or resizes the terminal.
+                IconButton(
+                    onClick = {
+                        scope.launch {
+                            val next = if (scrollState.canScrollForward) {
+                                (scrollState.value + scrollState.viewportSize * 3 / 4)
+                                    .coerceAtMost(scrollState.maxValue)
+                            } else {
+                                0
+                            }
+                            scrollState.animateScrollTo(next)
+                        }
+                    },
+                    enabled = scrollState.canScrollForward || scrollState.canScrollBackward,
+                    modifier = Modifier.defaultMinSize(minWidth = KEY_MIN_SIZE, minHeight = KEY_MIN_SIZE),
+                ) {
+                    Icon(
+                        if (scrollState.canScrollForward) Icons.Filled.KeyboardArrowRight else Icons.Filled.KeyboardArrowLeft,
+                        contentDescription = if (scrollState.canScrollForward) {
+                            "More terminal keys"
+                        } else {
+                            "Back to first terminal keys"
+                        },
+                    )
+                }
                 IconButton(
                     onClick = onKeyboard,
                     modifier = Modifier.defaultMinSize(minWidth = KEY_MIN_SIZE, minHeight = KEY_MIN_SIZE),
@@ -183,7 +222,6 @@ fun TerminalKeyRow(
                     Icon(Icons.Filled.Keyboard, contentDescription = "Show the keyboard")
                 }
             }
-        }
     }
 }
 
@@ -200,25 +238,69 @@ private fun KeyButton(
     val contentColor =
         if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
     val shape = MaterialTheme.shapes.small
+    var pressedByKeyboard by remember(def.key) { mutableStateOf(false) }
+    var focused by remember(def.key) { mutableStateOf(false) }
+    val currentKeyDown = rememberUpdatedState(onKeyDown)
+    val currentKeyUp = rememberUpdatedState(onKeyUp)
 
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .defaultMinSize(minWidth = KEY_MIN_SIZE, minHeight = KEY_HEIGHT)
+            .defaultMinSize(minWidth = KEY_MIN_SIZE, minHeight = KEY_MIN_SIZE)
             .clip(shape)
             .background(backgroundColor)
-            .clearAndSetSemantics {
+            .border(
+                width = if (focused) 2.dp else 1.dp,
+                color = when {
+                    focused -> MaterialTheme.colorScheme.primary
+                    active -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.outlineVariant
+                },
+                shape = shape,
+            )
+            .semantics(mergeDescendants = true) {
                 contentDescription = def.label
                 role = Role.Button
-                // A latched modifier reports as selected rather than only
-                // looking it, so the state is never carried by colour alone.
-                if (def.modifier != null) selected = active
-                onClick(label = "Press") {
+                if (def.modifier != null) {
+                    selected = active
+                    stateDescription = if (active) "On for the next key" else "Off"
+                }
+                onClick(label = if (def.modifier == null) "Press" else if (active) "Turn off" else "Use for the next key") {
                     onKeyDown()
                     onKeyUp()
                     true
                 }
             }
+            .onFocusChanged { state ->
+                focused = state.isFocused
+                if (!state.isFocused && pressedByKeyboard) {
+                    pressedByKeyboard = false
+                    onKeyUp()
+                }
+            }
+            .onKeyEvent { event ->
+                if (event.key != Key.Enter && event.key != Key.Spacebar) {
+                    return@onKeyEvent false
+                }
+                when (event.type) {
+                    KeyEventType.KeyDown -> {
+                        if (!pressedByKeyboard) {
+                            pressedByKeyboard = true
+                            onKeyDown()
+                        }
+                        true
+                    }
+                    KeyEventType.KeyUp -> {
+                        if (pressedByKeyboard) {
+                            pressedByKeyboard = false
+                            onKeyUp()
+                        }
+                        true
+                    }
+                    else -> false
+                }
+            }
+            .focusable()
             .pointerInput(def.key) {
                 detectTapGestures(
                     onPress = {
@@ -231,15 +313,18 @@ private fun KeyButton(
                             null -> {
                                 // Still down once the window elapsed: a
                                 // deliberate hold, not a scroll.
-                                onKeyDown()
-                                tryAwaitRelease()
-                                onKeyUp()
+                                currentKeyDown.value()
+                                try {
+                                    tryAwaitRelease()
+                                } finally {
+                                    currentKeyUp.value()
+                                }
                             }
                             true -> {
                                 // Released inside the window: a genuine,
                                 // quick tap.
-                                onKeyDown()
-                                onKeyUp()
+                                currentKeyDown.value()
+                                currentKeyUp.value()
                             }
                             false -> {
                                 // Cancelled: the row started scrolling
@@ -255,7 +340,14 @@ private fun KeyButton(
         if (icon != null) {
             Icon(icon, contentDescription = null, tint = contentColor)
         } else {
-            Text(text = def.text ?: def.label, color = contentColor, style = MaterialTheme.typography.labelLarge)
+            Text(
+                text = def.text ?: def.label,
+                color = contentColor,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.clearAndSetSemantics {},
+            )
         }
     }
 }

@@ -64,8 +64,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -80,6 +80,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.remotly.app.ui.components.RemotlyTextField
+import com.remotly.app.ui.components.DiscardChangesDialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.remotly.app.herdr.HerdrClient
 import com.remotly.app.herdr.HerdrCreateTab
@@ -148,6 +149,16 @@ fun HostSidebar(
     var createOpen by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var confirmDiscardDraft by remember { mutableStateOf(false) }
+
+    fun dismissDraft() {
+        if (draft != renameFor?.label.orEmpty()) {
+            confirmDiscardDraft = true
+        } else {
+            renameFor = null
+            createOpen = false
+        }
+    }
 
     LaunchedEffect(currentWorkspaceId) {
         if (currentWorkspaceId != null) expanded = currentWorkspaceId
@@ -186,10 +197,16 @@ fun HostSidebar(
     }
 
     fun focusTab(tab: HerdrTab) {
-        // Painted now and confirmed by the event: the row has to answer the
-        // finger, not the round trip.
-        store.applyLocal(hostId, viewSession, HerdrEvent.TabFocused(tab.tabId, tab.workspaceId))
-        act { client.focusHerdrTab(hostId, tab.tabId, viewSession) }
+        val targetSession = viewSession
+        val workspaceLabel = state.workspaces.firstOrNull { it.workspaceId == tab.workspaceId }?.label.orEmpty()
+        store.applyLocal(hostId, targetSession, HerdrEvent.TabFocused(tab.tabId, tab.workspaceId))
+        act {
+            client.focusHerdrTab(hostId, tab.tabId, targetSession)
+            if (targetSession != session) {
+                onEnterWorkspace(HerdrEnterRequest(tab.workspaceId, workspaceLabel, targetSession))
+            }
+            if (!permanent) onClose()
+        }
     }
 
     fun commitRename() {
@@ -294,13 +311,15 @@ fun HostSidebar(
         // app bar's menu action is the explicit way to bring it back.
         content()
     } else {
-        val drawerState = rememberDrawerState(initialValue = if (open) DrawerValue.Open else DrawerValue.Closed)
+        val currentOnClose by rememberUpdatedState(onClose)
+        val drawerState = rememberDrawerState(
+            initialValue = if (open) DrawerValue.Open else DrawerValue.Closed,
+            confirmStateChange = { value ->
+                if (value == DrawerValue.Closed) currentOnClose()
+                true
+            },
+        )
         LaunchedEffect(open) { if (open) drawerState.open() else drawerState.close() }
-        LaunchedEffect(drawerState) {
-            snapshotFlow { drawerState.currentValue }.collect { value ->
-                if (value == DrawerValue.Closed && open) onClose()
-            }
-        }
         ModalNavigationDrawer(
             drawerState = drawerState,
             gesturesEnabled = false,
@@ -313,7 +332,7 @@ fun HostSidebar(
     if (renameFor != null) {
         val subject = renameFor
         AlertDialog(
-            onDismissRequest = { renameFor = null },
+            onDismissRequest = ::dismissDraft,
             title = { Text(if (subject is Subject.Tab) "Rename tab" else "Rename workspace") },
             text = {
                 RemotlyTextField(
@@ -326,13 +345,13 @@ fun HostSidebar(
             confirmButton = {
                 TextButton(onClick = ::commitRename, enabled = draft.isNotBlank()) { Text("Rename") }
             },
-            dismissButton = { TextButton(onClick = { renameFor = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = ::dismissDraft) { Text("Cancel") } },
         )
     }
 
     if (createOpen) {
         AlertDialog(
-            onDismissRequest = { createOpen = false },
+            onDismissRequest = ::dismissDraft,
             title = { Text("New workspace") },
             text = {
                 Column {
@@ -352,7 +371,7 @@ fun HostSidebar(
             confirmButton = {
                 TextButton(onClick = ::commitCreate, enabled = draft.isNotBlank()) { Text("Create") }
             },
-            dismissButton = { TextButton(onClick = { createOpen = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = ::dismissDraft) { Text("Cancel") } },
         )
     }
 
@@ -379,6 +398,16 @@ fun HostSidebar(
                 ) { Text("Close") }
             },
             dismissButton = { TextButton(onClick = { closeFor = null }) { Text("Cancel") } },
+        )
+    }
+    if (confirmDiscardDraft) {
+        DiscardChangesDialog(
+            onDiscard = {
+                confirmDiscardDraft = false
+                renameFor = null
+                createOpen = false
+            },
+            onKeepEditing = { confirmDiscardDraft = false },
         )
     }
 }

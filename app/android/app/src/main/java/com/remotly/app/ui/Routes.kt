@@ -1,5 +1,8 @@
 package com.remotly.app.ui
 
+import android.net.Uri
+import androidx.navigation.NavHostController
+
 /**
  * Every destination, and the argument names its route template uses.
  *
@@ -27,9 +30,9 @@ object Routes {
 
     /** Opens the editor on an existing host, or on a blank form when null. */
     fun hostEditor(hostId: String? = null): String =
-        if (hostId == null) "hostEditor" else "hostEditor?$ARG_HOST_ID=$hostId"
+        if (hostId == null) "hostEditor" else "hostEditor?$ARG_HOST_ID=${Uri.encode(hostId)}"
 
-    fun sshTerminal(hostId: String): String = "sshTerminal/$hostId"
+    fun sshTerminal(hostId: String): String = "sshTerminal/${Uri.encode(hostId)}"
 
 
     fun herdrWorkspace(
@@ -39,10 +42,17 @@ object Routes {
         label: String? = null,
         session: String? = null,
     ): String = buildString {
-        append("herdr/").append(hostId)
-        append("?").append(ARG_HOST_NAME).append("=").append(hostName)
-        if (workspaceId != null) append("&").append(ARG_WORKSPACE_ID).append("=").append(workspaceId)
-        if (label != null) append("&").append(ARG_LABEL).append("=").append(label)
-        if (session != null) append("&").append(ARG_SESSION).append("=").append(session)
+        append("herdr/").append(Uri.encode(hostId))
+        append("?").append(ARG_HOST_NAME).append("=").append(Uri.encode(hostName))
+        if (workspaceId != null) append("&").append(ARG_WORKSPACE_ID).append("=").append(Uri.encode(workspaceId))
+        if (label != null) append("&").append(ARG_LABEL).append("=").append(Uri.encode(label))
+        if (session != null) append("&").append(ARG_SESSION).append("=").append(Uri.encode(session))
+    }
+}
+
+/** Reuse a destination already on the stack without disturbing its live sessions. */
+fun NavHostController.openRoute(route: String) {
+    if (!popBackStack(route, inclusive = false)) {
+        navigate(route) { launchSingleTop = true }
     }
 }

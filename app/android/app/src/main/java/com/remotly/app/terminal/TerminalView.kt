@@ -28,9 +28,14 @@ import android.view.inputmethod.CursorAnchorInfo
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
+import android.widget.Toast
 import com.remotly.app.BuildConfig
 import com.remotly.app.R
 
+import com.remotly.app.ui.terminal.ModifierKey
+import com.remotly.app.ui.terminal.extraKeyEncoding
+import com.remotly.app.ui.terminal.modifiedHardwareKey
+import com.remotly.app.ui.terminal.modifiedTextEncoding
 /**
  * The Android view backed by libghostty-vt (M1-09). Owns the native terminal
  * handle, renders frames to a Canvas, and captures input (IME + hardware keys).
@@ -87,6 +92,10 @@ class TerminalView @JvmOverloads constructor(
   }
 
   var host: Host? = null
+
+  var inputModifier: ModifierKey? = null
+  var onModifierConsumed: (() -> Unit)? = null
+  var onInputNotice: ((String) -> Unit)? = null
 
   private var handle: Long = 0L
   private var frame: TerminalFrame? = null
@@ -223,6 +232,7 @@ class TerminalView @JvmOverloads constructor(
   private var appliedCols = 0
   private var appliedRows = 0
   private var inputConnection: TerminalInputConnection? = null
+  private var inputConnectionGeneration = 0L
   private var sessionReady = false
   private var startupErrorReported = false
 
@@ -328,6 +338,11 @@ class TerminalView @JvmOverloads constructor(
     flingFrameNanos = 0L
     flingReportsWheel = false
   }
+
+  private var fontSizeToast: Toast? = null
+  private var resettingConnectionInput = false
+  private var ignoreTouchUntilDown = false
+
   private val scaleDetector = ScaleGestureDetector(
     context,
     object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -343,9 +358,16 @@ class TerminalView @JvmOverloads constructor(
       }
 
       override fun onScaleEnd(detector: ScaleGestureDetector) {
+        if (resettingConnectionInput) return
         val settled = TerminalZoom.settle(fontSizePx / spToPx(1f))
         fontSizePx = spToPx(settled.toFloat())
         host?.onFontSizeChange(settled)
+        fontSizeToast?.cancel()
+        fontSizeToast = Toast.makeText(
+          context.applicationContext,
+          resources.getString(R.string.terminal_font_size, settled),
+          Toast.LENGTH_SHORT,
+        ).also { it.show() }
       }
     },
   ).apply {
@@ -729,6 +751,10 @@ class TerminalView @JvmOverloads constructor(
    * does not arrive here at all.
    */
   override fun onTouchEvent(event: MotionEvent): Boolean {
+    if (ignoreTouchUntilDown) {
+      if (event.actionMasked != MotionEvent.ACTION_DOWN) return true
+      ignoreTouchUntilDown = false
+    }
     if (doubleTapGestureClaimed) {
       if (event.actionMasked == MotionEvent.ACTION_UP ||
         event.actionMasked == MotionEvent.ACTION_CANCEL
@@ -1078,8 +1104,74 @@ class TerminalView @JvmOverloads constructor(
     val connection = inputConnection ?: return
     if (!connection.isComposing) return
     connection.abandonComposition()
+    inputConnectionGeneration++
     val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
     imm?.restartInput(this)
+  }
+
+  /** Drops input tied to the old connection without sending it to the new PTY. */
+  fun resetConnectionInput() {
+    stopFling()
+    resettingConnectionInput = true
+    try {
+      if (scaleDetector.isInProgress) {
+        val now = SystemClock.uptimeMillis()
+        val cancel = MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, 0f, 0f, 0)
+        try {
+          scaleDetector.onTouchEvent(cancel)
+        } finally {
+          cancel.recycle()
+        }
+      }
+    } finally {
+      resettingConnectionInput = false
+    }
+    ignoreTouchUntilDown = true
+    mouseTracking = false
+    wheelTicker.reset()
+    tapDetector.onCancel()
+    previousTapAtMs = 0L
+    doubleTapGestureClaimed = false
+    scrollTracker.onCancel()
+    releaseVelocityTracker()
+    parent?.requestDisallowInterceptTouchEvent(false)
+    clearSelection()
+    inputConnectionGeneration++
+    inputConnection?.abandonComposition()
+    inputConnection = null
+    composition = CompositionState.NONE
+    invalidate()
+    val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+    imm?.restartInput(this)
+    consumeInputModifier()
+  }
+
+  private fun consumeInputModifier(): ModifierKey? {
+    val modifier = inputModifier ?: return null
+    inputModifier = null
+    onModifierConsumed?.invoke()
+    return modifier
+  }
+
+  /** Encodes a tool key in the terminal's current keyboard mode. */
+  fun sendExtraKey(key: String) {
+    if (handle == 0L) return
+    val encoding = extraKeyEncoding(key, inputModifier) ?: return
+    consumeInputModifier()
+    clearComposition()
+    RemotlyTerminal.nativeSendKey(handle, encoding.key, encoding.mods, encoding.utf8, false)
+    scrollToBottom()
+  }
+
+  private fun sendHardwareKey(event: KeyEvent, composing: Boolean) {
+    if (handle == 0L) return
+    val original = KeyMap.encode(event)
+    val producesInput = !KeyEvent.isModifierKey(event.keyCode) &&
+      (original.key != KeyMap.KEY_UNIDENTIFIED || !original.utf8.isNullOrEmpty())
+    val modifier = if (producesInput) consumeInputModifier() else null
+    val encoding = if (modifier == null) original else modifiedHardwareKey(original, modifier)
+    RemotlyTerminal.nativeSendKey(handle, encoding.key, encoding.mods, encoding.utf8, composing)
+    if (producesInput) scrollToBottom()
   }
 
   /**
@@ -1449,6 +1541,7 @@ class TerminalView @JvmOverloads constructor(
     frame?.reset()
     images.clear()
     composition = CompositionState.NONE
+    inputConnectionGeneration++
     inputConnection = null
     pendingKeyboard = false
     keyboardRetryPosted = false
@@ -1456,6 +1549,8 @@ class TerminalView @JvmOverloads constructor(
 
   override fun onDetachedFromWindow() {
     super.onDetachedFromWindow()
+    fontSizeToast?.cancel()
+    fontSizeToast = null
     // A posted frame callback outliving the view would keep scrolling a
     // terminal nobody is looking at.
     previousTapAtMs = 0L
@@ -1469,6 +1564,7 @@ class TerminalView @JvmOverloads constructor(
     removeCallbacks(accessibilityAnnounceRunnable)
     accessibilityAnnouncePosted = false
     composition = CompositionState.NONE
+    inputConnectionGeneration++
     inputConnection = null
     // A request that never ran must not fire when the view is reattached to a
     // different screen.
@@ -1764,7 +1860,23 @@ class TerminalView @JvmOverloads constructor(
       outAttrs.imeOptions = outAttrs.imeOptions or EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
     }
 
-    val connection = TerminalInputConnection(this, terminalSink, trace = BuildConfig.DEBUG)
+    val generation = ++inputConnectionGeneration
+    // Restarting the IME is asynchronous. Reject queued work from an old
+    // connection even before Android finishes replacing it.
+    val sink = object : TerminalSink {
+      override fun sendText(text: String) {
+        if (generation == inputConnectionGeneration) terminalSink.sendText(text)
+      }
+
+      override fun sendKey(event: KeyEvent, composing: Boolean) {
+        if (generation == inputConnectionGeneration) terminalSink.sendKey(event, composing)
+      }
+
+      override fun onCompositionChanged(state: CompositionState) {
+        if (generation == inputConnectionGeneration) terminalSink.onCompositionChanged(state)
+      }
+    }
+    val connection = TerminalInputConnection(this, sink, trace = BuildConfig.DEBUG)
     inputConnection = connection
     return connection
   }
@@ -1772,8 +1884,15 @@ class TerminalView @JvmOverloads constructor(
   // What the IME connection is allowed to do to this terminal.
   private val terminalSink = object : TerminalSink {
     override fun sendText(text: String) {
-      if (handle != 0L && text.isNotEmpty()) {
-        RemotlyTerminal.nativeSendText(handle, text)
+      if (handle == 0L || text.isEmpty()) return
+      val modifier = consumeInputModifier()
+      val encoding = modifier?.let { modifiedTextEncoding(text, it) }
+      if (encoding != null) {
+        RemotlyTerminal.nativeSendKey(handle, encoding.key, encoding.mods, encoding.utf8, false)
+      } else {
+        if (modifier == ModifierKey.CTRL) onInputNotice?.invoke("Ctrl applies to ASCII keys")
+        val committed = if (modifier == ModifierKey.ALT) "\u001b$text" else text
+        RemotlyTerminal.nativeSendText(handle, committed)
       }
       // Typing returns to the prompt, the way a desktop terminal does. Leaving
       // the viewport in the scrollback would hide the user's own keystrokes.
@@ -1784,10 +1903,7 @@ class TerminalView @JvmOverloads constructor(
     }
 
     override fun sendKey(event: KeyEvent, composing: Boolean) {
-      if (handle == 0L) return
-      val enc = KeyMap.encode(event)
-      RemotlyTerminal.nativeSendKey(handle, enc.key, enc.mods, enc.utf8, composing)
-      scrollToBottom()
+      sendHardwareKey(event, composing)
     }
 
     override fun onCompositionChanged(state: CompositionState) {
@@ -1859,9 +1975,7 @@ class TerminalView @JvmOverloads constructor(
       // A hardware key arriving during composition is marked, so the terminal
       // core can tell it apart from ordinary input.
       val composing = inputConnection?.isComposing == true
-      val enc = KeyMap.encode(event)
-      RemotlyTerminal.nativeSendKey(handle, enc.key, enc.mods, enc.utf8, composing)
-      scrollToBottom()
+      sendHardwareKey(event, composing)
       return true
     }
     return super.onKeyDown(keyCode, event)

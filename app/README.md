@@ -194,6 +194,13 @@ not a shortcut here. Entering another workspace retags that terminal. Two
 workspaces at once means two sessions, each with its own terminal, and the
 sidebar lists the sessions a host has.
 
+Reconnect opens a fresh SSH shell and runs the stored herdr attachment command
+once, including its named session. Herdr retains the session's current focused
+workspace and tab. Ordinary shell commands are not replayed. The terminal keeps
+its scrollback but clears the old connection's mouse and keyboard modes,
+pending touch gestures, and IME composition before accepting new output.
+Callbacks from the replaced SSH connection cannot reach the new terminal.
+
 The workspace terminal's menu invokes the plugin in `plugin/`: `tab-here`,
 `panes-to-tabs`, and `zoom`. `plugin action invoke` answers that the action
 started, never with its output, and the events report what it did; a host
@@ -229,6 +236,9 @@ cannot be told apart reliably enough to share a surface with the font size, so
 nothing navigates with them. Panes are moved from the terminal's menu; the
 sidebar covers tabs and workspaces for anyone who cannot make the gesture.
 
+When a pinch ends, both terminal screens show the settled font size in a Toast
+and save that size. The Toast appears once per gesture, not on every movement.
+
 To exercise the screen against a real server, run one in a container with
 herdr installed and `herdr server` started, publish its SSH port, and add a
 host pointing at it (`10.0.2.2:2222` from an emulator).
@@ -256,6 +266,11 @@ composed and would otherwise come back at the root of a tree the user had
 walked into. The terminal underneath stays composed while a browser is in
 front, since it is what measures the grid every session is opened against.
 The host row's badge counts a host's open tabs, browsers included.
+
+Back first closes the file search, then follows that tab's visited-directory
+history. At the initial directory it returns to a shell or the previous screen
+without closing the Files tab. Its directory, search, and navigation history
+survive tab switches. Closing a tab remains an explicit action.
 
 Both transfer directions have a native path that never copies file bytes
 through an intermediate buffer: the app moves between the content URI and the
@@ -299,9 +314,23 @@ leaving through the launcher and coming back.
 through `AndroidView`. It owns the view's lifetime for one session: a screen
 never holds the view itself, only a `TerminalHandle`
 (`rememberTerminalHandle()`) exposing `openKeyboard`, `hideKeyboard`,
-`selectAll`, `copySelection`, and `paste`. The view is recreated, not rebound,
-whenever the session key changes; rebinding one instance across a session
-switch once let a second shell render over the first one's screen.
+`selectAll`, `copySelection`, `clearSelection`, `clearComposition`, `paste`,
+and `sendKey`. The view is recreated, not rebound, whenever the session key
+changes; rebinding one instance across a session switch once let a second
+shell render over the first one's screen.
+
+The extra-key row starts with Ctrl, Alt, Shift, and Shift+Tab. A modifier
+applies to the next typed key or tool key and can be tapped again to cancel.
+Keys are encoded through the terminal's negotiated keyboard protocol.
+Composed or multi-character IME input is preserved; Ctrl reports when it
+cannot apply to that input. Paste does not use or consume the modifier.
+The row scrolls without changing the terminal height, with a pinned overflow
+button for reaching the remaining keys.
+
+Back dismisses transient UI before leaving a terminal: menus, a compact
+workspace drawer, selection, and the software keyboard. Host editing and
+naming dialogs ask before discarding a changed draft. The host editor uses
+the same current-state guard for system Back, toolbar Back, and Cancel.
 
 ### Four things the rewrite got wrong once
 

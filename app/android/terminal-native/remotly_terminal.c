@@ -769,6 +769,15 @@ static void encode_text_as_keys(RemotlyTerm *st, const uint8_t *utf8,
   }
 }
 
+// Kitty carries the unshifted key separately from its produced text.
+static uint32_t unshifted_ascii(uint8_t c) {
+  if (c >= 'A' && c <= 'Z') return c + ('a' - 'A');
+  static const char shifted[] = "~!@#$%^&*()_+{}|:\"<>?";
+  static const char plain[] = "`1234567890-=[]\\;',./";
+  const char *match = c == 0 ? NULL : strchr(shifted, c);
+  return match ? (uint8_t)plain[match - shifted] : c;
+}
+
 // A single key event. ghosttyKey/ghosttyMods are the GhosttyKey/GhosttyMods
 // integer values mapped on the Kotlin side; utf8 is the printable character
 // (may be empty for special keys); composing marks an in-composition key.
@@ -790,9 +799,11 @@ Java_com_remotly_app_terminal_RemotlyTerminal_nativeSendKey(
     size_t len = 0;
     uint8_t *b = jstring_to_utf8(env, utf8, &len);
     if (b && len > 0) {
-      // A Kitty client encodes an ordinary character from this, not from the
-      // utf8 field, so a printable key needs it set or it encodes to nothing.
-      if (b[0] < 0x80) ghostty_key_event_set_unshifted_codepoint(ev, b[0]);
+      if (b[0] < 0x80) {
+        const uint32_t codepoint = (ghosttyMods & GHOSTTY_MODS_SHIFT)
+            ? unshifted_ascii(b[0]) : b[0];
+        ghostty_key_event_set_unshifted_codepoint(ev, codepoint);
+      }
       // Ghostty keeps this pointer on the event until encode completes. The
       // old code freed it here, leaving a use-after-free that was especially
       // visible for multi-byte IME input.

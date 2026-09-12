@@ -148,7 +148,7 @@ object SshSessions {
             // to, and a program on the other end repaints the terminal's own
             // title on every redraw, which would otherwise replace it.
             var next = if (title != null) setSshTabTitle(afterAdd, sessionId, title, pin = true) else afterAdd
-            if (mux != null || workspaceId != null) {
+            if (mux != null || workspaceId != null || (kind == SshTabKind.Workspace && !runs.isNullOrEmpty())) {
                 next = next.copy(
                     tabs = next.tabs.map { t ->
                         if (t.sessionId != sessionId) {
@@ -158,6 +158,11 @@ object SshSessions {
                                 mux = mux ?: t.mux,
                                 muxSession = if (mux != null) muxSession ?: "" else t.muxSession,
                                 workspaceId = workspaceId ?: t.workspaceId,
+                                reconnectCommand = if (kind == SshTabKind.Workspace) {
+                                    runs?.takeIf { it.isNotEmpty() }
+                                } else {
+                                    null
+                                },
                             )
                         }
                     },
@@ -267,6 +272,7 @@ object SshSessions {
         synchronized(e) {
             val current = e.flow.value
             val tab = findSshTab(current.tabs, sessionId) ?: return
+            pendingRuns.remove(hostId to sessionId)
             // A files tab owns no SSH session; closing one must not tear down
             // a channel that was never opened for it.
             if (tab.kind == SshTabKind.Files) FilesTabs.forget(sessionId) else transport.close(hostId, sessionId)
@@ -280,6 +286,7 @@ object SshSessions {
         val e = hosts.remove(hostId) ?: return
         synchronized(e) {
             for (tab in e.flow.value.tabs.tabs) {
+                pendingRuns.remove(hostId to tab.sessionId)
                 if (tab.kind == SshTabKind.Files) FilesTabs.forget(tab.sessionId) else transport.close(hostId, tab.sessionId)
             }
             transport.setEventSink(hostId, null)
@@ -294,6 +301,10 @@ object SshSessions {
             val tab = findSshTab(current.tabs, sessionId) ?: return
             // A browser has nothing to reconnect; it would get a shell.
             if (tab.kind == SshTabKind.Files) return
+            // Workspace terminals enter a persistent multiplexer after the
+            // shell becomes active. Queue that attachment for every new
+            // transport connection, but let each active event consume it once.
+            tab.reconnectCommand?.let { pendingRuns[hostId to sessionId] = it }
             e.flow.value = current.copy(tabs = setSshTabPhase(current.tabs, sessionId, SshTabPhase.Connecting))
             startSession(hostId, sessionId, e)
         }

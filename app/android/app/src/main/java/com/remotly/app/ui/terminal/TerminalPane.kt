@@ -97,6 +97,14 @@ class TerminalHandle internal constructor() {
         view?.selectAll()
     }
 
+    fun clearSelection() {
+        view?.clearSelection()
+    }
+
+    fun sendKey(key: String) {
+        view?.sendExtraKey(key)
+    }
+
     /** The selected text, or null when nothing is selected. */
     fun copySelection(): String? = view?.copySelection()
 
@@ -146,6 +154,9 @@ fun TerminalPane(
     onDoubleTap: (() -> Unit)? = null,
     onFocusChanged: ((Boolean) -> Unit)? = null,
     onSelectionChanged: ((Boolean) -> Unit)? = null,
+    inputModifier: ModifierKey? = null,
+    onModifierConsumed: () -> Unit = {},
+    onInputNotice: (String) -> Unit = {},
 ) {
     val onInputState = rememberUpdatedState(onInput)
     val onPtyWriteState = rememberUpdatedState(onPtyWrite)
@@ -157,6 +168,8 @@ fun TerminalPane(
     val onDoubleTapState = rememberUpdatedState(onDoubleTap)
     val onFocusChangedState = rememberUpdatedState(onFocusChanged)
     val onSelectionChangedState = rememberUpdatedState(onSelectionChanged)
+    val onModifierConsumedState = rememberUpdatedState(onModifierConsumed)
+    val onInputNoticeState = rememberUpdatedState(onInputNotice)
 
     // retryToken forces a fresh native view without a new session: a startup
     // failure or timeout retries by bumping this rather than by rebinding the
@@ -203,6 +216,9 @@ fun TerminalPane(
                 AndroidView(
                     factory = { ctx ->
                         val view = TerminalView(ctx)
+                        view.inputModifier = inputModifier
+                        view.onModifierConsumed = { onModifierConsumedState.value() }
+                        view.onInputNotice = { onInputNoticeState.value(it) }
                         // The bare id, per the sessionKey contract above.
                         view.sessionId = sessionKey
                         view.cursorStyle = cursor
@@ -281,11 +297,14 @@ fun TerminalPane(
                         view
                     },
                     update = { view ->
+                        view.inputModifier = inputModifier
                         view.cursorStyle = cursor
                         view.setFontSizeSp(fontSizeSp.toFloat())
                     },
                     onRelease = { view ->
                         view.host = null
+                        view.onModifierConsumed = null
+                        view.onInputNotice = null
                         view.release()
                         if (viewRef === view) viewRef = null
                         if (handle?.view === view) handle.view = null
