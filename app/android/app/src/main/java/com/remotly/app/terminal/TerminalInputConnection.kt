@@ -177,6 +177,12 @@ class TerminalInputConnection(
         // Consume the up event as well. Re-dispatching it reaches onKeyUp in
         // the view hierarchy, which would send the key a second time.
         if (event.action != KeyEvent.ACTION_DOWN) return true
+        // A terminal shortcut must not commit preedit as ordinary Enter or
+        // Space would. The sink cancels it before encoding the chord.
+        if (KeyMap.handlesBeforeIme(event.keyCode, event.metaState)) {
+            sink.sendKey(event, composing = false)
+            return true
+        }
 
         return when (controller.onKeyDown(event.keyCode)) {
             TerminalImeController.KeyDecision.COMMIT_THEN_FORWARD -> {

@@ -2,6 +2,8 @@ package com.remotly.app.terminal
 
 import android.view.KeyEvent
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class KeyMapTest {
@@ -81,6 +83,55 @@ class KeyMapTest {
     assertEquals(KeyMap.KEY_UNIDENTIFIED, KeyMap.keyCodeToGhostty(0))
     assertEquals(KeyMap.KEY_UNIDENTIFIED, KeyMap.keyCodeToGhostty(KeyEvent.KEYCODE_DPAD_CENTER))
     assertEquals(KeyMap.KEY_UNIDENTIFIED, KeyMap.keyCodeToGhostty(KeyEvent.KEYCODE_STAR))
+  }
+
+  @Test
+  fun controlIsRemovedOnlyFromCharacterLookup() {
+    val layoutMods = KeyEvent.META_SHIFT_LEFT_ON or KeyEvent.META_SHIFT_ON or
+      KeyEvent.META_ALT_RIGHT_ON or KeyEvent.META_ALT_ON or KeyEvent.META_CAPS_LOCK_ON
+    val ctrlMods = KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON or KeyEvent.META_CTRL_RIGHT_ON
+    assertEquals(layoutMods, KeyMap.textMetaState(layoutMods or ctrlMods))
+    assertEquals(
+      KeyMap.MOD_CTRL or KeyMap.MOD_SHIFT or KeyMap.MOD_ALT,
+      KeyMap.modifiersOf(layoutMods or ctrlMods),
+    )
+  }
+
+  @Test
+  fun eitherControlKeyIsRecognizedWithoutTheAggregateBit() {
+    for (ctrl in listOf(KeyEvent.META_CTRL_LEFT_ON, KeyEvent.META_CTRL_RIGHT_ON)) {
+      assertEquals(KeyMap.MOD_CTRL, KeyMap.modifiersOf(ctrl))
+      assertEquals(0, KeyMap.textMetaState(ctrl))
+      assertTrue(KeyMap.handlesBeforeIme(KeyEvent.KEYCODE_C, ctrl))
+    }
+  }
+
+  @Test
+  fun escapeAndControlChordsAreHandledBeforeTheIme() {
+    assertTrue(KeyMap.handlesBeforeIme(KeyEvent.KEYCODE_ESCAPE, 0))
+    assertTrue(KeyMap.handlesBeforeIme(KeyEvent.KEYCODE_CTRL_LEFT, 0))
+    assertTrue(KeyMap.handlesBeforeIme(KeyEvent.KEYCODE_CTRL_RIGHT, 0))
+    for (key in listOf(KeyEvent.KEYCODE_C, KeyEvent.KEYCODE_SPACE, KeyEvent.KEYCODE_LEFT_BRACKET)) {
+      assertTrue(KeyMap.handlesBeforeIme(key, KeyEvent.META_CTRL_ON))
+    }
+  }
+
+  @Test
+  fun ordinaryTypingAndSystemControlsStayWithAndroid() {
+    assertFalse(KeyMap.handlesBeforeIme(KeyEvent.KEYCODE_A, 0))
+    assertFalse(KeyMap.handlesBeforeIme(KeyEvent.KEYCODE_A, KeyEvent.META_SHIFT_ON))
+    assertFalse(KeyMap.handlesBeforeIme(KeyEvent.KEYCODE_A, KeyEvent.META_ALT_RIGHT_ON))
+    for (key in listOf(
+      KeyEvent.KEYCODE_BACK,
+      KeyEvent.KEYCODE_VOLUME_UP,
+      KeyEvent.KEYCODE_VOLUME_DOWN,
+      KeyEvent.KEYCODE_VOLUME_MUTE,
+      KeyEvent.KEYCODE_POWER,
+    )) {
+      assertTrue(KeyMap.isSystemKey(key))
+      assertFalse(KeyMap.handlesBeforeIme(key, 0))
+      assertFalse(KeyMap.handlesBeforeIme(key, KeyEvent.META_CTRL_ON))
+    }
   }
 
   @Test

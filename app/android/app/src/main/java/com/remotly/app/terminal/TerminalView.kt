@@ -1164,13 +1164,16 @@ class TerminalView @JvmOverloads constructor(
   }
 
   private fun sendHardwareKey(event: KeyEvent, composing: Boolean) {
-    if (handle == 0L) return
+    if (handle == 0L || event.isCanceled || KeyMap.isSystemKey(event.keyCode) ||
+      KeyEvent.isModifierKey(event.keyCode)
+    ) return
+    val shortcut = KeyMap.handlesBeforeIme(event.keyCode, event.metaState)
+    if (shortcut) clearComposition()
     val original = KeyMap.encode(event)
-    val producesInput = !KeyEvent.isModifierKey(event.keyCode) &&
-      (original.key != KeyMap.KEY_UNIDENTIFIED || !original.utf8.isNullOrEmpty())
+    val producesInput = original.key != KeyMap.KEY_UNIDENTIFIED || !original.utf8.isNullOrEmpty()
     val modifier = if (producesInput) consumeInputModifier() else null
     val encoding = if (modifier == null) original else modifiedHardwareKey(original, modifier)
-    RemotlyTerminal.nativeSendKey(handle, encoding.key, encoding.mods, encoding.utf8, composing)
+    RemotlyTerminal.nativeSendKey(handle, encoding.key, encoding.mods, encoding.utf8, composing && !shortcut)
     if (producesInput) scrollToBottom()
   }
 
@@ -1961,24 +1964,32 @@ class TerminalView @JvmOverloads constructor(
     imm.updateCursorAnchorInfo(this, info)
   }
 
-  override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-    // System navigation and device controls are owned by Android, never by
-    // the remote PTY. Consuming Back here trapped users on the terminal screen
-    // whenever the native view held focus.
-    if (keyCode == KeyEvent.KEYCODE_BACK ||
-      keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
-      keyCode == KeyEvent.KEYCODE_VOLUME_DOWN ||
-      keyCode == KeyEvent.KEYCODE_VOLUME_MUTE ||
-      keyCode == KeyEvent.KEYCODE_POWER
-    ) return super.onKeyDown(keyCode, event)
-    if (handle != 0L) {
-      // A hardware key arriving during composition is marked, so the terminal
-      // core can tell it apart from ordinary input.
-      val composing = inputConnection?.isComposing == true
-      sendHardwareKey(event, composing)
-      return true
+  override fun onKeyPreIme(keyCode: Int, event: KeyEvent): Boolean {
+    // An IME can consume Escape or Ctrl chords before onKeyDown sees them.
+    // Leave ordinary typing with the IME for layout and composition support.
+    if (handle != 0L && KeyMap.handlesBeforeIme(keyCode, event.metaState)) {
+      return when (event.action) {
+        KeyEvent.ACTION_DOWN -> onKeyDown(keyCode, event)
+        KeyEvent.ACTION_UP -> true
+        else -> super.onKeyPreIme(keyCode, event)
+      }
     }
-    return super.onKeyDown(keyCode, event)
+    return super.onKeyPreIme(keyCode, event)
+  }
+
+  override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+    if (handle == 0L || KeyMap.isSystemKey(keyCode)) {
+      return super.onKeyDown(keyCode, event)
+    }
+    sendHardwareKey(event, inputConnection?.isComposing == true)
+    return true
+  }
+
+  override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+    if (handle == 0L || KeyMap.isSystemKey(keyCode)) {
+      return super.onKeyUp(keyCode, event)
+    }
+    return true
   }
 
   // --- RemotlyTerminal.Listener (native effects, main thread) ----------------

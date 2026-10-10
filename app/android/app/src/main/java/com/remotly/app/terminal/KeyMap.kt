@@ -56,14 +56,8 @@ object KeyMap {
   private const val KEY_F12 = 132
 
   fun encode(event: KeyEvent): KeyEncoding {
-    var mods = 0
-    if (event.isShiftPressed) mods = mods or MOD_SHIFT
-    if (event.isCtrlPressed) mods = mods or MOD_CTRL
-    if (event.isAltPressed) mods = mods or MOD_ALT
-    if (event.metaState and KeyEvent.META_META_ON != 0) mods = mods or MOD_SUPER
-
     val key = keyCodeToGhostty(event.keyCode)
-    return KeyEncoding(key, mods, textOf(event))
+    return KeyEncoding(key, modifiersOf(event.metaState), textOf(event))
   }
 
   // The text a key produces under the current modifiers. Only ACTION_MULTIPLE
@@ -72,11 +66,41 @@ object KeyMap {
   private fun textOf(event: KeyEvent): String? {
     val chars = event.getCharacters()
     if (!chars.isNullOrEmpty()) return chars.toString()
-    val cp = event.getUnicodeChar(event.metaState)
+    // Ghostty applies Ctrl. Android's Ctrl lookup can return a control code
+    // or no character, losing the text needed to encode the chord.
+    val cp = event.getUnicodeChar(textMetaState(event.metaState))
     if (cp and KeyCharacterMap.COMBINING_ACCENT != 0) return null
-    if (cp < ' '.code) return null
+    if (cp < ' '.code || !Character.isValidCodePoint(cp)) return null
     return String(Character.toChars(cp))
   }
+
+  internal fun textMetaState(metaState: Int): Int = metaState and KeyEvent.META_CTRL_MASK.inv()
+
+  internal fun modifiersOf(metaState: Int): Int {
+    var mods = 0
+    if (metaState and KeyEvent.META_SHIFT_MASK != 0) mods = mods or MOD_SHIFT
+    if (metaState and KeyEvent.META_CTRL_MASK != 0) mods = mods or MOD_CTRL
+    if (metaState and KeyEvent.META_ALT_MASK != 0) mods = mods or MOD_ALT
+    if (metaState and KeyEvent.META_META_MASK != 0) mods = mods or MOD_SUPER
+    return mods
+  }
+
+  internal fun isSystemKey(code: Int): Boolean = when (code) {
+    KeyEvent.KEYCODE_BACK,
+    KeyEvent.KEYCODE_VOLUME_UP,
+    KeyEvent.KEYCODE_VOLUME_DOWN,
+    KeyEvent.KEYCODE_VOLUME_MUTE,
+    KeyEvent.KEYCODE_POWER -> true
+    else -> false
+  }
+
+  internal fun handlesBeforeIme(code: Int, metaState: Int): Boolean =
+    !isSystemKey(code) && (
+      code == KeyEvent.KEYCODE_ESCAPE ||
+        code == KeyEvent.KEYCODE_CTRL_LEFT ||
+        code == KeyEvent.KEYCODE_CTRL_RIGHT ||
+        metaState and KeyEvent.META_CTRL_MASK != 0
+      )
 
   // Internal so JVM unit tests can exercise the mapping without a KeyEvent.
   internal fun keyCodeToGhostty(code: Int): Int = when (code) {

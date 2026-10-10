@@ -327,6 +327,13 @@ cannot apply to that input. Paste does not use or consume the modifier.
 The row scrolls without changing the terminal height, with a pinned overflow
 button for reaching the remaining keys.
 
+Physical keyboards send Escape and Ctrl chords before the IME can consume
+these terminal keys. Ctrl is removed only when looking up the printable
+character; the native encoder still receives the modifier and applies the
+active keyboard protocol. These shortcuts cancel pending IME composition.
+Ordinary typing stays with the IME, and Android Back and device controls are
+not sent to the remote terminal.
+
 Back dismisses transient UI before leaving a terminal: menus, a compact
 workspace drawer, selection, and the software keyboard. Host editing and
 naming dialogs ask before discarding a changed draft. The host editor uses
