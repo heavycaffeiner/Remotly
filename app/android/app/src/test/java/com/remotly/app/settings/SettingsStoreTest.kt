@@ -18,6 +18,89 @@ class SettingsStoreTest {
     private fun store(file: File? = null): SettingsStore =
         SettingsStore(file ?: File(tmp.root, "settings.json"))
 
+    private fun assertFailure(action: () -> Unit) {
+        try { action(); fail("expected settings error") } catch (_: SettingsStoreException) { }
+    }
+
+    @Test
+    fun `strict field types preserve the original file`() {
+        val file = File(tmp.root, "settings.json")
+        for (text in listOf("""{"v":"5"}""", """{"v":5,"dynamicColor":"false"}""", """{"v":5,"terminalFontSize":14.5}""")) {
+            file.writeText(text)
+            assertFailure { store(file).load() }
+            assertEquals(text, file.readText())
+        }
+    }
+
+    @Test
+    fun `legacy explicit key booleans migrate and gestures stay enabled`() {
+        val file = File(tmp.root, "settings.json")
+        for (enabled in listOf(true, false)) {
+            file.writeText("""{"v":4,"showExtraKeyRow":$enabled,"filesSortKey":"size"}""")
+            val settings = store(file).load()
+            assertEquals(if (enabled) ExtraKeyVisibility.Always else ExtraKeyVisibility.Hidden, settings.extraKeyVisibility)
+            assertTrue(settings.navigationGesturesEnabled)
+            assertEquals(AppSettings.SORT_SIZE, settings.filesSortKey)
+        }
+        file.writeText("""{"v":4}""")
+        assertEquals(ExtraKeyVisibility.Automatic, store(file).load().extraKeyVisibility)
+    }
+
+    @Test
+    fun `unknown terminal id falls back and custom requires colors`() {
+        val file = File(tmp.root, "settings.json")
+        file.writeText("""{"v":5,"terminalTheme":{"id":"future"}}""")
+        assertEquals("classic", store(file).load().terminalTheme.id)
+        file.writeText("""{"v":5,"terminalTheme":{"id":"custom"}}""")
+        assertFailure { store(file).load() }
+    }
+
+    @Test
+    fun `invalid custom colors and palette sizes require recovery`() {
+        val file = File(tmp.root, "settings.json")
+        val s = store(file)
+        s.save(AppSettings(terminalTheme = com.remotly.app.terminal.TerminalThemePreference("custom")))
+        val valid = file.readText()
+        val original = com.google.gson.JsonParser.parseString(valid).asJsonObject
+        val custom = original.getAsJsonObject("terminalTheme").getAsJsonObject("custom")
+        custom.addProperty("background", "#123")
+        file.writeText(original.toString())
+        assertFailure { s.load() }
+        assertEquals(original.toString(), file.readText())
+        file.writeText(valid)
+        s.load()
+        val palette = custom.getAsJsonArray("ansi")
+        custom.addProperty("background", "#000000")
+        palette.remove(15)
+        file.writeText(original.toString())
+        assertFailure { s.load() }
+    }
+
+    @Test
+    fun `non JSON syntax and trailing data are rejected`() {
+        val file = File(tmp.root, "settings.json")
+        for (value in listOf("{v:5}", "{\"v\":5} {\"v\":5}", "/*comment*/{\"v\":5}")) {
+            file.writeText(value)
+            assertFailure { store(file).load() }
+        }
+    }
+
+    @Test
+    fun `saving without loading never overwrites malformed external data`() {
+        val file = File(tmp.root, "settings.json")
+        file.writeText("broken")
+        assertFailure { store(file).save(AppSettings()) }
+        assertEquals("broken", file.readText())
+    }
+
+    @Test
+    fun `terminal fields round trip`() {
+        val value = AppSettings(extraKeyVisibility = ExtraKeyVisibility.Hidden, navigationGesturesEnabled = true,
+            terminalTheme = com.remotly.app.terminal.TerminalThemePreference("custom", com.remotly.app.terminal.TerminalThemes.Nord))
+        store().save(value)
+        assertEquals(value, store().load())
+    }
+
     @Test
     fun `missing file loads defaults`() {
         val settings = store(File(tmp.root, "nope/settings.json")).load()
@@ -34,25 +117,25 @@ class SettingsStoreTest {
     }
 
     @Test
-    fun `corrupt file is quarantined and defaults returned`() {
+    fun `corrupt file is preserved until explicit backed up recovery`() {
         val s = store()
         s.save(AppSettings(dynamicColor = false))
         File(tmp.root, "settings.json").writeText("{\"v\":1,\"not")
-        val settings = s.load()
-        assertEquals(AppSettings(), settings)
-        val quarantined = tmp.root.listFiles { f -> f.name.startsWith("settings.corrupt-") }
-        assertEquals(1, quarantined?.size ?: 0)
-        // A fresh save works after quarantine.
-        s.save(AppSettings(dynamicColor = false))
-        assertFalse(s.load().dynamicColor)
+        val original = File(tmp.root, "settings.json").readText()
+        assertFailure { s.load() }
+        assertFailure { s.save(AppSettings()) }
+        assertEquals(original, File(tmp.root, "settings.json").readText())
+        assertEquals(AppSettings(), s.recoverWithDefaults())
+        val backup = tmp.root.listFiles { f -> f.name.startsWith("settings.json.recovery-") }!!.single()
+        assertEquals(original, backup.readText())
     }
 
     @Test
-    fun `wrong version is quarantined`() {
+    fun `wrong version leaves original untouched`() {
         val file = File(tmp.root, "settings.json")
         file.writeText("""{"v":9,"themeMode":"dark"}""")
-        val settings = store(file).load()
-        assertEquals(AppSettings(), settings)
+        assertFailure { store(file).load() }
+        assertTrue(file.readText().contains("dark"))
     }
 
     @Test
@@ -142,7 +225,7 @@ class SettingsStoreTest {
         val file = File(tmp.root, "settings.json")
         file.writeText("""{"v":3}""")
         val settings = store(file).load()
-        assertEquals(AppSettings(), settings)
+        assertEquals(AppSettings(navigationGesturesEnabled = true), settings)
     }
 
     @Test

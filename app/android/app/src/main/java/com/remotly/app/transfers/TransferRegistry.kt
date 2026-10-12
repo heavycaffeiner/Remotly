@@ -95,10 +95,10 @@ object TransferRegistry {
         _transfers.value = list
     }
 
-    /** Drops the oldest settled transfers so the list cannot grow without bound. */
+    /** Caps successful/cancelled history; errors remain until explicitly cleared. */
     private fun trimLocked() {
         val settled = records.values
-            .filter { it.phase != TransferPhase.Active }
+            .filter { it.phase == TransferPhase.Done || it.phase == TransferPhase.Cancelled }
             .sortedBy { it.endedAt ?: 0L }
         val excess = settled.size - SETTLED_CAP
         for (i in 0 until excess) {

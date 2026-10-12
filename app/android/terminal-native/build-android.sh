@@ -16,12 +16,9 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ANDROID_DIR="$(cd "$HERE/.." && pwd)"
 
-if [ -f "$HOME/.bashrc.d/android-toolchain.sh" ]; then
-  # shellcheck source=/dev/null
-  source "$HOME/.bashrc.d/android-toolchain.sh"
-fi
+source "$HOME/.config/shell/development.sh"
 
-GHOSTTY_DIR="${GHOSTTY_DIR:-$HOME/opt/ghostty}"
+GHOSTTY_DIR="${GHOSTTY_DIR:-$HOME/Toolchains/ghostty}"
 NDK="${NDK:-${ANDROID_NDK_HOME:-}}"
 if [ -z "$NDK" ]; then
   echo "ERROR: set NDK or ANDROID_NDK_HOME to the Android NDK root" >&2
@@ -74,11 +71,13 @@ for zig_target in "${abis[@]}"; do
   fi
   read -r ndk_triple dir <<<"${TRIPLE[$zig_target]}"
   a_path="$STAGE/$dir/libghostty-vt.a"
-  if [ ! -f "$a_path" ]; then
+  pin_path="$STAGE/$dir/commit.txt"
+  if [ ! -f "$a_path" ] || [ ! -f "$pin_path" ] || [ "$(<"$pin_path")" != "$pinned_commit" ]; then
     echo ">> [$dir] building static libghostty-vt ($zig_target)"
     (cd "$GHOSTTY_DIR" && zig build -Demit-lib-vt=true -Doptimize=ReleaseFast -Dtarget="$zig_target")
     mkdir -p "$STAGE/$dir"
     cp "$GHOSTTY_DIR/zig-out/lib/libghostty-vt.a" "$a_path"
+    printf '%s\n' "$pinned_commit" > "$pin_path"
   else
     echo ">> [$dir] using staged $a_path"
   fi

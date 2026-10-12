@@ -97,6 +97,10 @@ object TerminalNotifications {
             .setAutoCancel(true)
             .build()
 
-        runCatching { NotificationManagerCompat.from(context).notify(nextId(), notification) }
+        try {
+            NotificationManagerCompat.from(context).notify(nextId(), notification)
+        } catch (_: SecurityException) {
+            // The runtime grant can be revoked after the check.
+        }
     }
 }

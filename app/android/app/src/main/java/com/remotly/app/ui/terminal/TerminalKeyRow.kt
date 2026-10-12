@@ -22,10 +22,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -101,10 +100,10 @@ private val KEYS: List<KeyDef> = listOf(
     KeyDef(key = "slash", label = "Slash", text = "/"),
     KeyDef(key = "pipe", label = "Pipe", text = "|"),
     KeyDef(key = "backslash", label = "Backslash", text = "\\"),
-    KeyDef(key = "left", label = "Arrow left", icon = Icons.Filled.KeyboardArrowLeft, repeats = true),
+    KeyDef(key = "left", label = "Arrow left", icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft, repeats = true),
     KeyDef(key = "down", label = "Arrow down", icon = Icons.Filled.KeyboardArrowDown, repeats = true),
     KeyDef(key = "up", label = "Arrow up", icon = Icons.Filled.KeyboardArrowUp, repeats = true),
-    KeyDef(key = "right", label = "Arrow right", icon = Icons.Filled.KeyboardArrowRight, repeats = true),
+    KeyDef(key = "right", label = "Arrow right", icon = Icons.AutoMirrored.Filled.KeyboardArrowRight, repeats = true),
     KeyDef(key = "home", label = "Home", text = "Home"),
     KeyDef(key = "end", label = "End", text = "End"),
     KeyDef(key = "pageup", label = "Page up", text = "PgUp", repeats = true),
@@ -120,8 +119,7 @@ private val KEYS: List<KeyDef> = listOf(
  * @param activeModifier the modifier currently latched by the caller, if any.
  * @param repeatDelayMs delay before a held key starts repeating.
  * @param haptics whether to give haptic feedback on each key.
- * @param onKeyboard opens the software keyboard. Pinned beside the scrolling
- *   keys so it stays reachable however far the strip has been scrolled.
+ * @param onKeyboard retained for source compatibility; no keyboard control is drawn.
  */
 @Composable
 fun TerminalKeyRow(
@@ -130,7 +128,7 @@ fun TerminalKeyRow(
     activeModifier: ModifierKey?,
     repeatDelayMs: Int,
     haptics: Boolean,
-    onKeyboard: () -> Unit,
+    onKeyboard: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val onKeyState = rememberUpdatedState(onKey)
@@ -157,6 +155,18 @@ fun TerminalKeyRow(
         modifier = modifier,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(KEY_MIN_SIZE)) {
+                for (def in KEYS.filter { it.key == "esc" || it.key == "ctrl" }) {
+                    KeyButton(
+                        def = def,
+                        active = def.modifier != null && def.modifier == activeModifier,
+                        onKeyDown = {
+                            if (haptics) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            repeater.stop()
+                            if (def.modifier != null) onModifier(def.modifier) else onKey(def.key)
+                        },
+                        onKeyUp = {},
+                    )
+                }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -165,10 +175,10 @@ fun TerminalKeyRow(
                         .horizontalScroll(scrollState)
                         .padding(horizontal = 8.dp)
                         .semantics {
-                            contentDescription = "Extra terminal keys. Swipe horizontally or use More terminal keys to browse."
+                            contentDescription = "Terminal keys"
                         },
                 ) {
-                    for (def in KEYS) {
+                    for (def in KEYS.filter { it.key != "esc" && it.key != "ctrl" }) {
                         KeyButton(
                             def = def,
                             active = def.modifier != null && def.modifier == activeModifier,
@@ -207,19 +217,13 @@ fun TerminalKeyRow(
                     modifier = Modifier.defaultMinSize(minWidth = KEY_MIN_SIZE, minHeight = KEY_MIN_SIZE),
                 ) {
                     Icon(
-                        if (scrollState.canScrollForward) Icons.Filled.KeyboardArrowRight else Icons.Filled.KeyboardArrowLeft,
+                        if (scrollState.canScrollForward) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                         contentDescription = if (scrollState.canScrollForward) {
                             "More terminal keys"
                         } else {
                             "Back to first terminal keys"
                         },
                     )
-                }
-                IconButton(
-                    onClick = onKeyboard,
-                    modifier = Modifier.defaultMinSize(minWidth = KEY_MIN_SIZE, minHeight = KEY_MIN_SIZE),
-                ) {
-                    Icon(Icons.Filled.Keyboard, contentDescription = "Show the keyboard")
                 }
             }
     }
@@ -239,6 +243,7 @@ private fun KeyButton(
         if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
     val shape = MaterialTheme.shapes.small
     var pressedByKeyboard by remember(def.key) { mutableStateOf(false) }
+    var pressedByTouch by remember(def.key) { mutableStateOf(false) }
     var focused by remember(def.key) { mutableStateOf(false) }
     val currentKeyDown = rememberUpdatedState(onKeyDown)
     val currentKeyUp = rememberUpdatedState(onKeyUp)
@@ -261,9 +266,11 @@ private fun KeyButton(
             .semantics(mergeDescendants = true) {
                 contentDescription = def.label
                 role = Role.Button
-                if (def.modifier != null) {
-                    selected = active
-                    stateDescription = if (active) "On for the next key" else "Off"
+                selected = active || pressedByKeyboard || pressedByTouch
+                stateDescription = when {
+                    def.modifier != null -> if (active) "On" else "Off"
+                    pressedByKeyboard || pressedByTouch -> "Pressed"
+                    else -> "Released"
                 }
                 onClick(label = if (def.modifier == null) "Press" else if (active) "Turn off" else "Use for the next key") {
                     onKeyDown()
@@ -313,10 +320,12 @@ private fun KeyButton(
                             null -> {
                                 // Still down once the window elapsed: a
                                 // deliberate hold, not a scroll.
+                                pressedByTouch = true
                                 currentKeyDown.value()
                                 try {
                                     tryAwaitRelease()
                                 } finally {
+                                    pressedByTouch = false
                                     currentKeyUp.value()
                                 }
                             }

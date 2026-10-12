@@ -11,7 +11,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
@@ -22,7 +21,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.NavHostController
 import androidx.navigation.navArgument
 import com.remotly.app.settings.SettingsState
-import com.remotly.app.ui.components.TransferBar
+import com.remotly.app.terminal.TerminalStore
 import com.remotly.app.ui.screens.SettingsContent
 import com.remotly.app.ui.screens.HerdrWorkspaceScreen
 import com.remotly.app.ui.screens.HostEditorScreen
@@ -30,14 +29,7 @@ import com.remotly.app.ui.screens.MainTabs
 import com.remotly.app.ui.screens.SshTerminalScreen
 import com.remotly.app.ui.theme.RemotlyTheme
 
-/**
- * The whole app: one theme, one navigation graph.
- *
- * The transfer bar and its sheet sit above the graph rather than inside a
- * screen. Transfers outlive the screen that started them, so an indicator
- * mounted within one disappears the moment the user navigates anywhere else,
- * which is exactly when they most want to see it.
- */
+/** The workspace shell owns navigation and transfer placement around one graph. */
 @Composable
 fun RemotlyApp() {
     val settings by SettingsState.settings.collectAsStateWithLifecycle()
@@ -50,14 +42,12 @@ fun RemotlyApp() {
         ready = true
     }
 
+    LaunchedEffect(settings.terminalTheme) { TerminalStore.applyTheme(settings.terminalTheme.resolve()) }
     RemotlyTheme(settings) {
         Surface(color = MaterialTheme.colorScheme.background) {
             Box(Modifier.fillMaxSize()) {
                 if (ready) RemotlyNavHost()
-                // Pinned to the bottom edge over whatever screen is up,
-                // because a transfer belongs to the app rather than to the
-                // screen that started it.
-                TransferBar(Modifier.align(Alignment.BottomCenter))
+
             }
         }
     }
@@ -67,9 +57,12 @@ fun RemotlyApp() {
 private fun RemotlyNavHost() {
     val nav = rememberNavController()
     AppBackHandler(nav)
+    WorkspaceShell(nav) {
     NavHost(navController = nav, startDestination = Routes.HOSTS) {
         composable(Routes.HOSTS) { MainTabs(nav) }
-        composable(Routes.SETTINGS) { MainTabs(nav) { SettingsContent() } }
+        composable(Routes.SESSIONS) { SessionsContent(nav) }
+        composable(Routes.SETTINGS) { SettingsContent() }
+        composable(Routes.TERMINAL_APPEARANCE) { SettingsContent("Terminal appearance") }
 
         composable(
             Routes.HOST_EDITOR,
@@ -133,6 +126,7 @@ private fun RemotlyNavHost() {
                 nav = nav,
             )
         }
+    }
     }
 }
 

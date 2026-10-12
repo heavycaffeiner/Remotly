@@ -1,5 +1,10 @@
 package com.remotly.app.ui.terminal
 
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerType
+import com.remotly.app.terminal.TerminalTheme
+import com.remotly.app.terminal.TerminalThemes
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
@@ -46,6 +51,7 @@ fun Modifier.terminalTabSwipe(enabled: Boolean, onSwipe: (Int) -> Unit): Modifie
     return pointerInput(onSwipe) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            if (down.type != PointerType.Touch) return@awaitEachGesture
             val tracker = VelocityTracker()
             tracker.addPosition(down.uptimeMillis, down.position)
             var claimed = false
@@ -81,6 +87,9 @@ fun Modifier.terminalTabSwipe(enabled: Boolean, onSwipe: (Int) -> Unit): Modifie
 @Stable
 class TerminalHandle internal constructor() {
     internal var view: TerminalView? = null
+
+    /** Focuses the terminal without opening or hiding the IME. */
+    fun focus(): Boolean = view?.requestFocus() ?: false
 
     /** Brings up the keyboard, focusing the terminal first if it has to. */
     fun openKeyboard(): Boolean = view?.openKeyboard() ?: false
@@ -157,6 +166,10 @@ fun TerminalPane(
     inputModifier: ModifierKey? = null,
     onModifierConsumed: () -> Unit = {},
     onInputNotice: (String) -> Unit = {},
+    onContextMenuRequested: ((x: Float, y: Float) -> Unit)? = null,
+    legacyTouchNavigationEnabled: Boolean = false,
+    theme: TerminalTheme = TerminalThemes.Classic,
+    touchpadGesturesEnabled: Boolean = true,
 ) {
     val onInputState = rememberUpdatedState(onInput)
     val onPtyWriteState = rememberUpdatedState(onPtyWrite)
@@ -170,6 +183,7 @@ fun TerminalPane(
     val onSelectionChangedState = rememberUpdatedState(onSelectionChanged)
     val onModifierConsumedState = rememberUpdatedState(onModifierConsumed)
     val onInputNoticeState = rememberUpdatedState(onInputNotice)
+    val onContextMenuRequestedState = rememberUpdatedState(onContextMenuRequested)
 
     // retryToken forces a fresh native view without a new session: a startup
     // failure or timeout retries by bumping this rather than by rebinding the
@@ -202,7 +216,7 @@ fun TerminalPane(
     }
     DisposableEffect(instanceKey) { onDispose { resizeScheduler.cancel() } }
 
-    Box(modifier = modifier.clipToBounds()) {
+    Box(modifier = modifier.background(Color(theme.background)).clipToBounds()) {
         val failure = errorMessage
         if (failure != null) {
             ErrorState(
@@ -217,6 +231,9 @@ fun TerminalPane(
                     factory = { ctx ->
                         val view = TerminalView(ctx)
                         view.inputModifier = inputModifier
+                        view.theme = theme
+                        view.legacyTouchNavigationEnabled = legacyTouchNavigationEnabled
+                        view.touchpadGesturesEnabled = touchpadGesturesEnabled
                         view.onModifierConsumed = { onModifierConsumedState.value() }
                         view.onInputNotice = { onInputNoticeState.value(it) }
                         // The bare id, per the sessionKey contract above.
@@ -271,6 +288,10 @@ fun TerminalPane(
                                 return true
                             }
 
+                            override fun onContextMenuRequested(x: Float, y: Float) {
+                                onContextMenuRequestedState.value?.invoke(x, y)
+                            }
+
                             override fun onPtyWrite(data: ByteArray) {
                                 onPtyWriteState.value(data)
                             }
@@ -297,6 +318,9 @@ fun TerminalPane(
                         view
                     },
                     update = { view ->
+                        view.theme = theme
+                        view.legacyTouchNavigationEnabled = legacyTouchNavigationEnabled
+                        view.touchpadGesturesEnabled = touchpadGesturesEnabled
                         view.inputModifier = inputModifier
                         view.cursorStyle = cursor
                         view.setFontSizeSp(fontSizeSp.toFloat())

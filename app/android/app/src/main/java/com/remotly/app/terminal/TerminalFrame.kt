@@ -46,6 +46,8 @@ class TerminalFrame {
     private set
   var defaultFg = 0
     private set
+  var cursorColor = 0
+    private set
 
   /** Decoded cell text, addressed by [textOffsetAt] and [textLengthAt]. */
   var chars = CharArray(INITIAL_CHARS)
@@ -107,7 +109,7 @@ class TerminalFrame {
    *
    * Direct, so native writes into it without a copy through the JVM heap, and
    * kept for the life of the frame so a draw allocates nothing. Sized for the
-   * worst case the serializer declares, which is 16 header bytes plus 73 per
+   * worst case the serializer declares, which is 20 header bytes plus 73 per
    * cell: a smaller guess makes every draw serialize twice, once to be told
    * the size and again to get the frame.
    */
@@ -128,7 +130,7 @@ class TerminalFrame {
    * frame intact so a bad read shows the last good screen rather than nothing.
    */
   fun parseFromBuffer(len: Int): Boolean {
-    if (len <= 0) return false
+    if (len <= 0 || len > buffer.capacity()) return false
     if (scratch.size < len) scratch = ByteArray(len)
     buffer.position(0)
     buffer.get(scratch, 0, len)
@@ -144,49 +146,44 @@ class TerminalFrame {
    */
   fun parse(src: ByteArray, len: Int = src.size): Boolean {
     if (len < HEADER_SIZE || len > src.size) return false
-    var o = 0
 
     val newCols = (src[0].toInt() and 0xff) or ((src[1].toInt() and 0xff) shl 8)
     val newRows = (src[2].toInt() and 0xff) or ((src[3].toInt() and 0xff) shl 8)
-    if (newCols <= 0 || newRows <= 0) return false
+    if (newCols !in 1..512 || newRows !in 1..512) return false
     val cells = newCols * newRows
     if (cells > MAX_CELLS) return false
 
     val newCursorX = (src[4].toInt() and 0xff) or ((src[5].toInt() and 0xff) shl 8)
     val newCursorY = (src[6].toInt() and 0xff) or ((src[7].toInt() and 0xff) shl 8)
-    val newCursorVisible = src[8].toInt() != 0
-    // src[9] is padding.
+    if (src[8].toInt() !in 0..1 || src[9].toInt() != 1) return false
+    val newCursorVisible = src[8].toInt() == 1
+    if (newCursorVisible && (newCursorX >= newCols || newCursorY >= newRows)) return false
     val newBg = rgb(src, 10)
     val newFg = rgb(src, 13)
-    o = HEADER_SIZE
+    val newCursorColor = rgb(src, 16)
+    if (src[19].toInt() != 0) return false
+    var o = HEADER_SIZE
+    // Validate the complete record boundary before mutating the reusable arrays.
+    var boundary = HEADER_SIZE
+    repeat(cells) {
+      if (boundary + 9 > len) return false
+      if ((src[boundary].toInt() and 255) > 3) return false
+      val textBytes = src[boundary + 8].toInt() and 255
+      if (textBytes > 64) return false
+      boundary += 9 + textBytes
+      if (boundary > len) return false
+    }
+    if (boundary != len) return false
 
     ensureCells(cells)
-    // Cells are written in place, so a parse that gives up halfway leaves the
-    // start of this frame in front of the tail of the last one. The grid is
-    // marked empty for the duration: a caller that draws after a failure then
-    // shows nothing rather than two screens spliced together.
-    val previousCols = cols
-    val previousRows = rows
-    cols = 0
-    rows = 0
     var charPos = 0
     for (i in 0 until cells) {
-      if (o + 9 > len) {
-        // Nothing has been overwritten only while i is zero. Past that the
-        // arrays hold a mixture of both frames and must not be drawn.
-        restoreDimensions(i, previousCols, previousRows)
-        return false
-      }
       val w = src[o].toInt() and 0xff
       val fl = src[o + 1].toInt() and 0xff
       val cellFg = rgb(src, o + 2)
       val cellBg = rgb(src, o + 5)
       val textLen = src[o + 8].toInt() and 0xff
       o += 9
-      if (o + textLen > len) {
-        restoreDimensions(i, previousCols, previousRows)
-        return false
-      }
 
       // A decoded cluster is never longer in chars than it is in bytes.
       if (chars.size < charPos + textLen) {
@@ -211,22 +208,8 @@ class TerminalFrame {
     cursorVisible = newCursorVisible
     defaultBg = newBg
     defaultFg = newFg
+    cursorColor = newCursorColor
     return true
-  }
-
-  /**
-   * Puts back the grid a failed parse was measured against.
-   *
-   * Only when no cell was overwritten, which is the case for a failure on the
-   * very first one. Past that the arrays hold the head of this frame over the
-   * tail of the last, so the dimensions stay zero and nothing is drawn from
-   * them.
-   */
-  private fun restoreDimensions(cellsWritten: Int, previousCols: Int, previousRows: Int) {
-    if (cellsWritten > 0) return
-    if (previousCols <= 0 || previousRows <= 0) return
-    cols = previousCols
-    rows = previousRows
   }
 
   private fun ensureCells(n: Int) {
@@ -241,7 +224,7 @@ class TerminalFrame {
   }
 
   private companion object {
-    const val HEADER_SIZE = 16
+    const val HEADER_SIZE = 20
 
     /**
      * Worst-case bytes one cell serializes to: 9 fixed plus up to 64 of UTF-8.

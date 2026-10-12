@@ -2,7 +2,6 @@ package com.remotly.app.terminal
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -247,14 +246,10 @@ class BundledFontRenderingTest {
     }
 
     /**
-     * Inverse and selection swap a cell's colours, and both together swap back.
-     *
-     * Splitting the draw into a background pass and a glyph pass moved this
-     * logic out of the single loop that used to hold it, so the result is
-     * checked against the pixels rather than against the code.
+     * Selection has its own theme colors and takes precedence over inverse.
      */
     @Test
-    fun inverseAndSelectionSwapTheCellColours() {
+    fun selectionThemeTakesPrecedenceOverRemoteInverse() {
         val renderer = TerminalRenderer(context, density = 3f)
         renderer.fontSizePx = 48f
         val cellW = renderer.cellWidthPx
@@ -271,8 +266,7 @@ class BundledFontRenderingTest {
 
         assertTrue("inverse changes the cell", inverse != plain)
         assertTrue("selection changes the cell", selected != plain)
-        // Applied in turn, so the pair swaps back and reads as ordinary text.
-        assertEquals("inverse and selection together swap back", plain, both)
+        assertEquals("selection colors remain legible over inverse", selected, both)
     }
 
     /** The colour at the centre of a single-cell frame holding [text]. */
@@ -358,9 +352,11 @@ class BundledFontRenderingTest {
         u16(0)
         // The cursor would paint a bar over the first cell.
         out.write(0)
-        out.write(0)
+        out.write(1)
         rgb(defaultBg)
         rgb(fg)
+        rgb(fg)
+        out.write(0)
         for ((x, text) in texts.withIndex()) {
             out.write(CellFlags.WIDE_NARROW)
             out.write(flagsOf(x))

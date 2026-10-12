@@ -35,9 +35,11 @@ class CellSpillTest {
         u16(0)
         u16(0)
         out.write(1)
-        out.write(0)
+        out.write(1)
         rgb(bg)
         rgb(fg)
+        rgb(fg)
+        out.write(0)
         for (c in cells) {
             out.write(c.wide)
             out.write(c.flags)

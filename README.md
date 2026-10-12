@@ -46,15 +46,17 @@ from this repository to keep the signing identity consistent.
 - Bracketed paste, OSC 52 clipboard writes, OSC 8 links, and bare URL detection
 - OSC 9 and OSC 777 notifications
 - Kitty graphics protocol images rendered in the terminal grid
-- Configurable font size, cursor style, haptics, and an extra terminal key row
+- Configurable font size, cursor style, haptics, and Automatic/Always/Hidden extra keys
+- Six terminal color presets and a custom theme editor with a native preview
+- Mouse and touchpad scrolling, Shift tracking bypass, and Ctrl+scroll font adjustment
 - Image selection that uploads to `~/.remotly/` and inserts the remote path
 
 ### Files
 
-- SFTP browsing in tabs beside shell sessions
+- SFTP browsing in tabs beside shell sessions or in a resizable companion pane
 - Full-directory search, sorting, hidden-file control, and breadcrumbs
 - Uploads and downloads through Android's document picker
-- Transfer progress that remains visible across screens
+- Transfer controls shared across screens, with failures retained until cleared
 - Resume support where the remote and local files can be verified safely
 - Explicit conflict handling instead of silent replacement
 
@@ -64,8 +66,7 @@ from this repository to keep the signing identity consistent.
 - Attach a terminal to the focused workspace
 - Create, rename, focus, and close workspaces and tabs
 - Follow workspace and tab changes made from another Herdr client
-- Swipe across the terminal to change tabs
-- Double tap the terminal to move to the next workspace
+- Optional terminal swipes to change tabs and double taps to change workspaces
 - Select and upload images from the workspace terminal
 
 The optional plugin adds actions that need the focused pane as context:
@@ -73,6 +74,14 @@ The optional plugin adds actions that need the focused pane as context:
 - Open a tab in the focused pane's current directory
 - Move the focused tab's panes into separate tabs
 - Toggle focused-pane zoom
+
+### Workspace navigation
+
+- Shared Hosts, Sessions, and Settings navigation with a cross-host session selector
+- Window-bound phone, tablet, and short-window layouts
+- Hideable sidebar and Terminal + Files panes with keyboard-accessible resizing
+- Saved Files directory, history, and search when moving between tabs and panes
+- Settings section navigation and terminal-theme color swatches
 
 ## Herdr setup
 

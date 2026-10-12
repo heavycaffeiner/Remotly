@@ -28,6 +28,11 @@ import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.ViewColumn
+import androidx.compose.material.icons.filled.KeyboardHide
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PowerOff
 import androidx.compose.material.icons.filled.Terminal
@@ -48,15 +53,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.remotly.app.core.ErrorKind
@@ -110,6 +111,12 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+    val workspace = com.remotly.app.ui.LocalWorkspaceActions.current
+    val layout = com.remotly.app.ui.LocalWorkspaceLayout.current
+    val hardwareKeyboard = com.remotly.app.ui.hardwareKeyboardAttached()
+    var temporaryKeys by rememberSaveable(hostId) { mutableStateOf(false) }
+    var contextMenuOpen by remember { mutableStateOf(false) }
+    var terminalFocused by remember { mutableStateOf(false) }
 
     fun notify(message: String) {
         scope.launch { snackbarHostState.showSnackbar(message) }
@@ -144,9 +151,11 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
     val shellTabs = hostState.tabs.tabs.filter { it.kind != SshTabKind.Workspace }
     val activeTab: SshTab? = shellTabs.firstOrNull { it.sessionId == hostState.tabs.activeSessionId }
     val filesTab = activeTab?.takeIf { it.kind == SshTabKind.Files }
-    val filesNavigation = remember(filesTab?.sessionId) { FilesNavigation() }
-    val filesState = rememberSaveableStateHolder()
-    val shellSelected = activeTab?.kind == SshTabKind.Shell
+    val companionFiles = if (workspace.companionRequested) shellTabs.lastOrNull { it.kind == SshTabKind.Files } else null
+    val shownFiles = filesTab ?: companionFiles
+    val filesNavigation = remember(shownFiles?.sessionId) { FilesNavigation() }
+    val browserStates = remember(hostId) { mutableMapOf<String, com.remotly.app.ui.files.FilesBrowserState>() }
+    val shellSelected = activeTab?.kind == SshTabKind.Shell || (workspace.companionRequested && terminalFocused)
 
     // The shell the terminal keeps showing while a files tab is in front.
     var lastShellId by rememberSaveable(hostId) { mutableStateOf<String?>(null) }
@@ -158,7 +167,9 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
     // A files tab owns no session, so the terminal underneath stays on the
     // shell that was last in front instead of being rekeyed to an id with
     // nothing behind it.
-    val paneSessionKey = (if (filesTab == null) hostState.tabs.activeSessionId else lastShellId) ?: ""
+    val paneSessionKey = if (filesTab == null && activeTab?.kind == SshTabKind.Shell) activeTab.sessionId else
+        shellTabs.firstOrNull { it.sessionId == lastShellId && it.kind == SshTabKind.Shell }?.sessionId
+            ?: shellTabs.lastOrNull { it.kind == SshTabKind.Shell }?.sessionId.orEmpty()
 
     // Coming back from a workspace tab leaves that terminal active, which
     // this screen does not show. Land on the shell tab that was last open.
@@ -193,7 +204,7 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
     // The browser is not a place to type into the shell, so the keyboard
     // comes down with the files tab and stays down until asked for again.
     LaunchedEffect(filesTab?.sessionId) {
-        if (filesTab != null) terminal.hideKeyboard()
+        if (filesTab != null && !workspace.companionRequested) terminal.hideKeyboard()
     }
     // Session of the last terminal that reported ready; a ready for another
     // session is a tab switch. Decided in the callback, because an effect
@@ -232,15 +243,17 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
         }
     }
 
+    var imageTarget by remember { mutableStateOf<String?>(null) }
     val imagePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri: Uri? ->
-        if (uri != null && hostId.isNotEmpty()) {
+        val target = imageTarget
+        if (uri != null && hostId.isNotEmpty() && target != null) {
             scope.launch {
                 notify("Uploading the image")
                 when (val result = ImagePaste.paste(context, hostId, uri)) {
                     is ImagePaste.Result.Ok -> {
-                        ImagePaste.typeResult(hostId, result.path)
+                        SshSessions.sendInput(hostId, target, "${result.path} ".toByteArray(Charsets.UTF_8))
                         notify("Pasted the image path")
                     }
                     is ImagePaste.Result.Failed -> notify(result.message)
@@ -272,8 +285,9 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
     }
 
     fun closeFilesTab(sessionId: String) {
-        filesState.removeState(sessionId)
+        browserStates.remove(sessionId)
         SshSessions.closeTab(hostId, sessionId)
+        if (workspace.companionRequested && shellTabs.count { it.kind == SshTabKind.Files } <= 1) workspace.toggleCompanion()
     }
 
     val title = host?.let(::hostDisplayName) ?: "SSH"
@@ -321,17 +335,44 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
     }
 
     val canAdd = SshSessions.canAddTab(hostId)
+    fun hideFiles() {
+        if (workspace.companionRequested) workspace.toggleCompanion()
+        if (paneSessionKey.isNotEmpty()) {
+            SshSessions.selectTab(hostId, paneSessionKey)
+            terminal.focus()
+        } else shownFiles?.let { closeFilesTab(it.sessionId) }
+    }
+    fun dockFiles() {
+        val id = shownFiles?.sessionId ?: return
+        if (workspace.companionRequested) workspace.toggleCompanion()
+        SshSessions.selectTab(hostId, id)
+    }
+    fun openFiles() {
+        if (workspace.companionRequested || filesTab != null) {
+            hideFiles()
+            return
+        }
+        val existing = shellTabs.lastOrNull { it.kind == SshTabKind.Files }
+        val id = existing?.sessionId ?: SshSessions.openTab(hostId, kind = SshTabKind.Files)
+        if (id == null) notify("This host has no room for another files tab")
+        else if (layout.companion && !workspace.companionRequested && paneSessionKey.isNotEmpty()) {
+            SshSessions.selectTab(hostId, paneSessionKey)
+            workspace.toggleCompanion()
+        }
+        else SshSessions.selectTab(hostId, id)
+    }
     val actions = listOf(
+        ScreenAction("switch", Icons.Filled.SwapHoriz, "Switch workspace", workspace.selectWork),
+        ScreenAction("settings", Icons.Filled.Palette, "Terminal appearance", { nav.openRoute(Routes.TERMINAL_APPEARANCE) }),
+        ScreenAction("keyboard", if (imeVisible) Icons.Filled.KeyboardHide else Icons.Filled.Keyboard, if (imeVisible) "Hide keyboard" else "Show keyboard", { if (imeVisible) terminal.hideKeyboard() else requestKeyboard.value() }),
+        ScreenAction("extra-keys", Icons.Filled.Keyboard, if (temporaryKeys) "Hide temporary keys" else "Show extra keys", { temporaryKeys = !temporaryKeys }),
+        ScreenAction("companion", Icons.Filled.ViewColumn, if (workspace.companionRequested) "Use Files as a tab" else "Files beside terminal", { if (workspace.companionRequested) dockFiles() else openFiles() }, enabled = layout.companion || workspace.companionRequested),
         ScreenAction(
             key = "files",
             icon = Icons.Filled.Folder,
             title = "Files",
             enabled = hostId.isNotEmpty(),
-            onClick = {
-                if (SshSessions.openTab(hostId, kind = SshTabKind.Files) == null) {
-                    notify("This host has no room for another files tab")
-                }
-            },
+            onClick = ::openFiles,
         ),
         ScreenAction(
             key = "new",
@@ -406,7 +447,7 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
             icon = Icons.Filled.Image,
             title = "Paste an image",
             enabled = shellSelected,
-            onClick = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+            onClick = { imageTarget = paneSessionKey; imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
         ),
         ScreenAction(
             key = "disconnect",
@@ -415,7 +456,7 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
             destructive = true,
             onClick = { confirmDisconnect = true },
         ),
-    )
+    ).filter { it.key != "companion" || layout.companion || workspace.companionRequested }
 
     Box(Modifier.fillMaxSize()) {
         TerminalScaffold(
@@ -432,12 +473,17 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
                     title = "Clipboard",
                     actionKeys = setOf("selectAll", "copy", "paste", "paste-image"),
                 ),
+                TerminalActionGroup("Appearance and input", setOf("settings", "keyboard", "extra-keys")),
+                TerminalActionGroup("Navigation", setOf("switch", "companion")),
                 TerminalActionGroup(
                     title = "Connection",
                     actionKeys = setOf("disconnect"),
                 ),
             ),
-            onActionsMenuOpen = { terminal.hideKeyboard() },
+            onFiles = ::openFiles,
+            filesOpen = workspace.companionRequested || filesTab != null,
+            contextMenuOpen = contextMenuOpen,
+            onContextMenuDismiss = { contextMenuOpen = false },
             tabs = if (shouldShowTabStrip(shellTabs)) {
                 shellTabs.map { TerminalTab(it.sessionId, it.title, tabPhase(it.phase)) }
             } else {
@@ -462,7 +508,9 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
             canAddTab = canAdd,
             banner = banner,
             failure = failure,
-            showKeyRow = settings.showExtraKeyRow,
+            showKeyRow = com.remotly.app.ui.terminal.extraKeysVisible(settings.extraKeyVisibility, terminalFocused,
+                imeVisible, hardwareKeyboard, temporarilyRequested = temporaryKeys) &&
+                (filesTab == null || workspace.companionRequested),
             activeModifier = latchedModifier,
             onKey = { key -> terminal.sendKey(key) },
             onModifier = { pressed ->
@@ -472,37 +520,45 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
             keyRepeatDelayMs = settings.keyRepeatDelayMs,
             haptics = settings.hapticFeedback,
             onKeyboard = { requestKeyboard.value() },
-            pane = if (filesTab == null) null else {
-                {
-                    filesState.SaveableStateProvider(filesTab.sessionId) {
-                        FilesScreen(
-                            hostId = hostId,
-                            onClose = { closeFilesTab(filesTab.sessionId) },
-                            tabId = filesTab.sessionId,
-                            navigation = filesNavigation,
-                        )
-                    }
-                }
-            },
         ) { paneModifier ->
+            FilesCompanion(filesSelected = filesTab != null, requested = workspace.companionRequested,
+                onFilesFocus = { shownFiles?.let { SshSessions.selectTab(hostId, it.sessionId) } }, modifier = paneModifier,
+                onClose = ::hideFiles, onDock = ::dockFiles,
+                files = shownFiles?.let { shown ->
+                    { filesModifier ->
+                        val browser = browserStates.getOrPut(shown.sessionId) {
+                            val stored = com.remotly.app.session.FilesTabs.state(shown.sessionId)
+                            com.remotly.app.ui.files.FilesBrowserState(stored.cwd, stored.history, stored.query, stored.searchOpen)
+                        }
+                        FilesScreen(hostId, { closeFilesTab(shown.sessionId) }, shown.sessionId, filesNavigation, filesModifier, browser)
+                    }
+                }, terminal = { terminalModifier ->
             TerminalPane(
                 sessionKey = paneSessionKey,
                 fontSizeSp = settings.terminalFontSize,
                 cursorStyle = settings.cursorStyle,
-                onInput = { bytes -> SshSessions.sendInput(hostId, bytes) },
+                onInput = { bytes -> SshSessions.sendInput(hostId, paneSessionKey, bytes) },
                 inputModifier = latchedModifier,
                 onModifierConsumed = { latchedModifier = null },
                 onInputNotice = ::notify,
-                onPtyWrite = { bytes -> SshSessions.sendInput(hostId, bytes) },
-                onResize = { cols, rows -> SshSessions.resizeHost(hostId, cols, rows) },
+                onPtyWrite = { bytes -> SshSessions.sendInput(hostId, paneSessionKey, bytes) },
+                onResize = { cols, rows ->
+                    if (paneSessionKey.isEmpty()) SshSessions.measureHost(hostId, cols, rows)
+                    else SshSessions.resizeSession(hostId, paneSessionKey, cols, rows)
+                },
                 onLinkCopied = { link -> notify("Copied $link") },
                 onFontSizeChanged = { sp ->
                     SettingsState.update(onFailure = { notify("The font size could not be saved.") }) {
                         it.copy(terminalFontSize = sp)
                     }
                 },
-                modifier = paneModifier.terminalTabSwipe(
-                    enabled = shellTabs.size > 1 && !hasSelection,
+                theme = settings.terminalTheme.resolve(),
+                touchpadGesturesEnabled = !workspace.modalOpen && !contextMenuOpen &&
+                    (filesTab == null || workspace.companionRequested),
+                legacyTouchNavigationEnabled = settings.navigationGesturesEnabled,
+                onContextMenuRequested = { _, _ -> contextMenuOpen = true },
+                modifier = terminalModifier.terminalTabSwipe(
+                    enabled = settings.navigationGesturesEnabled && shellTabs.size > 1 && !hasSelection,
                 ) { direction ->
                     val next = neighborTab(shellTabs, hostState.tabs.activeSessionId, direction) { it.sessionId }
                     if (next != null) selectSession(next)
@@ -518,12 +574,17 @@ fun SshTerminalScreen(hostId: String, nav: NavHostController) {
                     } else {
                         focusPolicy.onReady()
                     }
-                    if (open) terminal.openKeyboard()
+                    if (open && !hardwareKeyboard) terminal.openKeyboard() else if (filesTab == null) terminal.focus()
                 },
                 onNotify = ::notifyFromTerminal,
-                onFocusChanged = focusPolicy::onFocusChange,
+                onFocusChanged = { focused ->
+                    terminalFocused = focused
+                    focusPolicy.onFocusChange(focused)
+                    if (focused && paneSessionKey.isNotEmpty()) SshSessions.selectTab(hostId, paneSessionKey)
+                },
                 onSelectionChanged = { hasSelection = it },
             )
+            })
         }
 
         SnackbarHost(snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))

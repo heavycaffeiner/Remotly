@@ -9,9 +9,10 @@ import com.remotly.app.ssh.SftpTransfers
 import com.remotly.app.transfers.TransferDirection
 import com.remotly.app.transfers.TransferPhase
 import com.remotly.app.transfers.TransferRegistry
-import java.time.Instant
-import java.time.format.DateTimeFormatter
-import java.time.ZoneOffset
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -35,8 +36,6 @@ object ImagePaste {
     const val PASTE_DIR = ".remotly"
 
     private val EXTENSION_PATTERN = Regex("^[a-z0-9]{1,5}$")
-    private val STAMP_FORMAT: DateTimeFormatter =
-        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC)
 
     private const val CONNECT_POLL_MS = 150L
     private const val CONNECT_POLL_MAX = 60
@@ -79,8 +78,10 @@ object ImagePaste {
     }
 
     private fun stampOf(now: Long): String {
-        val iso = STAMP_FORMAT.format(Instant.ofEpochMilli(now))
-        return iso.replace(Regex("[:.]"), "-").replace("T", "_").replace("Z", "")
+        val format = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss-SSS", Locale.ROOT).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+        return format.format(Date(now))
     }
 
     /** Why a paste must not proceed, or null when [sourceSize] is acceptable. */

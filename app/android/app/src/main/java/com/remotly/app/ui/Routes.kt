@@ -13,6 +13,8 @@ import androidx.navigation.NavHostController
 object Routes {
     const val HOSTS = "hosts"
     const val SETTINGS = "settings"
+    const val SESSIONS = "sessions"
+    const val TERMINAL_APPEARANCE = "terminalAppearance"
 
     const val ARG_HOST_ID = "hostId"
     const val ARG_HOST_NAME = "hostName"

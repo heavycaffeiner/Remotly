@@ -5,7 +5,7 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import java.io.File
-import java.util.Base64
+import com.remotly.app.util.Base64Std
 import java.util.UUID
 
 class SshHostStoreException(message: String, cause: Throwable? = null) : Exception(message, cause)
@@ -252,7 +252,7 @@ class SshHostStore(
         var encoded: ByteArray? = null
         try {
             encoded = CredentialCodec.encode(credential)
-            return Base64.getEncoder().encodeToString(cipher.seal(encoded))
+            return Base64Std.encode(cipher.seal(encoded))
         } finally {
             encoded?.fill(0)
         }
@@ -500,7 +500,10 @@ class SshHostStore(
 
     private fun decodeBase64(s: String): ByteArray =
         try {
-            Base64.getDecoder().decode(s)
+            if (!Regex("(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}(?:==)?|[A-Za-z0-9+/]{3}=?)?").matches(s)) {
+                throw IllegalArgumentException("invalid base64 credential")
+            }
+            Base64Std.decode(s)
         } catch (e: IllegalArgumentException) {
             throw SshHostStoreException("credential blob is not valid base64", e)
         }

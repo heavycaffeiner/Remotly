@@ -27,6 +27,19 @@ import android.util.Log
 object TerminalStore {
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var theme = TerminalThemes.Classic
+    private val ptyReplySinks = HashMap<String, (ByteArray) -> Unit>()
+
+    fun applyTheme(theme: TerminalTheme) = onMain {
+        this.theme = theme
+        val all = synchronized(lock) { handles.values.toList() }
+        all.forEach { RemotlyTerminal.applyTheme(it, theme) }
+        renderers.values.forEach { it.onExternalWrite() }
+    }
+
+    fun setPtyReplySink(sessionId: String, sink: ((ByteArray) -> Unit)?) = onMain {
+        if (sink == null) ptyReplySinks.remove(sessionId) else ptyReplySinks[sessionId] = sink
+    }
 
     private fun onMain(action: () -> Unit) {
         if (Looper.myLooper() == Looper.getMainLooper()) action()
@@ -73,7 +86,11 @@ object TerminalStore {
 
     /** Unregisters a view, if it is still the one registered. */
     fun unbindRenderer(sessionId: String, view: TerminalView) {
-        if (renderers[sessionId] === view) renderers.remove(sessionId)
+        if (renderers[sessionId] === view) {
+            renderers.remove(sessionId)
+            val handle = synchronized(lock) { handles[sessionId] }
+            if (handle != null) RemotlyTerminal.rebind(handle, DetachedListener(sessionId), theme)
+        }
     }
 
     /**
@@ -136,9 +153,10 @@ object TerminalStore {
                     // whatever its position in the LRU order. Destroying its
                     // handle leaves that view drawing from freed memory, and
                     // the tab renders as garbage or takes the process down.
-                    val oldest = handles.keys.firstOrNull { !renderers.containsKey(it) }
+                    val oldest = handles.keys.firstOrNull { !renderers.containsKey(it) && !ptyReplySinks.containsKey(it) }
                         ?: break
                     handles.remove(oldest)?.let { evicted.add(it) }
+                    ptyReplySinks.remove(oldest)
                 }
             }
             for (h in evicted) {
@@ -246,11 +264,12 @@ object TerminalStore {
     private fun create(sessionId: String, cols: Int, rows: Int): Long {
         val safeCols = if (cols > 0) cols else DEFAULT_COLS
         val safeRows = if (rows > 0) rows else DEFAULT_ROWS
-        val handle = RemotlyTerminal.nativeCreate(
+        val handle = RemotlyTerminal.create(
             safeCols,
             safeRows,
             SCROLLBACK_BYTES,
-            DetachedListener,
+            DetachedListener(sessionId),
+            theme,
         )
         if (handle != 0L) retain(sessionId, handle)
         return handle
@@ -261,11 +280,11 @@ object TerminalStore {
         synchronized(lock) { handles.remove(sessionId) ?: 0L }
 
     /** Swallows every effect of a terminal nobody is rendering. */
-    private object DetachedListener : RemotlyTerminal.Listener {
+    private class DetachedListener(private val sessionId: String) : RemotlyTerminal.Listener {
         override fun onBell() = Unit
         override fun onTitle(titleUtf8: ByteArray) = Unit
         override fun onInput(data: ByteArray) = Unit
-        override fun onPtyWrite(data: ByteArray) = Unit
+        override fun onPtyWrite(data: ByteArray) { ptyReplySinks[sessionId]?.invoke(data) }
         // A notification for a tab nobody is watching is dropped rather than
         // posted: the session it names is not on screen, so there is nothing
         // for the user to be taken to.
@@ -292,6 +311,7 @@ object TerminalStore {
             // handle leaves that view drawing from freed memory and takes the process down.
             if (renderers.containsKey(sessionId)) return@onMain
             val handle = detach(sessionId)
+            ptyReplySinks.remove(sessionId)
             if (handle != 0L) RemotlyTerminal.nativeDestroy(handle)
         }
     }
@@ -304,6 +324,7 @@ object TerminalStore {
                 handles.clear()
                 copy
             }
+            ptyReplySinks.clear()
             for (handle in all) RemotlyTerminal.nativeDestroy(handle)
         }
     }

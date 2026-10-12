@@ -4,7 +4,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Rect
 import android.os.SystemClock
@@ -13,6 +12,8 @@ import android.util.AttributeSet
 import android.view.ActionMode
 import android.view.Choreographer
 import android.view.HapticFeedbackConstants
+import android.view.InputDevice
+import android.view.PointerIcon
 import android.view.KeyEvent
 import android.view.Menu
 import android.view.MenuItem
@@ -68,6 +69,7 @@ class TerminalView @JvmOverloads constructor(
      * Returns true when the owning screen claimed it for navigation.
      */
     fun onDoubleTap(): Boolean = false
+    fun onContextMenuRequested(x: Float, y: Float) = Unit
     fun onPtyWrite(data: ByteArray)
 
     /** A selection was made or dropped, so the screen can offer Copy. */
@@ -92,6 +94,42 @@ class TerminalView @JvmOverloads constructor(
   }
 
   var host: Host? = null
+  var legacyTouchNavigationEnabled = false
+
+  var theme: TerminalTheme = TerminalThemes.Classic
+    set(value) {
+      if (field == value) return
+      field = value
+      renderer.applyTheme(value)
+      setBackgroundColor(value.background)
+      if (handle != 0L) RemotlyTerminal.applyTheme(handle, value)
+      invalidate()
+    }
+
+  private val pointerScroll = PointerScrollAccumulator()
+  private val pointerHorizontalScroll = PointerScrollAccumulator()
+  private val pointerButtons = PointerButtons()
+  private var pointerSelecting = false
+  private var pointerMoved = false
+  private var pointerDownX = 0f
+  private var pointerDownY = 0f
+  private var pointerTapAt = 0L
+  private var pointerTapX = 0f
+  private var pointerTapY = 0f
+  private var lastPointerScroll: List<Number>? = null
+  private var lastPointerMotionAt = -1L
+  private var lastPointerMotionX = Float.NaN
+  private var lastPointerMotionY = Float.NaN
+
+  private fun resetPointerInput() {
+    pointerScroll.reset()
+    pointerHorizontalScroll.reset()
+    pointerButtons.reset(SystemClock.uptimeMillis())
+    pointerSelecting = false
+    pointerTapAt = 0L
+    lastPointerScroll = null
+    lastPointerMotionAt = -1L
+  }
 
   var inputModifier: ModifierKey? = null
   var onModifierConsumed: (() -> Unit)? = null
@@ -110,6 +148,8 @@ class TerminalView @JvmOverloads constructor(
   var sessionId: String = ""
     set(value) {
       if (field == value) return
+      if (field.isNotEmpty()) resetConnectionInput()
+      resetPointerInput()
       // A gesture belongs to the session it started on. A fling still running
       // here would keep encoding wheel reports against the terminal this view
       // is about to point at, and those bytes reach the new session's pty: a
@@ -241,6 +281,7 @@ class TerminalView @JvmOverloads constructor(
   // detach so it can never reopen a keyboard the user dismissed.
   private var pendingKeyboard = false
   private var keyboardRetryPosted = false
+  private var keyboardRequestGeneration = 0L
   private val tapDetector =
     TapDetector(ViewConfiguration.get(context).scaledTouchSlop.toFloat())
   private var previousTapAtMs = 0L
@@ -446,7 +487,9 @@ class TerminalView @JvmOverloads constructor(
   val gridRows: Int get() = rows
 
   init {
-    setBackgroundColor(Color.BLACK)
+    setBackgroundColor(theme.background)
+    renderer.applyTheme(theme)
+    pointerIcon = PointerIcon.getSystemIcon(context, PointerIcon.TYPE_TEXT)
     isFocusable = true
     isClickable = true
     isFocusableInTouchMode = true
@@ -683,6 +726,7 @@ class TerminalView @JvmOverloads constructor(
     host?.onFocusChange(focused)
     if (!focused) {
       pendingKeyboard = false
+      keyboardRequestGeneration++
     }
   }
 
@@ -713,7 +757,7 @@ class TerminalView @JvmOverloads constructor(
       imm.restartInput(this)
     }
 
-    if (imm.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)) {
+    if (imm.showSoftInput(this, 0)) {
       pendingKeyboard = false
       return true
     }
@@ -723,11 +767,12 @@ class TerminalView @JvmOverloads constructor(
     // here would spin whenever the platform legitimately refuses.
     if (!keyboardRetryPosted) {
       keyboardRetryPosted = true
+      val request = keyboardRequestGeneration
       post {
         keyboardRetryPosted = false
-        if (isAttachedToWindow && windowToken != null) {
+        if (request == keyboardRequestGeneration && isAttachedToWindow && windowToken != null) {
           if (!isFocused) requestFocus()
-          imm.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+          imm.showSoftInput(this, 0)
         }
       }
     }
@@ -736,6 +781,7 @@ class TerminalView @JvmOverloads constructor(
 
   /** Hides the software keyboard without dropping terminal focus. */
   fun hideKeyboard() {
+    keyboardRequestGeneration++
     pendingKeyboard = false
     val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
       ?: return
@@ -751,6 +797,9 @@ class TerminalView @JvmOverloads constructor(
    * does not arrive here at all.
    */
   override fun onTouchEvent(event: MotionEvent): Boolean {
+    if (isTouchpadGesture(event)) return onTouchpadGesture(event)
+    if (isPhysicalPointer(event)) return handlePointerEvent(event)
+    if (event.eventTime < pointerButtons.acceptEventsSince) return true
     if (ignoreTouchUntilDown) {
       if (event.actionMasked != MotionEvent.ACTION_DOWN) return true
       ignoreTouchUntilDown = false
@@ -917,6 +966,220 @@ class TerminalView @JvmOverloads constructor(
     return true
   }
 
+  private fun isPhysicalPointer(event: MotionEvent): Boolean =
+    event.isFromSource(InputDevice.SOURCE_MOUSE) ||
+      event.isFromSource(InputDevice.SOURCE_TOUCHPAD) ||
+      event.getToolType(0) == MotionEvent.TOOL_TYPE_MOUSE
+
+  override fun onGenericMotionEvent(event: MotionEvent): Boolean = when {
+    isTouchpadGesture(event) -> onTouchpadGesture(event)
+    isPhysicalPointer(event) -> handlePointerEvent(event)
+    else -> super.onGenericMotionEvent(event)
+  }
+
+  private fun isTouchpadGesture(event: MotionEvent): Boolean =
+    isTouchpadGestureClassification(gestureClassification(event))
+
+  private fun gestureClassification(event: MotionEvent): Int =
+    if (android.os.Build.VERSION.SDK_INT >= 29) event.classification else 0
+
+  var touchpadGesturesEnabled = true
+
+  // Android reports two-finger travel in axes, with no button press.
+  internal fun onTouchpadGesture(event: MotionEvent): Boolean {
+    if (event.eventTime < pointerButtons.acceptEventsSince || handle == 0L ||
+      !TerminalStore.isRenderer(sessionId, this)
+    ) return true
+    when (event.actionMasked) {
+      MotionEvent.ACTION_DOWN -> {
+        stopFling()
+        pointerScroll.reset()
+        pointerHorizontalScroll.reset()
+        parent?.requestDisallowInterceptTouchEvent(true)
+      }
+      MotionEvent.ACTION_MOVE -> if (gestureClassification(event) == CLASSIFICATION_TWO_FINGER_SWIPE) {
+        val mods = KeyMap.modifiersOf(event.metaState)
+        val owner = pointerOwner(mouseReportingActive(), mods and KeyMap.MOD_SHIFT != 0,
+          mods and KeyMap.MOD_CTRL != 0)
+        // Events are batched per frame and each sample carries its own travel.
+        val dx = gestureTravel(event, AXIS_GESTURE_SCROLL_X_DISTANCE)
+        val dy = gestureTravel(event, AXIS_GESTURE_SCROLL_Y_DISTANCE)
+        val signature = listOf<Number>(event.eventTime, event.deviceId, dx, dy, mods)
+        if (signature == lastPointerScroll) return true
+        lastPointerScroll = signature
+        // One axis per event, so a slightly diagonal swipe does not also send the other wheel.
+        if (kotlin.math.abs(dy) >= kotlin.math.abs(dx)) {
+          deliverScroll(owner, touchpadScrollDelta(dy, cellHeightPx, owner), 0f, event, mods)
+        } else {
+          deliverScroll(owner, 0f, touchpadScrollDelta(dx, cellWidthPx, owner), event, mods)
+        }
+      }
+      MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+        pointerScroll.reset()
+        pointerHorizontalScroll.reset()
+        parent?.requestDisallowInterceptTouchEvent(false)
+      }
+    }
+    return true
+  }
+
+  private fun gestureTravel(event: MotionEvent, axis: Int): Float {
+    var sum = event.getAxisValue(axis).takeIf { it.isFinite() } ?: 0f
+    for (i in 0 until event.historySize) {
+      sum += event.getHistoricalAxisValue(axis, i).takeIf { it.isFinite() } ?: 0f
+    }
+    return sum
+  }
+
+  /**
+   * Hands scroll travel to its one destination. Positive vertical travel is
+   * toward older output, the sign AXIS_VSCROLL uses.
+   */
+  private fun deliverScroll(
+    owner: PointerOwner,
+    vertical: Float,
+    horizontal: Float,
+    event: MotionEvent,
+    mods: Int,
+  ) {
+    // Vertical scrolling has one destination, even when a sub-notch emits nothing.
+    val steps = if (vertical != 0f) {
+      pointerScroll.advance(vertical, owner, event.deviceId)
+    } else {
+      pointerHorizontalScroll.advance(horizontal, owner, event.deviceId)
+    }
+    when (owner) {
+      PointerOwner.Font -> if (steps != 0) {
+        val next = TerminalZoom.settle(fontSizePx / spToPx(1f) + steps)
+        setFontSizeSp(next.toFloat())
+        host?.onFontSizeChange(next)
+      }
+      PointerOwner.Local -> if (steps != 0 && vertical != 0f) scrollByRows(steps)
+      PointerOwner.Remote -> {
+        val button = if (vertical != 0f) WheelReport.button(steps) else if (steps > 0) 7 else 6
+        repeat(kotlin.math.abs(steps)) { sendMouse(MOUSE_PRESS, button, event.x, event.y, mods) }
+      }
+    }
+  }
+
+  private fun handlePointerEvent(event: MotionEvent): Boolean {
+    if (event.eventTime < pointerButtons.acceptEventsSince || handle == 0L ||
+      !TerminalStore.isRenderer(sessionId, this)
+    ) return true
+    val mods = KeyMap.modifiersOf(event.metaState)
+    val shift = mods and KeyMap.MOD_SHIFT != 0
+    val destination = pointerOwner(mouseReportingActive(), shift)
+    when (event.actionMasked) {
+      MotionEvent.ACTION_SCROLL -> {
+        stopFling()
+        val owner = pointerOwner(mouseReportingActive(), shift, mods and KeyMap.MOD_CTRL != 0)
+        val delta = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
+        val horizontal = event.getAxisValue(MotionEvent.AXIS_HSCROLL)
+        val signature = listOf<Number>(event.eventTime, event.deviceId, event.x, event.y, delta, horizontal, mods)
+        if (signature == lastPointerScroll) return true
+        lastPointerScroll = signature
+        deliverScroll(owner, if (owner == PointerOwner.Local) delta * 3f else delta, horizontal, event, mods)
+      }
+      MotionEvent.ACTION_DOWN, MotionEvent.ACTION_BUTTON_PRESS -> {
+        val button = pointerButton(event, release = false)
+        if (button < 0 || pointerButtons.owner(button) != null) return true
+        val double = button == MOUSE_BUTTON_LEFT && isPointerDoubleClick(
+          pointerTapAt, pointerTapX, pointerTapY, event.eventTime, event.x, event.y,
+          ViewConfiguration.getDoubleTapTimeout().toLong(), doubleTapSlopPx,
+        )
+        val owner = if (double) PointerOwner.Local else destination
+        if (!pointerButtons.press(button, owner, event.eventTime)) return true
+        stopFling()
+        requestFocus()
+        if (button == MOUSE_BUTTON_LEFT) pointerMoved = false
+        if (double) {
+          pointerTapAt = 0L
+          selectPointerWord(event.x, event.y)
+        } else if (owner == PointerOwner.Remote) {
+          sendMouse(MOUSE_PRESS, button, event.x, event.y, mods)
+        } else if (button == 2) {
+          host?.onContextMenuRequested(event.x, event.y)
+        } else if (button == MOUSE_BUTTON_LEFT) {
+          clearSelection()
+          pointerSelecting = true
+          pointerMoved = false
+          pointerDownX = event.x
+          pointerDownY = event.y
+          selection = TerminalSelection.at(colAt(event.x), rowAt(event.y))
+        }
+        parent?.requestDisallowInterceptTouchEvent(true)
+      }
+      MotionEvent.ACTION_MOVE, MotionEvent.ACTION_HOVER_MOVE -> {
+        // Some Android devices send the same motion on both event paths.
+        if (event.eventTime == lastPointerMotionAt && event.x == lastPointerMotionX &&
+          event.y == lastPointerMotionY
+        ) return true
+        lastPointerMotionAt = event.eventTime
+        lastPointerMotionX = event.x
+        lastPointerMotionY = event.y
+        val button = pointerButtons.pressedButton()
+        if (event.buttonState != 0 && button == -1) return true
+        val owner = pointerButtons.owner(button) ?: destination
+        if (button == MOUSE_BUTTON_LEFT && owner == PointerOwner.Remote) {
+          pointerMoved = true
+        }
+        if (pointerSelecting) {
+          val slop = ViewConfiguration.get(context).scaledTouchSlop
+          if (kotlin.math.abs(event.x - pointerDownX) > slop ||
+            kotlin.math.abs(event.y - pointerDownY) > slop
+          ) pointerMoved = true
+          if (pointerMoved) extendSelection(event.x, event.y)
+        } else if (owner == PointerOwner.Remote && !shift) {
+          sendMouse(2, button, event.x, event.y, mods)
+        }
+      }
+      MotionEvent.ACTION_UP, MotionEvent.ACTION_BUTTON_RELEASE -> {
+        val button = pointerButton(event, release = true)
+        val owner = pointerButtons.release(button, event.eventTime) ?: return true
+        if (owner == PointerOwner.Remote) sendMouse(MOUSE_RELEASE, button, event.x, event.y, mods)
+        if (button == MOUSE_BUTTON_LEFT) {
+          if (pointerSelecting) {
+            pointerSelecting = false
+            if (pointerMoved) {
+              host?.onSelectionChange(hasSelection)
+              startActionMode()
+            } else selection = null
+          }
+          if (!pointerMoved) {
+            pointerTapAt = event.eventTime
+            pointerTapX = event.x
+            pointerTapY = event.y
+          }
+        }
+        parent?.requestDisallowInterceptTouchEvent(false)
+      }
+      MotionEvent.ACTION_CANCEL -> {
+        for (button in pointerButtons.remoteButtons()) {
+          sendMouse(MOUSE_RELEASE, button, event.x, event.y, mods)
+        }
+        resetPointerInput()
+        parent?.requestDisallowInterceptTouchEvent(false)
+      }
+    }
+    return true
+  }
+
+  private fun pointerButton(event: MotionEvent, release: Boolean): Int = when {
+    event.actionButton == MotionEvent.BUTTON_SECONDARY -> 2
+    event.actionButton == MotionEvent.BUTTON_TERTIARY -> 3
+    event.actionButton == MotionEvent.BUTTON_PRIMARY -> MOUSE_BUTTON_LEFT
+    release -> pointerButtons.pressedButton()
+    event.buttonState and MotionEvent.BUTTON_SECONDARY != 0 -> 2
+    event.buttonState and MotionEvent.BUTTON_TERTIARY != 0 -> 3
+    else -> MOUSE_BUTTON_LEFT
+  }
+
+  private fun selectPointerWord(x: Float, y: Float) {
+    clearSelection()
+    applySelection(selectWordAt(colAt(x), rowAt(y)) ?: TerminalSelection.at(colAt(x), rowAt(y)))
+    startActionMode()
+  }
+
   /**
    * Claims the second tap at its down event, before mouse reporting or
    * selection can interpret it. The first tap is left untouched.
@@ -928,9 +1191,12 @@ class TerminalView @JvmOverloads constructor(
     val second = previousTapAtMs != 0L &&
       elapsed in 0..ViewConfiguration.getDoubleTapTimeout().toLong() &&
       dx * dx + dy * dy <= doubleTapSlopPx * doubleTapSlopPx
-    if (!second) return false
-    if (host?.onDoubleTap() != true) return false
+    if (!second || event.pointerCount != 1) return false
     previousTapAtMs = 0L
+    if (legacyTouchNavigationEnabled && host?.onDoubleTap() == true) return true
+    stopFling()
+    cancelSelectionLongPress()
+    selectPointerWord(event.x, event.y)
     return true
   }
 
@@ -1079,16 +1345,17 @@ class TerminalView @JvmOverloads constructor(
    * written into whatever session the store now points at. A shell that never
    * enabled mouse tracking prints those bytes as text like 0;39;17M.
    */
-  private fun sendMouse(action: Int, button: Int, x: Float, y: Float): Boolean {
+  private fun sendMouse(action: Int, button: Int, x: Float, y: Float, mods: Int = 0): Boolean {
     if (handle == 0L || cellWidthPx <= 0 || cellHeightPx <= 0) return false
     if (!TerminalStore.isRenderer(sessionId, this)) return false
-    val col = (x / cellWidthPx).toInt().coerceAtLeast(0)
-    val row = (y / cellHeightPx).toInt().coerceAtLeast(0)
+    if (!x.isFinite() || !y.isFinite()) return false
+    val col = colAt(x)
+    val row = rowAt(y)
     return RemotlyTerminal.nativeSendMouse(
       handle,
       action,
       button,
-      0,
+      mods,
       col,
       row,
       cellWidthPx,
@@ -1111,6 +1378,7 @@ class TerminalView @JvmOverloads constructor(
 
   /** Drops input tied to the old connection without sending it to the new PTY. */
   fun resetConnectionInput() {
+    resetPointerInput()
     stopFling()
     resettingConnectionInput = true
     try {
@@ -1472,11 +1740,11 @@ class TerminalView @JvmOverloads constructor(
     val retained = TerminalStore.take(sessionId)
     val adopted = retained != 0L
     val h = if (adopted) {
-      RemotlyTerminal.nativeRebind(retained, this)
+      RemotlyTerminal.rebind(retained, this, theme)
       retained
     } else {
       val scrollbackBytes = 8L * 1024 * 1024
-      RemotlyTerminal.nativeCreate(cols, rows, scrollbackBytes, this)
+      RemotlyTerminal.create(cols, rows, scrollbackBytes, this, theme)
     }
     if (h == 0L) {
       reportStartupError("create_failed")
@@ -1518,6 +1786,8 @@ class TerminalView @JvmOverloads constructor(
    * back showed an empty terminal with the session's history gone.
    */
   fun release() {
+    keyboardRequestGeneration++
+    resetPointerInput()
     stopFling()
     previousTapAtMs = 0L
     doubleTapGestureClaimed = false
@@ -1551,6 +1821,8 @@ class TerminalView @JvmOverloads constructor(
   }
 
   override fun onDetachedFromWindow() {
+    keyboardRequestGeneration++
+    resetPointerInput()
     super.onDetachedFromWindow()
     fontSizeToast?.cancel()
     fontSizeToast = null
@@ -1791,7 +2063,7 @@ class TerminalView @JvmOverloads constructor(
     // session's pixels on the surface, which is what made two screens appear
     // mixed together after a tab change. Painted with the background instead.
     if (!fresh || f == null || f.cols <= 0 || f.rows <= 0) {
-      canvas.drawColor(if (f != null && f.defaultBg != 0) f.defaultBg else Color.BLACK)
+      canvas.drawColor(if (f != null && f.defaultBg != 0) f.defaultBg else theme.background)
       return
     }
     renderer.drawFrame(canvas, f, cursorStyle, composing = !composition.isEmpty)
@@ -1949,7 +2221,13 @@ class TerminalView @JvmOverloads constructor(
     // to place its candidate window. build() rejects positional values without
     // it, which crashed the app on the first composed CJK keystroke.
     anchorMatrix.reset()
-    transformMatrixToGlobal(anchorMatrix)
+    if (android.os.Build.VERSION.SDK_INT >= 29) {
+      transformMatrixToGlobal(anchorMatrix)
+    } else {
+      val location = IntArray(2)
+      getLocationOnScreen(location)
+      anchorMatrix.postTranslate(location[0].toFloat(), location[1].toFloat())
+    }
     val info = CursorAnchorInfo.Builder()
       .setMatrix(anchorMatrix)
       .setInsertionMarkerLocation(

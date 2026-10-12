@@ -88,8 +88,8 @@ class TerminalMetricsTest {
         u16(0)
         u16(0)
         out.write(1)
-        out.write(0)
-        repeat(6) { out.write(0) }
+        out.write(1)
+        repeat(10) { out.write(0) }
         out.write(wide)
         out.write(styleFlags)
         repeat(6) { out.write(0) }

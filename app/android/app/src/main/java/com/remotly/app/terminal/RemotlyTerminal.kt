@@ -50,6 +50,26 @@ object RemotlyTerminal {
     fun onClipboardWrite(text: String)
   }
 
+  fun create(
+    cols: Int, rows: Int, scrollbackMaxBytes: Long, listener: Listener,
+    theme: TerminalTheme = TerminalThemes.Classic,
+  ): Long {
+    val handle = nativeCreate(cols, rows, scrollbackMaxBytes, listener)
+    if (handle != 0L) applyTheme(handle, theme)
+    return handle
+  }
+
+  fun rebind(handle: Long, listener: Listener, theme: TerminalTheme = TerminalThemes.Classic) {
+    applyTheme(handle, theme)
+    nativeRebind(handle, listener)
+  }
+
+  fun applyTheme(handle: Long, theme: TerminalTheme) {
+    check(nativeApplyTheme(handle, theme.nativeColors())) { "Cannot apply terminal theme" }
+  }
+
+  private external fun nativeApplyTheme(handle: Long, colors: IntArray): Boolean
+
   external fun nativeCreate(
     cols: Int, rows: Int, scrollbackMaxBytes: Long,
     listener: Listener,

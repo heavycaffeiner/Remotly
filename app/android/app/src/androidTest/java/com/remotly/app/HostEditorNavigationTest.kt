@@ -29,6 +29,7 @@ class HostEditorNavigationTest {
         compose.onNodeWithText("Discard changes?").assertIsDisplayed()
 
         compose.onNodeWithText("Discard").performClick()
-        compose.onNodeWithText("Search hosts").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Add SSH host").assertIsDisplayed()
+        compose.onNodeWithText("Unsaved host").assertDoesNotExist()
     }
 }

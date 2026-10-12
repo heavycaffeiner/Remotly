@@ -76,8 +76,8 @@ tests, the upstream pin, and the upstream license live in
 
 ```sh
 cd app/android/terminal-native
-GHOSTTY_DIR=~/opt/ghostty ./build-android.sh          # all shipped ABIs
-GHOSTTY_DIR=~/opt/ghostty ./build-android.sh aarch64-linux-android.24
+GHOSTTY_DIR=~/Toolchains/ghostty ./build-android.sh          # all shipped ABIs
+GHOSTTY_DIR=~/Toolchains/ghostty ./build-android.sh aarch64-linux-android.24
 ./run-host-tests.sh                                    # host-side terminal core tests
 ```
 
@@ -142,10 +142,10 @@ and `tab close`.
 
 Everything that manages a host lives in the sidebar (`HostSidebar`): its
 sessions, their workspaces, and each workspace's tabs, with rename, close, and
-new-tab on the row they belong to. It opens from the bar and, where the window
-is at least 840dp wide, it is simply always there. It never takes an edge
-swipe: a horizontal swipe over an attached terminal moves a herdr tab, and a
-drawer on that edge would fight it. The sidebar is also the whole non-gesture
+new-tab on the row they belong to. Its modal panel opens from the workspace
+bar. The shared app sidebar already occupies wide windows, so a second
+permanent Herdr drawer is not stacked beside it. Drawer edge gestures are
+disabled to avoid conflicting with optional terminal navigation gestures. The sidebar is also the whole non-gesture
 path, which is why the terminal's menu no longer carries tab and workspace
 moves.
 
@@ -206,8 +206,9 @@ The workspace terminal's menu invokes the plugin in `plugin/`: `tab-here`,
 started, never with its output, and the events report what it did; a host
 without the plugin answers `plugin_action_not_found`.
 
-A one-finger sideways swipe across an attached terminal moves between herdr's
-tabs, and a double tap moves to the next workspace, the coarser step. Both go
+With Navigation gestures enabled, a one-finger sideways swipe moves between
+Herdr tabs and a double tap moves to the next workspace. New installations
+leave this optional mode off; upgraded settings retain it. Both moves go
 over the socket rather than as the chord herdr binds (`prefix+n`, `prefix+p`),
 for the same reason: **herdr emits no event for a move made by its own key
 binding.** A chord left the strip and the title on the tab the session had
@@ -319,13 +320,13 @@ and `sendKey`. The view is recreated, not rebound, whenever the session key
 changes; rebinding one instance across a session switch once let a second
 shell render over the first one's screen.
 
-The extra-key row starts with Esc, Tab, Shift+Tab, Ctrl, Alt, and Shift. A modifier
-applies to the next typed key or tool key and can be tapped again to cancel.
-Keys are encoded through the terminal's negotiated keyboard protocol.
-Composed or multi-character IME input is preserved; Ctrl reports when it
-cannot apply to that input. Paste does not use or consume the modifier.
-The row scrolls without changing the terminal height, with a pinned overflow
-button for reaching the remaining keys.
+The extra-key row pins Esc and Ctrl beside scrollable Tab, Shift+Tab, Alt,
+Shift, arrows, and symbols. Automatic shows it for focused software-keyboard
+input; Always keeps it visible; Hidden permits an explicit temporary request.
+Older enabled/disabled preferences migrate to Always/Hidden. A modifier
+applies to the next key and can be tapped again to cancel. Keys use the
+terminal's negotiated protocol. Composed input is preserved, and paste does
+not use or consume a modifier. The row stays on one line at large font scales.
 
 Physical keyboards send Escape and Ctrl chords before the IME can consume
 these terminal keys. Ctrl is removed only when looking up the printable
@@ -353,13 +354,54 @@ the same current-state guard for system Back, toolbar Back, and Cancel.
 3. **The window is edge to edge, so chrome has to consume insets itself.** A
    control laid out under the navigation bar is invisible in a screenshot and
    silently untappable, because the system takes those touches before the app
-   ever sees them. `TerminalScaffold` applies `safeDrawingPadding()` to its
-   whole column for exactly this reason; the extra key row shipped without it
+   ever sees them. `WorkspaceShell` applies `safeDrawingPadding()` once around
+   navigation and content for this reason; the extra key row shipped without it
    once, and its keys did nothing at the bottom of the screen.
 4. **A session key is the bare session id, never `hostId:sessionId`.**
    `TerminalStore` keys retained terminals and routes pty output by that id
    alone. A composite key makes `TerminalPane` mount an empty terminal while
    the real session's output sits under a key nobody is rendering.
+
+## Adaptive workspace and terminal themes
+
+Hosts, Sessions, and Settings share `WorkspaceShell`. Compact work screens use
+one viewport and a workspace selector. At 600dp the root navigation becomes a
+rail; at 840dp a hideable host/session sidebar is available. Hiding the sidebar
+also hides the rail, and the header navigation button restores it. Sidebar and
+pane dividers support arrow keys and accessibility resize actions. Short windows
+also use a rail. The layout uses current window bounds rather than device type.
+
+At 1200dp and above, Files can sit beside one terminal when the remaining work
+area is at least 960dp wide and 320dp tall. The sidebar collapses to make room.
+Shrinking the window shows the selected surface; expanding restores the
+requested arrangement. The Files header button toggles the browser. Pane controls
+close it or use it as a tab. File directory, history, and search are retained by tab.
+Input and resize callbacks are bound to the displayed session id. Background
+sessions are not resized with the displayed viewport.
+
+Terminal appearance is independent of application light/dark and dynamic color.
+Presets are Classic, Nord, Dracula, Catppuccin Mocha, Solarized Dark, and Solarized
+Light. Custom edits background, foreground, cursor, cursor text, selection, and
+16 ANSI colors with an offline native preview. Theme changes update retained
+terminals without reconnecting or clearing history. Explicit truecolor and OSC
+color overrides remain intact. Palette license notices are bundled as assets.
+Settings uses a section list in wide windows and a section picker in compact
+windows. Theme choices include color swatches and selected-state controls.
+
+Settings schema 5 migrates input preferences and serializes saves. Invalid
+settings are not silently replaced. Recovery copies the original file before
+saving defaults. Custom theme drafts stay open after a failed save and require
+confirmation before being discarded.
+
+Mouse/trackpad wheels and Android 14 classified two-finger gestures scroll history
+or report to a remote TUI according to its mouse mode. Classified gestures bypass
+Compose's pointer cache and keep remote reports anchored to the cursor. Shift bypasses tracking for local selection and menus. Ctrl+wheel
+changes font size. Mouse clicks focus the terminal without raising the IME.
+Transfers use shell-owned controls rather than a bottom overlay, and failures
+remain in history until explicitly cleared.
+
+Implementation verification and remaining physical-device checks are recorded
+in [`../docs/design/adaptive-workspace-verification.md`](../docs/design/adaptive-workspace-verification.md).
 
 ## Source tree
 

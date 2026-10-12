@@ -2,7 +2,6 @@ package com.remotly.app.ssh
 
 import android.util.Log
 import com.remotly.app.terminal.TerminalStore
-import com.remotly.app.util.Base64Std
 import java.util.concurrent.ConcurrentHashMap
 
 // Manages live SSH terminal sessions (M4-03). Each session is an SshSession
@@ -111,6 +110,7 @@ object SshHub {
                 },
             )
             sessions[key] = session
+            TerminalStore.setPtyReplySink(sessionId) { bytes -> write(hostId, sessionId, bytes) }
             sizes[key] = cols to rows
             keepAliveStarted()
             // Debug only, and identifiers only: no hostname, username, or
@@ -166,6 +166,7 @@ object SshHub {
     }
 
     private fun closeLocked(key: String) {
+        TerminalStore.setPtyReplySink(key.substringAfter(':'), null)
         sizes.remove(key)
         sessions.remove(key)?.let { s ->
             try {
@@ -182,6 +183,7 @@ object SshHub {
     // from a replaced connection can never stop its successor's service.
     private fun retire(key: String, session: SshSession) {
         if (!sessions.remove(key, session)) return
+        TerminalStore.setPtyReplySink(key.substringAfter(':'), null)
         sizes.remove(key)
         session.release()
         keepAliveStoppedIfIdle()

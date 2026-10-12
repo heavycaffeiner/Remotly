@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -229,11 +230,15 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
     } ?: listOf(displayName, host, username, password, passphrase, keyFileName).any { it.isNotEmpty() } ||
         port != "22" || auth != AuthMethod.Key
 
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    fun leaveEditor() { keyboard?.hide(); focusManager.clearFocus(); onDone() }
     val requestClose: () -> Unit = {
         if (!busy) {
-            if (dirty) confirmDiscard = true else onDone()
+            if (dirty) confirmDiscard = true else leaveEditor()
         }
     }
+    var advancedOpen by rememberSaveable { mutableStateOf(false) }
 
     BackHandler(onBack = requestClose)
 
@@ -316,7 +321,7 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                 passphrase = ""
                 keyBytes = null
                 busy = false
-                onDone()
+                leaveEditor()
             }.onFailure { e ->
                 formError = e.message ?: "The host could not be saved."
                 busy = false
@@ -398,6 +403,7 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
         Column(
             modifier = Modifier
                 .padding(padding)
+                .widthIn(max = 720.dp)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = ScreenHorizontalPadding, vertical = 8.dp),
@@ -602,6 +608,10 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                 }
             }
 
+            TextButton(onClick = { advancedOpen = !advancedOpen }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (advancedOpen) "Hide verification and accepted keys" else "Verification and accepted keys")
+            }
+            if (advancedOpen) {
             FormSection(
                 title = "Verification",
                 description = if (editing && !replaceCredential) {
@@ -680,6 +690,7 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
                     }
                 }
             }
+            }
 
         }
     }
@@ -688,7 +699,7 @@ fun HostEditorScreen(hostId: String?, onDone: () -> Unit) {
         DiscardChangesDialog(
             onDiscard = {
                 confirmDiscard = false
-                onDone()
+                leaveEditor()
             },
             onKeepEditing = { confirmDiscard = false },
         )

@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -12,9 +13,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -33,10 +34,8 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.outlined.Dns
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.DropdownMenu
@@ -46,10 +45,6 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -62,12 +57,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -75,14 +68,13 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
-import androidx.navigation.compose.currentBackStackEntryAsState
 import com.remotly.app.session.SshSessions
 import com.remotly.app.session.SshTabKind
 import com.remotly.app.ssh.SshHost
 import com.remotly.app.ssh.SshHostStoreException
 import com.remotly.app.ssh.SshModule
-import com.remotly.app.ui.EXPANDED_LAYOUT_MIN_WIDTH_DP
 import com.remotly.app.ui.Routes
 import com.remotly.app.ui.openRoute
 import com.remotly.app.ui.ScreenHorizontalPadding
@@ -99,112 +91,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private data class TabSpec(
-    val route: String,
-    val title: String,
-    val outlineIcon: ImageVector,
-    val filledIcon: ImageVector,
-)
-
-private val TABS = listOf(
-    TabSpec(Routes.HOSTS, "Hosts", Icons.Outlined.Dns, Icons.Filled.Dns),
-    TabSpec(Routes.SETTINGS, "Settings", Icons.Outlined.Settings, Icons.Filled.Settings),
-)
-
-/**
- * The root shell shared by the Hosts and Settings destinations.
- *
- * The overload without content is the Hosts destination. The content overload
- * lets the NavHost mount Settings as a real destination while keeping the
- * navigation bar or rail in one place. Selection is intentionally read from
- * the NavController rather than mirrored in local state, so back navigation
- * and saved root destinations always agree with what is highlighted.
- */
 @Composable
 fun MainTabs(nav: NavHostController) {
-    MainTabs(nav) { HostsContent(nav) }
+    HostsContent(nav)
 }
-
-@Composable
-fun MainTabs(nav: NavHostController, content: @Composable () -> Unit) {
-    val entry by nav.currentBackStackEntryAsState()
-    val currentRoute = entry?.destination?.route
-    val selectedRoute = TABS.firstOrNull { it.route == currentRoute }?.route ?: Routes.HOSTS
-    val expanded = LocalConfiguration.current.screenWidthDp >= EXPANDED_LAYOUT_MIN_WIDTH_DP
-
-    fun selectRoot(route: String) {
-        // Read live rather than from the composition that built this handler:
-        // the bar's click lambda can outlive a recomposition, and comparing
-        // against a captured route left the Hosts tab a no-op from Settings.
-        if (route == nav.currentBackStackEntry?.destination?.route) return
-        nav.navigate(route) {
-            // Keep the Hosts entry as the stable root while saving whichever
-            // root destination is being covered. This restores search and
-            // scroll state without creating duplicate root entries.
-            popUpTo(Routes.HOSTS) { saveState = true }
-            launchSingleTop = true
-            restoreState = true
-        }
-    }
-
-    // Edge to edge is enabled for the window, so this shell consumes system
-    // bars before drawing the navigation controls. Every root destination gets
-    // the same controls and therefore the same back/restoration behavior.
-    val shell = Modifier.fillMaxSize().safeDrawingPadding()
-    if (expanded) {
-        Row(shell) {
-            MainNavigationRail(selectedRoute = selectedRoute, onSelect = ::selectRoot)
-            Box(Modifier.weight(1f)) { content() }
-        }
-    } else {
-        Column(shell) {
-            Box(Modifier.weight(1f)) { content() }
-            MainNavigationBar(selectedRoute = selectedRoute, onSelect = ::selectRoot)
-        }
-    }
-}
-
-@Composable
-private fun MainNavigationBar(selectedRoute: String, onSelect: (String) -> Unit) {
-    NavigationBar {
-        TABS.forEach { tab ->
-            val isSelected = selectedRoute == tab.route
-            NavigationBarItem(
-                selected = isSelected,
-                onClick = { onSelect(tab.route) },
-                icon = {
-                    Icon(
-                        if (isSelected) tab.filledIcon else tab.outlineIcon,
-                        contentDescription = null,
-                    )
-                },
-                label = { Text(tab.title) },
-            )
-        }
-    }
-}
-
-@Composable
-private fun MainNavigationRail(selectedRoute: String, onSelect: (String) -> Unit) {
-    NavigationRail {
-        TABS.forEach { tab ->
-            val isSelected = selectedRoute == tab.route
-            NavigationRailItem(
-                selected = isSelected,
-                onClick = { onSelect(tab.route) },
-                icon = {
-                    Icon(
-                        if (isSelected) tab.filledIcon else tab.outlineIcon,
-                        contentDescription = null,
-                    )
-                },
-                label = { Text(tab.title) },
-            )
-        }
-    }
-}
-
-// --- Hosts -------------------------------------------------------------
 
 private enum class HostsPhase { Loading, Ready, Error }
 
@@ -214,16 +104,16 @@ private data class HostRow(
     val detail: String,
     /** Open tabs for this host. Zero draws no badge. */
     val sessions: Int = 0,
+    val tabs: List<com.remotly.app.session.SshTab> = emptyList(),
 )
 
 private fun SshHost.toRow(sessions: Int): HostRow {
     val name = displayName.ifBlank { "$username@$host" }
-    val authLabel = if (authKind == SshHost.AUTH_KEY) "key" else "password"
-    val endpoint = "$username@$host:$port"
+    val endpoint = "$username@$host${if (port == 22) "" else ":$port"}"
     return HostRow(
         host = this,
         name = name,
-        detail = "$endpoint ($authLabel)",
+        detail = endpoint,
         sessions = sessions,
     )
 }
@@ -243,9 +133,10 @@ private fun HostsContent(nav: NavHostController) {
     var removeTarget by remember { mutableStateOf<HostRow?>(null) }
     var notice by remember { mutableStateOf("") }
     val snackbarHostState = remember { SnackbarHostState() }
-    val expanded = LocalConfiguration.current.screenWidthDp >= EXPANDED_LAYOUT_MIN_WIDTH_DP
-
-    BackHandler(enabled = query.isNotEmpty()) { query = "" }
+    val expanded = com.remotly.app.ui.LocalWorkspaceLayout.current.widthDp >= 840
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
+    val openHosts by SshSessions.openHosts.collectAsStateWithLifecycle()
+    BackHandler(enabled = searchOpen || query.isNotEmpty()) { query = ""; searchOpen = false }
 
     fun load() {
         val gen = generation.incrementAndGet()
@@ -267,8 +158,12 @@ private fun HostsContent(nav: NavHostController) {
         }
     }
 
-    // This destination is recreated after returning from a pushed screen, so
-    // loading on entry ensures a newly added or removed host appears at once.
+    val countedHosts = hosts.map { row ->
+        val tabs = openHosts.firstOrNull { it.tabs.hostId == row.host.id }?.tabs?.tabs.orEmpty()
+        row.copy(sessions = tabs.size, tabs = tabs)
+    }
+
+    // Refresh saved connections when returning from the editor.
     LaunchedEffect(Unit) { load() }
 
     LaunchedEffect(notice) {
@@ -278,12 +173,12 @@ private fun HostsContent(nav: NavHostController) {
         }
     }
 
-    val visible = remember(hosts, query) {
+    val visible = remember(countedHosts, query) {
         val q = query.trim()
         if (q.isBlank()) {
-            hosts
+            countedHosts
         } else {
-            hosts.filter {
+            countedHosts.filter {
                 it.name.contains(q, ignoreCase = true) || it.detail.contains(q, ignoreCase = true)
             }
         }
@@ -297,11 +192,17 @@ private fun HostsContent(nav: NavHostController) {
     }
 
     fun openTerminal(row: HostRow) {
-        nav.openRoute(Routes.sshTerminal(row.host.id))
+        val state = SshSessions.state(row.host.id).value.tabs
+        val active = state.tabs.firstOrNull { it.sessionId == state.activeSessionId }
+        if (active?.kind == SshTabKind.Workspace) {
+            nav.openRoute(Routes.herdrWorkspace(row.host.id, row.name, active.workspaceId, active.title, active.muxSession?.takeIf { it.isNotEmpty() }))
+        } else nav.openRoute(Routes.sshTerminal(row.host.id))
     }
 
     fun openFiles(row: HostRow) {
-        val sessionId = SshSessions.openTab(row.host.id, kind = SshTabKind.Files)
+        val existing = row.tabs.lastOrNull { it.kind == SshTabKind.Files }
+        val sessionId = existing?.sessionId ?: SshSessions.openTab(row.host.id, kind = SshTabKind.Files)
+        if (sessionId != null) SshSessions.selectTab(row.host.id, sessionId)
         if (sessionId == null) {
             notice = "This host has no room for another files tab."
         } else {
@@ -314,8 +215,15 @@ private fun HostsContent(nav: NavHostController) {
         nav.openRoute(Routes.herdrWorkspace(row.host.id, row.name))
     }
 
-    RemotlyScreen(title = "Hosts", snackbarHostState = snackbarHostState) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+    fun resumeTab(row: HostRow, tab: com.remotly.app.session.SshTab) {
+        SshSessions.selectTab(row.host.id, tab.sessionId)
+        openTerminal(row)
+    }
+
+    RemotlyScreen(title = "Hosts", snackbarHostState = snackbarHostState,
+        actions = listOf(com.remotly.app.ui.components.ScreenAction("search", Icons.Filled.Search, "Search hosts", { searchOpen = !searchOpen }))) { padding ->
+        BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
+            val detailFits = expanded && maxWidth >= 720.dp
             when (phase) {
                 HostsPhase.Loading -> LoadingState("Loading hosts")
                 HostsPhase.Error -> ErrorState(
@@ -334,12 +242,12 @@ private fun HostsContent(nav: NavHostController) {
                     )
                 } else {
                     Column(Modifier.fillMaxSize()) {
-                        val searchModifier = if (expanded) {
+                        val searchModifier = if (detailFits) {
                             Modifier.widthIn(max = WideHostListWidth).fillMaxWidth()
                         } else {
                             Modifier.fillMaxWidth()
                         }
-                        RemotlyTextField(
+                        if (searchOpen) RemotlyTextField(
                             value = query,
                             onValueChange = { query = it },
                             placeholder = { Text("Search hosts") },
@@ -356,7 +264,7 @@ private fun HostsContent(nav: NavHostController) {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                        } else if (expanded) {
+                        } else if (detailFits) {
                             ExpandedHosts(
                                 visible = visible,
                                 selectedHostId = selectedRow?.host?.id,
@@ -366,6 +274,7 @@ private fun HostsContent(nav: NavHostController) {
                                 onOpenWorkspaces = ::openWorkspaces,
                                 onEdit = { row -> nav.openRoute(Routes.hostEditor(row.host.id)) },
                                 onRemove = { removeTarget = it },
+                                onResumeTab = ::resumeTab,
                             )
                         } else {
                             CompactHosts(
@@ -454,7 +363,7 @@ private fun CompactHosts(
                 expanded = false,
                 selected = false,
                 onClick = { onOpenTerminal(row) },
-                onTerminal = { onOpenTerminal(row) },
+                onTerminal = { SshSessions.openTab(row.host.id); onOpenTerminal(row) },
                 onFiles = { onOpenFiles(row) },
                 onWorkspaces = { onOpenWorkspaces(row) },
                 onEdit = { onEdit(row) },
@@ -474,6 +383,7 @@ private fun ExpandedHosts(
     onOpenWorkspaces: (HostRow) -> Unit,
     onEdit: (HostRow) -> Unit,
     onRemove: (HostRow) -> Unit,
+    onResumeTab: (HostRow, com.remotly.app.session.SshTab) -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -525,6 +435,7 @@ private fun ExpandedHosts(
                 onOpenWorkspaces = { onOpenWorkspaces(row) },
                 onEdit = { onEdit(row) },
                 onRemove = { onRemove(row) },
+                onResumeTab = { onResumeTab(row, it) },
             )
         }
     }
@@ -628,6 +539,9 @@ private fun HostRowItem(
                             expanded = menuOpen,
                             onDismissRequest = { menuOpen = false },
                         ) {
+                            DropdownMenuItem(text = { Text("New terminal") }, onClick = { menuOpen = false; onTerminal() })
+                            DropdownMenuItem(text = { Text("Files") }, onClick = { menuOpen = false; onFiles() })
+                            DropdownMenuItem(text = { Text("Workspaces") }, onClick = { menuOpen = false; onWorkspaces() })
                             DropdownMenuItem(
                                 text = { Text("Edit") },
                                 leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
@@ -648,48 +562,8 @@ private fun HostRowItem(
                     }
                 }
             }
-            if (!expanded) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 8.dp),
-                ) {
-                    FilledTonalButton(
-                        onClick = onTerminal,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Icon(Icons.Filled.Terminal, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Open terminal")
-                    }
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        HostRowAction(label = "Files", icon = Icons.Filled.Folder, onClick = onFiles)
-                        HostRowAction(label = "Workspaces", icon = Icons.Filled.Dashboard, onClick = onWorkspaces)
-                    }
-                }
-            }
-        }
-    }
-}
 
-@Composable
-private fun RowScope.HostRowAction(
-    label: String,
-    icon: ImageVector,
-    onClick: () -> Unit,
-) {
-    TextButton(
-        onClick = onClick,
-        modifier = Modifier.weight(1f),
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-    ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(label, maxLines = 1, style = MaterialTheme.typography.labelLarge)
+        }
     }
 }
 
@@ -702,6 +576,7 @@ private fun HostDetailPane(
     onOpenWorkspaces: () -> Unit,
     onEdit: () -> Unit,
     onRemove: () -> Unit,
+    onResumeTab: (com.remotly.app.session.SshTab) -> Unit,
 ) {
     Surface(
         modifier = modifier,
@@ -737,23 +612,31 @@ private fun HostDetailPane(
             Spacer(Modifier.height(8.dp))
             HostDetailAction(
                 icon = Icons.Filled.Terminal,
-                title = "Open terminal",
-                description = "Start or resume an SSH terminal session",
+                title = if (row.sessions > 0) "Resume session" else "Open terminal",
                 primary = true,
                 onClick = onOpenTerminal,
             )
             HostDetailAction(
                 icon = Icons.Filled.Folder,
                 title = "Files",
-                description = "Browse files in an SSH tab",
                 onClick = onOpenFiles,
             )
             HostDetailAction(
                 icon = Icons.Filled.Dashboard,
                 title = "Workspaces",
-                description = "Open Herdr workspaces on this host",
                 onClick = onOpenWorkspaces,
             )
+            if (row.tabs.isNotEmpty()) {
+                Text("Open sessions", style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(top = 12.dp).semantics { heading() })
+                row.tabs.forEach { tab ->
+                    HostDetailAction(
+                        icon = if (tab.kind == SshTabKind.Files) Icons.Default.Folder else Icons.Default.Terminal,
+                        title = "${tab.title}, ${tab.phase.name.lowercase()}",
+                        onClick = { onResumeTab(tab) },
+                    )
+                }
+            }
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilledTonalButton(onClick = onEdit, modifier = Modifier.weight(1f)) {
@@ -775,7 +658,6 @@ private fun HostDetailPane(
 private fun HostDetailAction(
     icon: ImageVector,
     title: String,
-    description: String,
     primary: Boolean = false,
     onClick: () -> Unit,
 ) {
@@ -797,19 +679,12 @@ private fun HostDetailAction(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(12.dp))
-            Column {
-                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                Text(
-                    description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (primary) foreground else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
         }
     }
 }

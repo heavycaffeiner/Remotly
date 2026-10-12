@@ -334,7 +334,8 @@ object TerminalMetrics {
             widthPx = width,
             heightPx = if (height <= 0) 16 else height,
             baselinePx = baseline,
-            underlinePx = (baseline + paint.underlinePosition).coerceAtLeast(1f),
+            underlinePx = (baseline + if (Build.VERSION.SDK_INT >= 29) paint.underlinePosition else fm.descent * 0.5f)
+                .coerceAtLeast(1f),
         )
     }
 

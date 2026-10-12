@@ -85,9 +85,21 @@ object SshSessions {
         /** The grid every tab of this host connects and resizes at. */
         var size: Pair<Int, Int> = DEFAULT_COLS to DEFAULT_ROWS
         var seq = 0
+        val sizes = HashMap<String, Pair<Int, Int>>()
     }
 
     private val hosts = ConcurrentHashMap<String, HostEntry>()
+    private val snapshotLock = Any()
+    private val _openHosts = MutableStateFlow<List<SshHostSessionState>>(emptyList())
+    val openHosts: StateFlow<List<SshHostSessionState>> = _openHosts.asStateFlow()
+
+    private fun publish(e: HostEntry, state: SshHostSessionState) {
+        e.flow.value = state
+        synchronized(snapshotLock) {
+            _openHosts.value = hosts.values.map { it.flow.value }
+                .filter { it.tabs.tabs.isNotEmpty() }.sortedBy { it.tabs.hostId }
+        }
+    }
 
     /** Commands waiting for their shell to come up, keyed by host and session. */
     private val pendingRuns = ConcurrentHashMap<Pair<String, String>, String>()
@@ -171,10 +183,10 @@ object SshSessions {
             if (kind == SshTabKind.Files) {
                 // Nothing to connect, so the tab is usable at once rather
                 // than sitting in the connecting phase a shell starts in.
-                e.flow.value = current.copy(tabs = setSshTabPhase(next, sessionId, SshTabPhase.Active, ""))
+                publish(e, current.copy(tabs = setSshTabPhase(next, sessionId, SshTabPhase.Active, "")))
                 return sessionId
             }
-            e.flow.value = current.copy(tabs = next)
+            publish(e, current.copy(tabs = next))
             if (!runs.isNullOrEmpty()) pendingRuns[hostId to sessionId] = runs
             startSession(hostId, sessionId, e)
             return sessionId
@@ -213,7 +225,7 @@ object SshSessions {
                         if (t.sessionId == live.sessionId) t.copy(workspaceId = workspaceId, title = label) else t
                     },
                 )
-                e.flow.value = current.copy(tabs = retagged)
+                publish(e, current.copy(tabs = retagged))
                 selectTab(hostId, live.sessionId)
                 return live.sessionId
             }
@@ -236,7 +248,7 @@ object SshSessions {
             val current = e.flow.value
             val next = setSshTabTitle(current.tabs, sessionId, title, pin = true)
             if (next === current.tabs) return
-            e.flow.value = current.copy(tabs = next)
+            publish(e, current.copy(tabs = next))
         }
     }
 
@@ -252,7 +264,7 @@ object SshSessions {
             val sessionId = current.tabs.activeSessionId ?: return
             val next = setSshTabTitle(current.tabs, sessionId, title)
             if (next === current.tabs) return
-            e.flow.value = current.copy(tabs = next)
+            publish(e, current.copy(tabs = next))
         }
     }
 
@@ -262,7 +274,7 @@ object SshSessions {
             val current = e.flow.value
             if (current.tabs.activeSessionId == sessionId) return
             if (findSshTab(current.tabs, sessionId) == null) return
-            e.flow.value = current.copy(tabs = setActiveSshTab(current.tabs, sessionId))
+            publish(e, current.copy(tabs = setActiveSshTab(current.tabs, sessionId)))
         }
     }
 
@@ -277,7 +289,8 @@ object SshSessions {
             // a channel that was never opened for it.
             if (tab.kind == SshTabKind.Files) FilesTabs.forget(sessionId) else transport.close(hostId, sessionId)
             val nextPrompt = if (current.hostKeyPrompt?.sessionId == sessionId) null else current.hostKeyPrompt
-            e.flow.value = current.copy(tabs = removeSshTab(current.tabs, sessionId), hostKeyPrompt = nextPrompt)
+            e.sizes.remove(sessionId)
+            publish(e, current.copy(tabs = removeSshTab(current.tabs, sessionId), hostKeyPrompt = nextPrompt))
         }
     }
 
@@ -290,7 +303,7 @@ object SshSessions {
                 if (tab.kind == SshTabKind.Files) FilesTabs.forget(tab.sessionId) else transport.close(hostId, tab.sessionId)
             }
             transport.setEventSink(hostId, null)
-            e.flow.value = SshHostSessionState(createSshTabs(hostId))
+            publish(e, SshHostSessionState(createSshTabs(hostId)))
         }
     }
 
@@ -305,16 +318,47 @@ object SshSessions {
             // shell becomes active. Queue that attachment for every new
             // transport connection, but let each active event consume it once.
             tab.reconnectCommand?.let { pendingRuns[hostId to sessionId] = it }
-            e.flow.value = current.copy(tabs = setSshTabPhase(current.tabs, sessionId, SshTabPhase.Connecting))
+            publish(e, current.copy(tabs = setSshTabPhase(current.tabs, sessionId, SshTabPhase.Connecting)))
             startSession(hostId, sessionId, e)
         }
     }
 
     fun sendInput(hostId: String, bytes: ByteArray) {
+        val sessionId = hosts[hostId]?.flow?.value?.tabs?.activeSessionId ?: return
+        sendInput(hostId, sessionId, bytes)
+    }
+
+    fun sendInput(hostId: String, sessionId: String, bytes: ByteArray) {
+        val e = hosts[hostId] ?: return
+        if (bytes.isEmpty()) return
+        synchronized(e) {
+            val tab = findSshTab(e.flow.value.tabs, sessionId) ?: return
+            if (tab.kind == SshTabKind.Files) return
+            transport.write(hostId, sessionId, bytes)
+        }
+    }
+
+    fun resizeSession(hostId: String, sessionId: String, cols: Int, rows: Int) {
+        val e = hosts[hostId] ?: return
+        if (cols <= 0 || rows <= 0) return
+        synchronized(e) {
+            val tab = findSshTab(e.flow.value.tabs, sessionId) ?: return
+            if (tab.kind == SshTabKind.Files) return
+            val size = cols to rows
+            e.size = size
+            if (e.sizes.put(sessionId, size) == size) return
+            publish(e, e.flow.value.copy(sized = true))
+            transport.resize(hostId, sessionId, cols, rows)
+        }
+    }
+
+    fun measureHost(hostId: String, cols: Int, rows: Int) {
+        if (cols <= 0 || rows <= 0) return
         val e = entry(hostId)
-        val sessionId = e.flow.value.tabs.activeSessionId
-        if (hostId.isEmpty() || sessionId == null || bytes.isEmpty()) return
-        transport.write(hostId, sessionId, bytes)
+        synchronized(e) {
+            e.size = cols to rows
+            if (!e.flow.value.sized) publish(e, e.flow.value.copy(sized = true))
+        }
     }
 
     /**
@@ -332,7 +376,7 @@ object SshSessions {
             val current = e.flow.value
             val first = !current.sized
             e.size = cols to rows
-            if (first) e.flow.value = current.copy(sized = true)
+            if (first) publish(e, current.copy(sized = true))
             if (hostId.isEmpty()) return
             for (tab in e.flow.value.tabs.tabs) transport.resize(hostId, tab.sessionId, cols, rows)
         }
@@ -344,13 +388,13 @@ object SshSessions {
             val current = e.flow.value
             val prompt = current.hostKeyPrompt ?: return
             if (hostId.isEmpty()) return
-            e.flow.value = current.copy(hostKeyPrompt = null)
+            publish(e, current.copy(hostKeyPrompt = null))
             if (decision == HostKeyDecision.Reject) {
                 transport.close(hostId, prompt.sessionId)
                 val closed = e.flow.value
-                e.flow.value = closed.copy(
+                publish(e, closed.copy(
                     tabs = setSshTabPhase(closed.tabs, prompt.sessionId, SshTabPhase.Closed, "The host key was rejected."),
-                )
+                ))
                 return
             }
             transport.hostKey(hostId, prompt.sessionId, decision.name.lowercase())
@@ -359,7 +403,8 @@ object SshSessions {
 
     private fun startSession(hostId: String, sessionId: String, e: HostEntry) {
         if (hostId.isEmpty()) return
-        transport.connect(hostId, sessionId, e.size.first, e.size.second)
+        val size = e.sizes[sessionId] ?: e.size
+        transport.connect(hostId, sessionId, size.first, size.second)
     }
 
     /** Types a queued command once, when its shell reports ready. Never types it twice. */
@@ -408,7 +453,7 @@ object SshSessions {
                 }
                 else -> return
             }
-            e.flow.value = next
+            publish(e, next)
         }
     }
 }

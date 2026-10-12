@@ -19,9 +19,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -42,8 +44,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.LinkOff
+import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Schedule
@@ -59,6 +62,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -99,7 +103,7 @@ private val BAR_MIN_HEIGHT = 56.dp
 private val TOUCH_TARGET = 48.dp
 
 /** Height of one pill in the tab strip. Tall enough on its own to need no touch-target trick. */
-private val TAB_HEIGHT = 36.dp
+private val TAB_HEIGHT = 48.dp
 
 /**
  * How a tab in [TerminalScaffold]'s strip is doing. Drives the icon shown
@@ -192,18 +196,22 @@ fun TerminalScaffold(
     keyRepeatDelayMs: Int = REPEAT_DELAY_MS,
     haptics: Boolean = false,
     onKeyboard: () -> Unit = {},
+    onFiles: (() -> Unit)? = null,
+    filesOpen: Boolean = false,
+    contextMenuOpen: Boolean = false,
+    onContextMenuDismiss: () -> Unit = {},
     // Drawn over the terminal, for a tab that shows something else. The
     // terminal underneath stays composed because it is what measures the
     // grid every session is opened against.
     pane: (@Composable () -> Unit)? = null,
     content: @Composable (Modifier) -> Unit,
 ) {
-    BackHandler(onBack = onBack)
+    BackHandler { if (contextMenuOpen) onContextMenuDismiss() else onBack() }
     // Edge to edge is on for the window, so this consumes the system bars
     // and the keyboard itself. Without it the bar draws under the status bar
     // and, worse, the key row lands under the navigation bar, where the
     // system takes the touches and the keys do nothing at all.
-    Column(modifier = modifier.fillMaxSize().safeDrawingPadding()) {
+    Column(modifier = modifier.fillMaxSize()) {
         TerminalTopBar(
             title = title,
             subtitle = subtitle,
@@ -212,8 +220,10 @@ fun TerminalScaffold(
             actions = actions,
             actionGroups = actionGroups,
             onActionsMenuOpen = onActionsMenuOpen,
-            showKeyboardAction = !showKeyRow && pane == null,
-            onKeyboard = onKeyboard,
+            onFiles = onFiles,
+            filesOpen = filesOpen,
+            contextMenuOpen = contextMenuOpen,
+            onContextMenuDismiss = onContextMenuDismiss,
         )
 
         if (tabs.isNotEmpty()) {
@@ -272,10 +282,17 @@ private fun TerminalTopBar(
     actions: List<ScreenAction>,
     actionGroups: List<TerminalActionGroup>,
     onActionsMenuOpen: () -> Unit,
-    showKeyboardAction: Boolean,
-    onKeyboard: () -> Unit,
+    onFiles: (() -> Unit)?,
+    filesOpen: Boolean,
+    contextMenuOpen: Boolean,
+    onContextMenuDismiss: () -> Unit,
 ) {
-    var menuOpen by remember { mutableStateOf(false) }
+    var requestedMenu by remember { mutableStateOf(false) }
+    val menuOpen = requestedMenu || contextMenuOpen
+    BackHandler(enabled = menuOpen) { requestedMenu = false; onContextMenuDismiss() }
+    fun closeMenu() { requestedMenu = false; onContextMenuDismiss() }
+    val workspace = com.remotly.app.ui.LocalWorkspaceActions.current
+    val layout = com.remotly.app.ui.LocalWorkspaceLayout.current
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
         Column {
             Row(
@@ -289,23 +306,29 @@ private fun TerminalTopBar(
                 CompactIconAction(
                     icon = Icons.AutoMirrored.Filled.ArrowBack,
                     label = "Back",
-                    onClick = { if (menuOpen) menuOpen = false else onBack() },
+                    onClick = { if (menuOpen) closeMenu() else onBack() },
                 )
-                if (onMenu != null) {
-                    CompactIconAction(icon = Icons.Filled.Menu, label = "Workspaces and tabs", onClick = onMenu)
+                com.remotly.app.ui.WorkspaceNavigationButton()
+                if (onMenu != null && layout.widthDp >= 600) {
+                    CompactIconAction(icon = Icons.Filled.Dashboard, label = "Workspaces and tabs", onClick = onMenu)
                 }
                 Column(
                     modifier = Modifier
                         .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .combinedClickable(onClick = workspace.selectWork)
+                        .semantics { contentDescription = "Switch workspace, $title" }
                         .padding(horizontal = 4.dp, vertical = 2.dp),
                 ) {
                     Text(
                         title,
                         style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.semantics { heading() },
                     )
                     subtitle
-                        ?.takeIf { it.isNotBlank() }
+                        ?.takeIf { it.isNotBlank() && !layout.compactHeight }
                         ?.let {
                             Text(
                                 it,
@@ -314,19 +337,28 @@ private fun TerminalTopBar(
                             )
                         }
                 }
-                if (showKeyboardAction) {
-                    CompactIconAction(icon = Icons.Filled.Keyboard, label = "Show the keyboard", onClick = onKeyboard)
+                if (onFiles != null && layout.widthDp >= 360) {
+                    CompactIconAction(icon = Icons.Filled.Folder, label = if (filesOpen) "Hide Files" else "Show Files", onClick = onFiles)
                 }
+                com.remotly.app.ui.WorkspaceTransferButton()
                 if (actions.isNotEmpty()) {
+                    Box {
                     CompactIconAction(
                         icon = Icons.Filled.MoreVert,
                         label = "Terminal actions",
                         onClick = {
                             onActionsMenuOpen()
-                            menuOpen = true
+                            requestedMenu = true
                         },
                     )
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = ::closeMenu,
+                        scrollState = rememberScrollState(),
+                        properties = menuPopupProperties()) {
+                        if (onMenu != null && layout.widthDp < 600) {
+                            DropdownMenuItem(text = { Text("Workspaces and tabs") },
+                                leadingIcon = { Icon(Icons.Filled.Dashboard, null) },
+                                onClick = { closeMenu(); onMenu() })
+                        }
                         val sections = terminalActionSections(actions, actionGroups)
                         for ((sectionIndex, section) in sections.withIndex()) {
                             if (sectionIndex > 0) HorizontalDivider()
@@ -352,18 +384,26 @@ private fun TerminalTopBar(
                                         )
                                     },
                                     onClick = {
-                                        menuOpen = false
+                                        closeMenu()
                                         action.onClick()
                                     },
                                 )
                             }
                         }
                     }
+                    }
                 }
             }
         }
     }
 }
+
+// Focusable menus keep arrow keys, Enter, and Esc working. They stay non-focusable only while
+// the software keyboard is up, so opening a menu does not dismiss it.
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun menuPopupProperties() =
+    androidx.compose.ui.window.PopupProperties(focusable = !WindowInsets.isImeVisible)
 
 private data class TerminalActionSection(
     val title: String,
@@ -414,6 +454,7 @@ private fun defaultActionTint() = MaterialTheme.colorScheme.onSurface
  * The surrounding bar grows with its text, so this control never relies on
  * clipping or a visually oversized hit area.
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun CompactIconAction(
     icon: ImageVector,
@@ -421,23 +462,29 @@ private fun CompactIconAction(
     onClick: () -> Unit,
     enabled: Boolean = true,
 ) {
-    Box(
-        modifier = Modifier
-            .requiredSize(TOUCH_TARGET)
-            .clip(CircleShape)
-            .combinedClickable(enabled = enabled, onClick = onClick)
-            .semantics {
-                contentDescription = label
-                role = Role.Button
-            },
-        contentAlignment = Alignment.Center,
+    androidx.compose.material3.TooltipBox(
+        positionProvider = androidx.compose.material3.TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = { PlainTooltip { Text(label) } },
+        state = androidx.compose.material3.rememberTooltipState(),
     ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = if (enabled) defaultActionTint() else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(20.dp),
-        )
+        Box(
+            modifier = Modifier
+                .requiredSize(TOUCH_TARGET)
+                .clip(CircleShape)
+                .combinedClickable(enabled = enabled, onClick = onClick)
+                .semantics {
+                    contentDescription = label
+                    role = Role.Button
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = if (enabled) defaultActionTint() else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        }
     }
 }
 
@@ -514,6 +561,8 @@ private fun TerminalTabChip(
     val foreground = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface
     val icon = iconFor(tab.phase)
     val accessibleLabel = "${tab.label}${suffixFor(tab.phase)}"
+    var menuOpen by remember(tab.id) { mutableStateOf(false) }
+    val touch = !com.remotly.app.ui.hardwareKeyboardAttached()
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -527,7 +576,7 @@ private fun TerminalTabChip(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier
                 .fillMaxHeight()
-                .combinedClickable(onClick = onSelect, onLongClick = onRename)
+                .combinedClickable(onClick = onSelect, onLongClick = { menuOpen = true })
                 .padding(start = 14.dp, end = if (icon == null) 14.dp else 8.dp)
                 .semantics(mergeDescendants = true) {
                     role = Role.Tab
@@ -555,14 +604,19 @@ private fun TerminalTabChip(
             modifier = Modifier
                 .fillMaxHeight()
                 .width(TOUCH_TARGET)
-                .combinedClickable(onClick = onClose)
+                .combinedClickable(onClick = { if (touch) menuOpen = true else onClose() })
                 .semantics {
-                    contentDescription = "Close ${tab.label}"
+                    contentDescription = if (touch) "Actions for ${tab.label}" else "Close ${tab.label}"
                     role = Role.Button
                 },
             contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.Filled.Close, contentDescription = null, tint = foreground, modifier = Modifier.size(15.dp))
+            Icon(if (touch) Icons.Filled.MoreVert else Icons.Filled.Close, contentDescription = null, tint = foreground, modifier = Modifier.size(15.dp))
+            DropdownMenu(menuOpen, onDismissRequest = { menuOpen = false },
+                properties = menuPopupProperties()) {
+                onRename?.let { rename -> DropdownMenuItem(text = { Text("Rename") }, onClick = { menuOpen = false; rename() }) }
+                DropdownMenuItem(text = { Text("Close") }, onClick = { menuOpen = false; onClose() })
+            }
         }
     }
 }

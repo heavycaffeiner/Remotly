@@ -104,6 +104,8 @@ fun RemotlyScreen(
                             IconButton(onClick = { if (menuOpen) menuOpen = false else onBack() }) {
                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                             }
+                        } else {
+                            com.remotly.app.ui.WorkspaceNavigationButton()
                         }
                     },
                     actions = {

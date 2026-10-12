@@ -18,12 +18,16 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.KeyboardHide
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.ViewColumn
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
@@ -43,9 +47,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import com.remotly.app.ui.EXPANDED_LAYOUT_MIN_WIDTH_DP
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -71,7 +72,6 @@ import com.remotly.app.session.SshTabKind
 import com.remotly.app.ui.components.ScreenAction
 import com.remotly.app.ui.components.DiscardChangesDialog
 import com.remotly.app.ui.terminal.ModifierKey
-import com.remotly.app.ui.terminal.TerminalBackground
 import com.remotly.app.ui.terminal.TerminalPane
 import androidx.compose.ui.platform.LocalContext
 import com.remotly.app.notify.TerminalNotifications
@@ -120,6 +120,13 @@ fun HerdrWorkspaceScreen(
 ) {
     val settings by SettingsState.settings.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val workspaceActions = com.remotly.app.ui.LocalWorkspaceActions.current
+    val layout = com.remotly.app.ui.LocalWorkspaceLayout.current
+    val hardwareKeyboard = com.remotly.app.ui.hardwareKeyboardAttached()
+    var terminalFocused by remember { mutableStateOf(false) }
+    var contextMenuOpen by remember { mutableStateOf(false) }
+    var temporaryKeys by remember { mutableStateOf(false) }
+    var filesSelected by remember { mutableStateOf(false) }
 
     // ProcessLifecycleOwner is not on this module's classpath (only
     // lifecycle-runtime-compose and lifecycle-viewmodel-compose are
@@ -182,6 +189,9 @@ fun HerdrWorkspaceScreen(
     val terminal = rememberTerminalHandle()
     val imeVisible = WindowInsets.isImeVisible
     val tab = sessionId?.let { findSshTab(hostState.tabs, it) }
+    val filesTab = hostState.tabs.tabs.lastOrNull { it.kind == SshTabKind.Files }
+    val filesNavigation = remember(filesTab?.sessionId) { FilesNavigation() }
+    val browsers = remember(hostId) { mutableMapOf<String, com.remotly.app.ui.files.FilesBrowserState>() }
 
     // Which workspace this terminal is on is herdr's own focus, not a copy of
     // it: the terminal is a herdr client, so it shows whatever the session
@@ -208,15 +218,17 @@ fun HerdrWorkspaceScreen(
         }
     }
 
+    var imageTarget by remember { mutableStateOf<String?>(null) }
     val imagePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri: Uri? ->
-        if (uri != null && hostId.isNotEmpty()) {
+        val target = imageTarget
+        if (uri != null && hostId.isNotEmpty() && target != null) {
             scope.launch {
                 notice = TerminalBanner(TerminalBannerTone.Busy, "Uploading the image")
                 when (val result = ImagePaste.paste(context, hostId, uri)) {
                     is ImagePaste.Result.Ok -> {
-                        ImagePaste.typeResult(hostId, result.path)
+                        SshSessions.sendInput(hostId, target, "${result.path} ".toByteArray(Charsets.UTF_8))
                         notice = TerminalBanner(TerminalBannerTone.Info, "Pasted the image path")
                     }
                     is ImagePaste.Result.Failed -> {
@@ -338,7 +350,44 @@ fun HerdrWorkspaceScreen(
     // Terminal content actions only. Everything that manages a workspace or a
     // tab lives on its own row in the sidebar, which is also the path for
     // anyone who cannot make the gestures.
+    fun hideFiles() {
+        if (workspaceActions.companionRequested) workspaceActions.toggleCompanion()
+        filesSelected = false
+        sessionId?.let { SshSessions.selectTab(hostId, it) }
+        terminal.focus()
+    }
+    fun dockFiles() {
+        val id = filesTab?.sessionId ?: return
+        if (workspaceActions.companionRequested) workspaceActions.toggleCompanion()
+        filesSelected = false
+        SshSessions.selectTab(hostId, id)
+        nav.openRoute(Routes.sshTerminal(hostId))
+    }
+    fun openFiles() {
+        if (workspaceActions.companionRequested) {
+            hideFiles()
+            return
+        }
+        val id = filesTab?.sessionId ?: SshSessions.openTab(hostId, kind = SshTabKind.Files)
+        if (id == null) {
+            notice = TerminalBanner(TerminalBannerTone.Error, "This host has no room for another files tab")
+        } else if (layout.companion) {
+            if (!workspaceActions.companionRequested) workspaceActions.toggleCompanion()
+            sessionId?.let { SshSessions.selectTab(hostId, it) }
+        } else nav.openRoute(Routes.sshTerminal(hostId))
+    }
     val actions = listOf(
+        ScreenAction("switch", Icons.Filled.SwapHoriz, "Switch workspace", workspaceActions.selectWork),
+        ScreenAction("settings", Icons.Filled.Palette, "Terminal appearance", { nav.openRoute(Routes.TERMINAL_APPEARANCE) }),
+        ScreenAction("files", Icons.Filled.Folder, "Files", ::openFiles),
+        ScreenAction("companion", Icons.Filled.ViewColumn, if (workspaceActions.companionRequested) "Use Files as a tab" else "Files beside terminal", { if (workspaceActions.companionRequested) dockFiles() else openFiles() }, enabled = layout.companion || workspaceActions.companionRequested),
+        ScreenAction("keyboard", if (imeVisible) Icons.Filled.KeyboardHide else Icons.Filled.Keyboard, if (imeVisible) "Hide keyboard" else "Show keyboard", { if (imeVisible) terminal.hideKeyboard() else terminal.openKeyboard() }),
+        ScreenAction("extra-keys", Icons.Filled.Keyboard, if (temporaryKeys) "Hide temporary keys" else "Show extra keys", { temporaryKeys = !temporaryKeys }),
+        ScreenAction("paste", Icons.Filled.Image, "Paste", {
+            val text = com.remotly.app.platform.readClipboardText(context)
+            if (!text.isNullOrEmpty()) terminal.paste(text)
+        }),
+        ScreenAction("copy", Icons.Filled.Edit, "Copy selection", { terminal.copySelection() }, enabled = hasSelection),
         ScreenAction(key = "new-tab", icon = Icons.Filled.Add, title = "New tab", onClick = ::newTab, enabled = workspaceIdCurrent != null),
         ScreenAction(key = "tab-here", icon = Icons.Filled.Folder, title = "New tab here", onClick = { runPlugin("tab-here") }),
         ScreenAction(key = "panes-to-tabs", icon = Icons.Filled.Dashboard, title = "Panes to tabs", onClick = { runPlugin("panes-to-tabs") }),
@@ -355,7 +404,7 @@ fun HerdrWorkspaceScreen(
             icon = Icons.Filled.Image,
             title = "Paste an image",
             enabled = hostId.isNotEmpty(),
-            onClick = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+            onClick = { imageTarget = sessionId; imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
         ),
         ScreenAction(
             key = "detach",
@@ -365,7 +414,7 @@ fun HerdrWorkspaceScreen(
             enabled = sessionId != null,
             onClick = { confirmDetach = true },
         ),
-    )
+    ).filter { it.key != "companion" || layout.companion || workspaceActions.companionRequested }
 
     val phaseBanner = when {
         sessionId == null -> TerminalBanner(TerminalBannerTone.Busy, if (effectiveLabel.isBlank()) "Attaching" else "Attaching to $effectiveLabel")
@@ -390,8 +439,8 @@ fun HerdrWorkspaceScreen(
         )
     }
 
-    BoxWithConstraints {
-        val permanent = maxWidth >= EXPANDED_LAYOUT_MIN_WIDTH_DP.dp
+    Box {
+        val permanent = false
         val drawerOpen = sidebarOpen ?: permanent
         HostSidebar(
             hostId = hostId,
@@ -435,17 +484,18 @@ fun HerdrWorkspaceScreen(
                 title = effectiveLabel.ifBlank { "Workspaces" },
                 subtitle = "$hostName, ${session ?: "default"}",
                 onBack = {
+                    contextMenuOpen = false
+                    temporaryKeys = false
                     when {
                         drawerOpen && !permanent -> sidebarOpen = false
+                        filesSelected && filesNavigation.goBack() -> Unit
+                        filesSelected -> { filesSelected = false; sessionId?.let { SshSessions.selectTab(hostId, it) }; terminal.focus() }
                         hasSelection -> terminal.clearSelection()
                         imeVisible -> terminal.hideKeyboard()
                         else -> nav.popBackStack()
                     }
                 },
-                onMenu = {
-                    terminal.hideKeyboard()
-                    sidebarOpen = !drawerOpen
-                },
+                onMenu = { sidebarOpen = !drawerOpen },
                 actions = actions,
                 actionGroups = listOf(
                     TerminalActionGroup(
@@ -454,10 +504,15 @@ fun HerdrWorkspaceScreen(
                     ),
                     TerminalActionGroup(
                         title = "Clipboard",
-                        actionKeys = setOf("paste-image"),
+                        actionKeys = setOf("paste-image", "paste", "copy"),
                     ),
+                    TerminalActionGroup("Appearance and input", setOf("settings", "keyboard", "extra-keys")),
+                    TerminalActionGroup("Navigation", setOf("switch", "companion", "files")),
                 ),
-                onActionsMenuOpen = { terminal.hideKeyboard() },
+                onFiles = ::openFiles,
+                filesOpen = workspaceActions.companionRequested,
+                contextMenuOpen = contextMenuOpen,
+                onContextMenuDismiss = { contextMenuOpen = false },
                 tabs = tabViews,
                 activeTabId = focusedTabId,
                 onSelectTab = ::selectTab,
@@ -465,7 +520,8 @@ fun HerdrWorkspaceScreen(
                 onRenameTab = ::startRenameTab,
                 onAddTab = if (workspaceIdCurrent != null) ::newTab else null,
                 banner = banner,
-                showKeyRow = settings.showExtraKeyRow,
+                showKeyRow = com.remotly.app.ui.terminal.extraKeysVisible(settings.extraKeyVisibility,
+                    terminalFocused, imeVisible, hardwareKeyboard, temporarilyRequested = temporaryKeys) && !filesSelected,
                 activeModifier = activeModifier,
                 onKey = ::onKeyPress,
                 onModifier = { m ->
@@ -478,18 +534,35 @@ fun HerdrWorkspaceScreen(
                 content = { modifier ->
                     val activeSessionId = sessionId
                     if (activeSessionId == null) {
-                        Box(modifier.background(TerminalBackground))
+                        Box(modifier.background(androidx.compose.ui.graphics.Color(settings.terminalTheme.resolve().background)))
                     } else {
+                        FilesCompanion(filesSelected = filesSelected, requested = workspaceActions.companionRequested,
+                            onFilesFocus = { filesSelected = true; filesTab?.let { SshSessions.selectTab(hostId, it.sessionId) } },
+                            modifier = modifier, onClose = ::hideFiles, onDock = ::dockFiles,
+                            files = filesTab?.takeIf { workspaceActions.companionRequested }?.let { shown ->
+                                { fileModifier ->
+                                    val browser = browsers.getOrPut(shown.sessionId) {
+                                        val saved = com.remotly.app.session.FilesTabs.state(shown.sessionId)
+                                        com.remotly.app.ui.files.FilesBrowserState(saved.cwd, saved.history, saved.query, saved.searchOpen)
+                                    }
+                                    FilesScreen(hostId, {
+                                        SshSessions.closeTab(hostId, shown.sessionId)
+                                        filesSelected = false
+                                        if (workspaceActions.companionRequested) workspaceActions.toggleCompanion()
+                                        sessionId?.let { SshSessions.selectTab(hostId, it) }
+                                    }, shown.sessionId, filesNavigation, fileModifier, browser)
+                                }
+                            }, terminal = { terminalModifier ->
                         TerminalPane(
                             sessionKey = activeSessionId,
                             fontSizeSp = settings.terminalFontSize,
                             cursorStyle = settings.cursorStyle,
-                            onInput = { bytes -> SshSessions.sendInput(hostId, bytes) },
+                            onInput = { bytes -> SshSessions.sendInput(hostId, activeSessionId, bytes) },
                             inputModifier = activeModifier,
                             onModifierConsumed = { activeModifier = null },
                             onInputNotice = { notice = TerminalBanner(TerminalBannerTone.Error, it) },
-                            onPtyWrite = { bytes -> SshSessions.sendInput(hostId, bytes) },
-                            onResize = { cols, rows -> SshSessions.resizeHost(hostId, cols, rows) },
+                            onPtyWrite = { bytes -> SshSessions.sendInput(hostId, activeSessionId, bytes) },
+                            onResize = { cols, rows -> SshSessions.resizeSession(hostId, activeSessionId, cols, rows) },
                             // The native selection toolbar and the system's own
                             // clipboard confirmation already cover this; no
                             // separate affordance is needed at the screen level.
@@ -513,7 +586,16 @@ fun HerdrWorkspaceScreen(
                             // Double taps are recognized by the native view:
                             // it receives both taps, while a Compose modifier
                             // around it is not shown an unclaimed first tap.
-                            modifier = modifier.terminalTabSwipe(enabled = !hasSelection) { direction ->
+                            theme = settings.terminalTheme.resolve(),
+                            touchpadGesturesEnabled = !workspaceActions.modalOpen && !contextMenuOpen && !drawerOpen &&
+                                (workspaceActions.companionRequested || !filesSelected),
+                            legacyTouchNavigationEnabled = settings.navigationGesturesEnabled,
+                            onContextMenuRequested = { _, _ -> contextMenuOpen = true },
+                            onFocusChanged = { focused ->
+                                terminalFocused = focused
+                                if (focused) { filesSelected = false; SshSessions.selectTab(hostId, activeSessionId) }
+                            },
+                            modifier = terminalModifier.terminalTabSwipe(enabled = settings.navigationGesturesEnabled && !hasSelection) { direction ->
                                 onMuxGesture(if (direction > 0) MuxAction.TabNext else MuxAction.TabPrevious)
                             },
                             handle = terminal,
@@ -521,10 +603,11 @@ fun HerdrWorkspaceScreen(
                             // session has a measured terminal; opening here
                             // works on first attach and after a workspace tab
                             // is replaced.
-                            onReady = { if (settings.openKeyboardOnTerminal) terminal.openKeyboard() },
+                            onReady = { if (settings.openKeyboardOnTerminal && !hardwareKeyboard) terminal.openKeyboard() else terminal.focus() },
                             onDoubleTap = { onMuxGesture(MuxAction.WorkspaceNext) },
                             onSelectionChanged = { hasSelection = it },
                         )
+                        })
                     }
                 },
             )

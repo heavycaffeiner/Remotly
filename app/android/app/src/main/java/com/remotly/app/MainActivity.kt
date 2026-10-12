@@ -16,6 +16,14 @@ import com.remotly.app.ui.RemotlyApp
  * and the scrollback goes with it.
  */
 class MainActivity : ComponentActivity() {
+    private val touchpad by lazy { com.remotly.app.terminal.TerminalTouchpadDispatcher(window.decorView) }
+
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean =
+        touchpad.dispatch(ev) || super.dispatchTouchEvent(ev)
+
+    override fun dispatchGenericMotionEvent(ev: android.view.MotionEvent): Boolean =
+        touchpad.dispatch(ev) || super.dispatchGenericMotionEvent(ev)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)

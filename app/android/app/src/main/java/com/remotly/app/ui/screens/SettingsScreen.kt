@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -27,6 +28,23 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,10 +56,16 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import com.remotly.app.settings.ExtraKeyVisibility
+import com.remotly.app.settings.TerminalThemeDraftState
+import com.remotly.app.terminal.TerminalThemes
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,12 +116,17 @@ private val CURSOR_OPTIONS = listOf(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsContent() {
+fun SettingsContent(initialSection: String = "Application appearance") {
     val settings by SettingsState.settings.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     var notice by remember { mutableStateOf("") }
     var confirmReset by remember { mutableStateOf(false) }
+    var confirmRecovery by remember { mutableStateOf(false) }
+    var editTheme by remember { mutableStateOf(false) }
+    var section by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(initialSection) }
+    val recoveryError by SettingsState.error.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
 
     val dynamicColorSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
@@ -136,13 +165,16 @@ fun SettingsContent() {
     }
 
     RemotlyScreen(title = "Settings", snackbarHostState = snackbarHostState) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState()),
-        ) {
-            SettingsSectionHeader("Appearance")
+        SettingsSectionLayout(section, { section = it }, Modifier.fillMaxSize().padding(padding)) {
+            recoveryError?.let { error ->
+                SettingsGroup {
+                    Text(error, color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = { scope.launch { SettingsState.load() } }) { Text("Retry") }
+                    TextButton(onClick = { confirmRecovery = true }) { Text("Back up and reset settings") }
+                }
+            }
+            if (section == "Application appearance") {
+            SettingsSectionHeader("Application appearance")
 
             SettingsGroup {
                 Text("Theme", style = MaterialTheme.typography.bodyLarge)
@@ -155,17 +187,33 @@ fun SettingsContent() {
 
             SettingsSwitchRow(
                 title = "Dynamic color",
-                description = if (dynamicColorSupported) {
-                    "Follow the system color scheme where the device supports it."
-                } else {
-                    "Requires Android 12 or later. This device cannot use it."
-                },
+                description = if (dynamicColorSupported) null else "Requires Android 12",
                 checked = settings.dynamicColor,
                 enabled = dynamicColorSupported,
                 onCheckedChange = { value -> apply { it.copy(dynamicColor = value) } },
             )
 
-            SettingsSectionHeader("Terminal")
+            }
+            if (section == "Terminal appearance") {
+            SettingsSectionHeader("Terminal appearance")
+
+            SettingsGroup {
+                TerminalThemePreview(settings.terminalTheme.resolve())
+                TerminalThemeChoices(
+                    selected = settings.terminalTheme.id,
+                    custom = settings.terminalTheme.custom,
+                    onSelected = { id ->
+                        if (id == "custom") {
+                            TerminalThemeDraftState.begin(settings.terminalTheme.custom)
+                            editTheme = true
+                        } else apply { it.copy(terminalTheme = it.terminalTheme.copy(id = id)) }
+                    },
+                )
+                TextButton(onClick = {
+                    TerminalThemeDraftState.begin(settings.terminalTheme.resolve())
+                    editTheme = true
+                }) { Text("Edit custom theme") }
+            }
 
             SettingsGroup {
                 Text("Font size", style = MaterialTheme.typography.bodyLarge)
@@ -206,18 +254,29 @@ fun SettingsContent() {
                 )
             }
 
+            }
+            if (section == "Input") {
+            SettingsSectionHeader("Input")
+
             SettingsSwitchRow(
-                title = "Open the keyboard automatically",
-                description = "Show the keyboard when you open a terminal from a host.",
+                title = "Open keyboard automatically",
                 checked = settings.openKeyboardOnTerminal,
                 onCheckedChange = { value -> apply { it.copy(openKeyboardOnTerminal = value) } },
             )
 
+            SettingsGroup {
+                Text("Extra keys", style = MaterialTheme.typography.bodyLarge)
+                SettingsSingleChoice(
+                    options = ExtraKeyVisibility.entries.map { it to it.name },
+                    selected = settings.extraKeyVisibility,
+                    onSelected = { value -> apply { it.copy(extraKeyVisibility = value, showExtraKeyRow = value != ExtraKeyVisibility.Hidden) } },
+                )
+            }
+
             SettingsSwitchRow(
-                title = "Show the extra key row",
-                description = "Esc, Tab, Shift+Tab, Ctrl, Alt, Shift, arrows, and symbols above the keyboard.",
-                checked = settings.showExtraKeyRow,
-                onCheckedChange = { value -> apply { it.copy(showExtraKeyRow = value) } },
+                title = "Navigation gestures",
+                checked = settings.navigationGesturesEnabled,
+                onCheckedChange = { value -> apply { it.copy(navigationGesturesEnabled = value) } },
             )
 
             SettingsGroup {
@@ -231,32 +290,34 @@ fun SettingsContent() {
 
             SettingsSwitchRow(
                 title = "Vibrate on key presses",
-                description = "A short buzz for each extra key, and for a terminal bell.",
                 checked = settings.hapticFeedback,
                 onCheckedChange = { value -> apply { it.copy(hapticFeedback = value) } },
             )
 
+            }
+            if (section == "Files") {
             SettingsSectionHeader("Files")
 
             SettingRow(
                 title = "Download folder",
                 description = if (settings.downloadFolderUri.isEmpty()) {
-                    "Not chosen yet. You will be asked on the first download."
+                    null
                 } else {
                     folderLabel(settings.downloadFolderUri)
                 },
                 trailing = {
-                    FilledTonalButton(onClick = { folderPicker.launch(null) }) { Text("Change") }
+                    FilledTonalButton(onClick = { folderPicker.launch(null) }) { Text("Choose folder") }
                 },
             )
 
+            }
+            if (section == "About") {
             SettingsSectionHeader("About")
 
             SettingRow(title = "App version", description = versionLabel)
 
             SettingRow(
                 title = "Android system settings",
-                description = "Permissions for this app.",
                 onClick = { openAppSettings(context) },
             )
 
@@ -267,17 +328,24 @@ fun SettingsContent() {
                 destructive = true,
                 onClick = { confirmReset = true },
             )
-
-            Text(
-                "Settings are stored on this device only.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-            )
+            }
         }
     }
 
+    if (editTheme) TerminalThemeEditor(onClose = { editTheme = false })
+
+    if (confirmRecovery) {
+        AlertDialog(
+            onDismissRequest = { confirmRecovery = false },
+            title = { Text("Back up and reset settings?") },
+            text = { Text("The current settings file will be copied to a recovery backup before defaults are saved. Hosts and credentials are kept.") },
+            confirmButton = { TextButton(onClick = {
+                confirmRecovery = false
+                scope.launch { SettingsState.recoverWithDefaults() }
+            }) { Text("Back up and reset") } },
+            dismissButton = { TextButton(onClick = { confirmRecovery = false }) { Text("Cancel") } },
+        )
+    }
     if (confirmReset) {
         AlertDialog(
             onDismissRequest = { confirmReset = false },
@@ -300,6 +368,106 @@ fun SettingsContent() {
                 TextButton(onClick = { confirmReset = false }) { Text("Cancel") }
             },
         )
+    }
+}
+
+private val SettingsSections = listOf(
+    "Application appearance" to Icons.Default.Palette,
+    "Terminal appearance" to Icons.Default.Terminal,
+    "Input" to Icons.Default.Keyboard,
+    "Files" to Icons.Default.Folder,
+    "About" to Icons.Default.Info,
+)
+
+@Composable
+private fun SettingsSectionLayout(
+    section: String,
+    onSelected: (String) -> Unit,
+    modifier: Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    BoxWithConstraints(modifier) {
+        val wide = maxWidth >= 720.dp && LocalDensity.current.fontScale < 1.5f
+        Column(Modifier.fillMaxSize()) {
+            if (!wide) SettingsSectionPicker(section, onSelected)
+            Row(Modifier.weight(1f).fillMaxWidth()) {
+                if (wide) {
+                    Column(Modifier.width(224.dp).fillMaxHeight()
+                        .verticalScroll(rememberScrollState()).padding(8.dp)) {
+                        SettingsSections.forEach { (name, icon) ->
+                            NavigationDrawerItem(label = { Text(name) }, selected = section == name,
+                                onClick = { onSelected(name) }, icon = { Icon(icon, null) })
+                        }
+                    }
+                    VerticalDivider(Modifier.fillMaxHeight())
+                }
+                key(section) {
+                    Column(Modifier.weight(1f).widthIn(max = 840.dp).fillMaxHeight()
+                        .verticalScroll(rememberScrollState()), content = content)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsSectionPicker(section: String, onSelected: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
+            Text(section, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
+            Icon(Icons.Default.KeyboardArrowDown, "Choose settings section")
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            SettingsSections.forEach { (name, icon) ->
+                DropdownMenuItem(text = { Text(name) }, leadingIcon = { Icon(icon, null) },
+                    onClick = { open = false; onSelected(name) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun TerminalThemeChoices(
+    selected: String,
+    custom: com.remotly.app.terminal.TerminalTheme,
+    onSelected: (String) -> Unit,
+) {
+    BoxWithConstraints(Modifier.fillMaxWidth().selectableGroup()) {
+        val columns = if (LocalDensity.current.fontScale >= 1.5f) 1 else when {
+            maxWidth >= 560.dp -> 3
+            maxWidth >= 340.dp -> 2
+            else -> 1
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            TerminalThemes.labels.toList().chunked(columns).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.forEach { (id, label) ->
+                        val theme = TerminalThemes.presets[id] ?: custom
+                        Surface(color = if (selected == id) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier.weight(1f).selectable(selected = selected == id,
+                                role = Role.RadioButton, onClick = { onSelected(id) })) {
+                            Column(Modifier.padding(8.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    RadioButton(selected = selected == id, onClick = null)
+                                    Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                                }
+                                Column(Modifier.fillMaxWidth().background(Color(theme.background)).padding(8.dp).clearAndSetSemantics {}) {
+                                    Text("user@host", color = Color(theme.foreground), style = MaterialTheme.typography.bodySmall)
+                                    Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+                                        theme.ansi.take(8).forEach { color ->
+                                            Box(Modifier.weight(1f).height(12.dp).background(Color(color)))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
     }
 }
 
@@ -335,7 +503,7 @@ private fun <T> SettingsSingleChoice(
     onSelected: (T) -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val stacked = LocalDensity.current.fontScale >= 1.3f || maxWidth < 300.dp
+        val stacked = options.size > 3 || LocalDensity.current.fontScale >= 1.3f || maxWidth < 300.dp
         if (stacked) {
             Column(
                 modifier = Modifier

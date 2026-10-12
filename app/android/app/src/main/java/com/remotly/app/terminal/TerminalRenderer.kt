@@ -16,6 +16,10 @@ import android.graphics.Rect
  */
 class TerminalRenderer(context: Context, private val density: Float) {
 
+  private var theme = TerminalThemes.Classic
+
+  fun applyTheme(theme: TerminalTheme) { this.theme = theme }
+
   private val fonts = TerminalFontSet.get(context)
 
   private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -173,24 +177,19 @@ class TerminalRenderer(context: Context, private val density: Float) {
     }
   }
 
-  /**
-   * True when a cell paints with its foreground and background exchanged.
-   *
-   * Inverse and selection each swap the pair, so a cell carrying both swaps
-   * twice and reads as ordinary text, which is what a desktop terminal shows.
-   * That is an exclusive or, and writing it as one keeps the two callers below
-   * from disagreeing about the order the flags apply in.
-   */
+  /** Remote inverse applies to unselected cells; local selection uses its own pair. */
   private fun isSwapped(f: TerminalFrame, i: Int): Boolean =
-    f.hasFlag(i, CellFlags.INVERSE) != f.hasFlag(i, CellFlags.SELECTED)
+    f.hasFlag(i, CellFlags.INVERSE)
 
   /** The background a cell paints, after inverse and selection. */
   private fun backgroundOf(f: TerminalFrame, i: Int): Int =
-    if (isSwapped(f, i)) f.fgAt(i) else f.bgAt(i)
+    if (f.hasFlag(i, CellFlags.SELECTED)) theme.selectionBackground
+    else if (isSwapped(f, i)) f.fgAt(i) else f.bgAt(i)
 
   /** The foreground a cell paints, after inverse, selection, and faint. */
   private fun foregroundOf(f: TerminalFrame, i: Int): Int {
-    val fg = if (isSwapped(f, i)) f.bgAt(i) else f.fgAt(i)
+    val fg = if (f.hasFlag(i, CellFlags.SELECTED)) theme.selectionForeground
+    else if (isSwapped(f, i)) f.bgAt(i) else f.fgAt(i)
     // Faint is a dimmed foreground, mixed toward the background it sits on.
     // Ignoring it made low-emphasis output, which agents use for hints and
     // paths, indistinguishable from ordinary text.
@@ -290,14 +289,15 @@ class TerminalRenderer(context: Context, private val density: Float) {
     // hid it.
     if (composing) return
     if (!f.cursorVisible || f.cursorX >= f.cols || f.cursorY >= f.rows) return
-    val i = f.indexOf(f.cursorX, f.cursorY)
-    // A cursor sitting on a wide lead cell covers both of its columns.
+    val cursorX = if (f.cursorX > 0 && f.wideAt(f.indexOf(f.cursorX, f.cursorY)) == CellFlags.WIDE_SPACER_TAIL)
+      f.cursorX - 1 else f.cursorX
+    val i = f.indexOf(cursorX, f.cursorY)
     val spanWidth = metrics.spanWidth(f.spanCells(i))
-    val left = f.cursorX * cellWidthPx.toFloat()
+    val left = cursorX * cellWidthPx.toFloat()
     val top = f.cursorY * cellHeightPx.toFloat()
     val cellH = cellHeightPx.toFloat()
 
-    bgPaint.color = f.defaultFg
+    bgPaint.color = f.cursorColor
     when (cursorStyle) {
       TerminalView.CursorStyle.BAR ->
         canvas.drawRect(left, top, left + cursorBarPx, top + cellH, bgPaint)
@@ -312,7 +312,7 @@ class TerminalRenderer(context: Context, private val density: Float) {
           drawGlyph(
             canvas, f.chars, f.textOffsetAt(i), f.textLengthAt(i),
             f.hasFlag(i, CellFlags.BOLD), f.hasFlag(i, CellFlags.ITALIC),
-            f.defaultBg, left, top, spanWidth,
+            theme.cursorText, left, top, spanWidth,
           )
         }
       }
@@ -422,10 +422,7 @@ class TerminalRenderer(context: Context, private val density: Float) {
   fun drawSelectionHandles(canvas: Canvas, selection: TerminalSelection, radiusPx: Float) {
     if (cellWidthPx <= 0 || cellHeightPx <= 0) return
 
-    // Not the foreground color: on the usual light-on-dark terminal that is
-    // near-white, which disappears against the text it sits under. A fixed
-    // accent reads against any palette the remote sets.
-    bgPaint.color = SELECTION_HANDLE_COLOR
+    bgPaint.color = theme.cursor
     // Both the body positions and the hit test come from handleCenter, so the
     // drawn handle and the one a touch grabs cannot end up on opposite sides.
     for (handle in SelectionHandle.entries) {

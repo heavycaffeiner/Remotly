@@ -35,9 +35,11 @@ class TerminalFrameParserTest {
       u16(cursorX)
       u16(cursorY)
       bytes.write(if (cursorVisible) 1 else 0)
-      bytes.write(0)
+      bytes.write(1)
       rgb(defaultBg)
       rgb(defaultFg)
+      rgb(0xABCDEF)
+      bytes.write(0)
     }
 
     fun cell(
@@ -78,6 +80,21 @@ class TerminalFrameParserTest {
   }
 
   @Test
+  fun rejectsMalformedExtendedHeaders() {
+    val b = FrameBuilder()
+    b.header(cols = 1, rows = 1)
+    b.cell(text = "a")
+    val bytes = b.toByteArray()
+    for ((offset, value) in listOf(8 to 2, 9 to 0, 19 to 1, 4 to 1)) {
+      val bad = bytes.copyOf()
+      bad[offset] = value.toByte()
+      assertFalse(TerminalFrame().parse(bad))
+    }
+    assertFalse(TerminalFrame().parse(bytes.copyOfRange(0, 19)))
+    assertFalse(TerminalFrame().parseFromBuffer(Int.MAX_VALUE))
+  }
+
+  @Test
   fun parsesValidFrame() {
     val b = FrameBuilder()
     b.header(cols = 2, rows = 2, cursorX = 1, cursorY = 1)
@@ -94,6 +111,7 @@ class TerminalFrameParserTest {
     assertTrue(f.cursorVisible)
     assertEquals(0xff101010.toInt(), f.defaultBg)
     assertEquals(0xffE0E0E0.toInt(), f.defaultFg)
+    assertEquals(0xffABCDEF.toInt(), f.cursorColor)
     assertEquals("a", f.textAt(f.indexOf(0, 0)))
     assertEquals("한", f.textAt(f.indexOf(1, 0)))
     assertEquals(CellFlags.WIDE_WIDE, f.wideAt(f.indexOf(1, 0)))
@@ -240,12 +258,12 @@ class TerminalFrameParserTest {
   }
 
   @Test
-  fun trailingBytesAreIgnored() {
+  fun trailingBytesAreRejected() {
     val b = FrameBuilder()
     b.header(cols = 1, rows = 1)
     b.cell(text = "a")
     val withTrailing = b.toByteArray() + byteArrayOf(0, 1, 2, 3)
-    assertEquals("a", parse(withTrailing)!!.textAt(0))
+    assertFalse(TerminalFrame().parse(withTrailing))
   }
 
   @Test
@@ -343,7 +361,7 @@ class TerminalFrameParserTest {
    * the two screens appearing mixed together after a tab switch.
    */
   @Test
-  fun aFrameTruncatedPartwayIsNotDrawable() {
+  fun aFrameTruncatedPartwayKeepsTheLastGoodFrame() {
     val good = FrameBuilder()
     good.header(cols = 4, rows = 1)
     repeat(4) { good.cell(text = "a") }
@@ -360,10 +378,9 @@ class TerminalFrameParserTest {
     // Cut inside the third cell, so the first two have already been written.
     assertFalse(f.parse(whole.copyOfRange(0, whole.size - 12)))
 
-    // Reported as holding nothing rather than as a four-cell grid, so the
-    // renderer draws neither screen instead of both.
-    assertEquals(0, f.cols)
-    assertEquals(0, f.rows)
+    assertEquals(4, f.cols)
+    assertEquals(1, f.rows)
+    repeat(4) { assertEquals("a", f.textAt(it)) }
   }
 
   /** A failure before any cell was touched keeps the frame that was there. */

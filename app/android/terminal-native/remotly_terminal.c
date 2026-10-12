@@ -20,6 +20,7 @@
 #include <string.h>
 
 #include <ghostty/vt.h>
+#include "terminal_theme.h"
 
 #define REMOTLY_JNI_VERSION JNI_VERSION_1_6
 
@@ -385,6 +386,8 @@ Java_com_remotly_app_terminal_RemotlyTerminal_nativeCreate(JNIEnv *env,
                                                            jint rows,
                                                            jlong scrollbackMaxBytes,
                                                            jobject listener) {
+  if (cols <= 0 || cols > 512 || rows <= 0 || rows > 512 ||
+      scrollbackMaxBytes < 0 || !listener) return 0;
   RemotlyTerm *st = calloc(1, sizeof(RemotlyTerm));
   if (!st) return 0;
   if (ghostty_terminal_new(NULL, &st->terminal, (uint16_t)cols, (uint16_t)rows) !=
@@ -438,6 +441,8 @@ Java_com_remotly_app_terminal_RemotlyTerminal_nativeCreate(JNIEnv *env,
   st->onClipboardWrite = (*env)->GetMethodID(env, lcls, "onClipboardWrite",
                                              "(Ljava/lang/String;)V");
 
+  ghostty_terminal_set(st->terminal, GHOSTTY_TERMINAL_OPT_COLOR_SCHEME,
+                       (const void *)remotly_color_scheme);
   ghostty_terminal_set(st->terminal, GHOSTTY_TERMINAL_OPT_USERDATA, st);
   ghostty_terminal_set(st->terminal, GHOSTTY_TERMINAL_OPT_BELL,
                        (const void *)on_bell);
@@ -452,7 +457,21 @@ Java_com_remotly_app_terminal_RemotlyTerminal_nativeCreate(JNIEnv *env,
   // OSC 52 and iTerm2's OSC 1337 Copy.
   ghostty_terminal_set(st->terminal, GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE,
                        (const void *)on_clipboard_write);
+  (*env)->DeleteLocalRef(env, lcls);
   return (jlong)(uintptr_t)st;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_remotly_app_terminal_RemotlyTerminal_nativeApplyTheme(JNIEnv *env, jclass,
+                                                             jlong handle, jintArray values) {
+  RemotlyTerm *st = from_handle(handle);
+  if (!st || !values || (*env)->GetArrayLength(env, values) != 19) return JNI_FALSE;
+  jint colors[19];
+  (*env)->GetIntArrayRegion(env, values, 0, 19, colors);
+  if ((*env)->ExceptionCheck(env)) return JNI_FALSE;
+  for (size_t i = 0; i < 19; i++)
+    if (((uint32_t)colors[i] >> 24) != 255) return JNI_FALSE;
+  return remotly_apply_theme(st->terminal, (const uint32_t *)colors) ? JNI_TRUE : JNI_FALSE;
 }
 
 // Point an existing terminal at a new listener.
@@ -474,6 +493,9 @@ Java_com_remotly_app_terminal_RemotlyTerminal_nativeRebind(JNIEnv *env, jclass,
   st->onTitle = (*env)->GetMethodID(env, lcls, "onTitle", "([B)V");
   st->onInput = (*env)->GetMethodID(env, lcls, "onInput", "([B)V");
   st->onPtyWrite = (*env)->GetMethodID(env, lcls, "onPtyWrite", "([B)V");
+  st->onNotify = (*env)->GetMethodID(env, lcls, "onNotify", "(Ljava/lang/String;Ljava/lang/String;)V");
+  st->onClipboardWrite = (*env)->GetMethodID(env, lcls, "onClipboardWrite", "(Ljava/lang/String;)V");
+  (*env)->DeleteLocalRef(env, lcls);
 }
 
 JNIEXPORT void JNICALL
@@ -1101,7 +1123,8 @@ Java_com_remotly_app_terminal_RemotlyTerminal_nativeSelectAll(JNIEnv *, jclass,
 //
 // The frame is a little-endian byte buffer:
 //   header: u16 cols, u16 rows, u16 cursor_x, u16 cursor_y, u8 cursor_visible,
-//           u8 pad, u8[3] default_bg, u8[3] default_fg
+//           u8 version=1, u8[3] default_bg, u8[3] default_fg,
+//           u8[3] effective_cursor, u8 reserved=0
 //   then rows*cols cell records, row-major (y outer, x inner):
 //     u8 wide (0 narrow,1 wide,2 spacer_tail,3 wrap_spacer)
 //     u8 style_flags (bit0 bold,1 italic,2 underline,3 inverse,4 faint,
@@ -1136,7 +1159,7 @@ Java_com_remotly_app_terminal_RemotlyTerminal_nativeGetFrame(JNIEnv *env,
   if ((size_t)cols * rows > REMOTLY_MAX_CELLS) return 0;
   // A frame costs 9 fixed bytes plus up to 64 of UTF-8 per cell.
   size_t cell_cap = 9 + 64;
-  size_t cap = 16 + (size_t)cols * rows * cell_cap;
+  size_t cap = 20 + (size_t)cols * rows * cell_cap;
   if (cap > (size_t)dst_cap) return -(jint)cap;
 
   if (ghostty_render_state_update(st->render_state, st->terminal) !=
@@ -1163,13 +1186,13 @@ Java_com_remotly_app_terminal_RemotlyTerminal_nativeGetFrame(JNIEnv *env,
     return 0;
   }
   if ((size_t)state_cols * state_rows > REMOTLY_MAX_CELLS ||
-      16 + (size_t)state_cols * state_rows * cell_cap > (size_t)dst_cap) {
+      20 + (size_t)state_cols * state_rows * cell_cap > (size_t)dst_cap) {
     ghostty_render_state_clean(st->render_state);
     return 0;
   }
   cols = state_cols;
   rows = state_rows;
-  cap = 16 + (size_t)cols * rows * cell_cap;
+  cap = 20 + (size_t)cols * rows * cell_cap;
 
   GhosttyRenderStateColors pal = GHOSTTY_INIT_SIZED(GhosttyRenderStateColors);
   ghostty_render_state_get(st->render_state, GHOSTTY_RENDER_STATE_DATA_COLORS,
@@ -1177,6 +1200,9 @@ Java_com_remotly_app_terminal_RemotlyTerminal_nativeGetFrame(JNIEnv *env,
 
   uint16_t cx = 0, cy = 0;
   bool cursor_visible = false;
+  bool cursor_in_viewport = false;
+  ghostty_render_state_get(st->render_state, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE,
+                           &cursor_in_viewport);
   ghostty_render_state_get(st->render_state,
                            GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_X, &cx);
   ghostty_render_state_get(st->render_state,
@@ -1201,10 +1227,12 @@ Java_com_remotly_app_terminal_RemotlyTerminal_nativeGetFrame(JNIEnv *env,
   PUT16(rows);
   PUT16(cx);
   PUT16(cy);
-  PUT8(cursor_visible ? 1 : 0);
-  PUT8(0);
+  PUT8(cursor_visible && cursor_in_viewport ? 1 : 0);
+  PUT8(1);
   PUT3(pal.background);
   PUT3(pal.foreground);
+  PUT3(pal.cursor_has_value ? pal.cursor : pal.foreground);
+  PUT8(0);
 
   // The iterator and cells handles are populated in place, so these take the
   // address of the handle, not the handle value.

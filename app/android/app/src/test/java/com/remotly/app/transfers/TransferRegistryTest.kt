@@ -39,6 +39,22 @@ class TransferRegistryTest {
     }
 
     @Test
+    fun unacknowledgedFailureSurvivesLaterCompletedTransfers() {
+        register("failed", restart = {})
+        TransferRegistry.settle("failed", TransferPhase.Error, "Connection lost")
+        repeat(30) { index ->
+            val id = "complete-$index"
+            register(id)
+            TransferRegistry.settle(id, TransferPhase.Done)
+        }
+        assertTrue(TransferRegistry.list().any { it.id == "failed" && it.error == "Connection lost" })
+        assertTrue(TransferRegistry.canRetry("failed"))
+        assertEquals(20, TransferRegistry.list().count { it.phase == TransferPhase.Done })
+        TransferRegistry.clearSettled()
+        assertTrue(TransferRegistry.list().isEmpty())
+    }
+
+    @Test
     fun `a cancel that throws still settles the record`() {
         register("t1", cancel = { throw IllegalStateException("boom") })
         TransferRegistry.cancel("t1")

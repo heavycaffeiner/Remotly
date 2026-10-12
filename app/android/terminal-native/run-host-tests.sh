@@ -8,12 +8,15 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [ -f "$HOME/.bashrc.d/android-toolchain.sh" ]; then
-  # shellcheck source=/dev/null
-  source "$HOME/.bashrc.d/android-toolchain.sh"
-fi
+source "$HOME/.config/shell/development.sh"
 
-GHOSTTY_DIR="${GHOSTTY_DIR:-$HOME/opt/ghostty}"
+GHOSTTY_DIR="${GHOSTTY_DIR:-$HOME/Toolchains/ghostty}"
+HOST_OUT="$HERE/build/host"
+pinned_commit="$(awk '/^commit:/ {print $2}' "$HERE/PIN.txt")"
+if [ "$(git -C "$GHOSTTY_DIR" rev-parse HEAD)" != "$pinned_commit" ]; then
+  echo "ERROR: Ghostty checkout does not match PIN.txt" >&2
+  exit 1
+fi
 FIXTURES_02="${1:-$HERE/fixtures/terminal}"
 FIXTURES_03="${2:-$HERE/fixtures/cjk}"
 
@@ -29,33 +32,34 @@ trap 'rm -rf "$OUT"' EXIT
 
 # ReleaseFast is required: the safety-checked default is ~300x slower on large
 # output, which makes the 1 MiB burst test appear to hang.
-if [ ! -f "$GHOSTTY_DIR/zig-out/lib/libghostty-vt.so" ]; then
+if [ ! -f "$HOST_OUT/lib/libghostty-vt.so" ] || [ ! -f "$HOST_OUT/commit.txt" ] || [ "$(<"$HOST_OUT/commit.txt")" != "$pinned_commit" ]; then
   echo ">> building host libghostty-vt (pinned: $(awk '/^commit:/ {print $2}' "$HERE/PIN.txt"))"
-  (cd "$GHOSTTY_DIR" && zig build -Demit-lib-vt=true -Doptimize=ReleaseFast)
+  (cd "$GHOSTTY_DIR" && zig build --prefix "$HOST_OUT" -Demit-lib-vt=true -Doptimize=ReleaseFast)
+  printf '%s\n' "$pinned_commit" > "$HOST_OUT/commit.txt"
 fi
 
 gcc \
   -I"$GHOSTTY_DIR/include" \
   "$HERE/test_terminal.c" \
-  -L"$GHOSTTY_DIR/zig-out/lib" -lghostty-vt \
+  -L"$HOST_OUT/lib" -lghostty-vt \
   -o "$OUT/test_terminal"
 
-LD_LIBRARY_PATH="$GHOSTTY_DIR/zig-out/lib" "$OUT/test_terminal" "$FIXTURES_02" "$FIXTURES_03"
+LD_LIBRARY_PATH="$HOST_OUT/lib" "$OUT/test_terminal" "$FIXTURES_02" "$FIXTURES_03"
 
 # The bottom-anchored overlay idiom, which a docked TUI depends on. Linked
 # against the static lib through zig cc: the shared build resolves libc symbols
 # through zig's own runtime and does not link with the system gcc.
-if [ ! -f "$GHOSTTY_DIR/zig-out/lib/libghostty-vt.a" ]; then
+if [ ! -f "$HOST_OUT/lib/libghostty-vt.a" ]; then
   echo ">> building host static libghostty-vt"
-  (cd "$GHOSTTY_DIR" && zig build -Demit-lib-vt=true -Doptimize=ReleaseFast)
+  (cd "$GHOSTTY_DIR" && zig build --prefix "$HOST_OUT" -Demit-lib-vt=true -Doptimize=ReleaseFast)
 fi
 
-for t in test_overlay test_kitty test_mouse test_scrollregion test_wheel test_query test_resize_scrollback test_wheel_gate; do
+for t in test_frame test_theme test_overlay test_kitty test_mouse test_scrollregion test_wheel test_query test_resize_scrollback test_wheel_gate; do
   echo ">> $t"
   zig cc -std=c11 \
-    -I"$GHOSTTY_DIR/zig-out/include" \
+    -I"$GHOSTTY_DIR/include" \
     "$HERE/$t.c" \
-    "$GHOSTTY_DIR/zig-out/lib/libghostty-vt.a" \
+    "$HOST_OUT/lib/libghostty-vt.a" \
     -o "$OUT/$t"
   "$OUT/$t"
 done

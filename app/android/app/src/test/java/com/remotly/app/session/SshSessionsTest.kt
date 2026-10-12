@@ -31,6 +31,46 @@ class SshSessionsTest {
 
     private fun tabsOf(hostId: String) = SshSessions.state(hostId).value.tabs
 
+    @Test
+    fun exactSessionInputDoesNotFollowTheSelectedFilesTab() {
+        val host = freshHost()
+        val shell = SshSessions.openTab(host)!!
+        val files = SshSessions.openTab(host, kind = SshTabKind.Files)!!
+        SshSessions.sendInput(host, shell, byteArrayOf(3))
+        SshSessions.sendInput(host, files, byteArrayOf(3))
+        assertEquals(shell, ssh.writeCalls.single().sessionId)
+        SshSessions.closeTab(host, shell)
+        SshSessions.sendInput(host, shell, byteArrayOf(3))
+        assertEquals(1, ssh.writeCalls.size)
+    }
+
+    @Test
+    fun resizingTheDisplayedSessionLeavesOtherShellsUnchanged() {
+        val host = freshHost()
+        val first = SshSessions.openTab(host)!!
+        val second = SshSessions.openTab(host)!!
+        SshSessions.resizeSession(host, first, 120, 40)
+        SshSessions.resizeSession(host, first, 120, 40)
+        assertEquals(1, ssh.resizeCalls.size)
+        assertEquals(first, ssh.resizeCalls.single().sessionId)
+        SshSessions.resizeSession(host, second, 90, 30)
+        assertEquals(2, ssh.resizeCalls.size)
+        SshSessions.reconnectTab(host, first)
+        assertEquals(120, ssh.connectCalls.last().cols)
+        assertEquals(40, ssh.connectCalls.last().rows)
+    }
+
+    @Test
+    fun openWorkSnapshotUpdatesWithoutChangingConnectionLifetime() {
+        val host = freshHost()
+        val id = SshSessions.openTab(host)!!
+        assertTrue(SshSessions.openHosts.value.any { it.tabs.hostId == host })
+        SshSessions.renameTab(host, id, "Work")
+        assertEquals("Work", SshSessions.openHosts.value.first { it.tabs.hostId == host }.tabs.tabs.single().title)
+        SshSessions.closeHost(host)
+        assertFalse(SshSessions.openHosts.value.any { it.tabs.hostId == host })
+    }
+
     // -- session lifetime --------------------------------------------------------
 
     @Test

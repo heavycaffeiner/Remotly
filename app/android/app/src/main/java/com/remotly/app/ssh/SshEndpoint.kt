@@ -2,7 +2,7 @@ package com.remotly.app.ssh
 
 import java.net.IDN
 import java.security.MessageDigest
-import java.util.Base64
+import com.remotly.app.util.Base64Std
 
 // Endpoint canonicalization and identity.
 //
@@ -182,7 +182,7 @@ object SshEndpoint {
         buf[4 + hostBytes.size] = (port ushr 8 and 0xff).toByte()
         buf[5 + hostBytes.size] = (port and 0xff).toByte()
         val digest = MessageDigest.getInstance("SHA-256").digest(buf)
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(digest)
+        return Base64Std.encode(digest).trimEnd('=').replace('+', '-').replace('/', '_')
     }
 
     /**
@@ -195,7 +195,7 @@ object SshEndpoint {
     fun legacyEndpointId(host: String, port: Int): String {
         val digest = MessageDigest.getInstance("SHA-256")
             .digest("$host:$port".toByteArray(Charsets.US_ASCII))
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(digest)
+        return Base64Std.encode(digest).trimEnd('=').replace('+', '-').replace('/', '_')
     }
 
     fun validatePort(port: Int) {
