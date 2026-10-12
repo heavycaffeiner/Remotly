@@ -46,7 +46,6 @@ import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.LinkOff
-import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Schedule
@@ -308,9 +307,10 @@ private fun TerminalTopBar(
                     label = "Back",
                     onClick = { if (menuOpen) closeMenu() else onBack() },
                 )
-                com.remotly.app.ui.WorkspaceNavigationButton()
-                if (onMenu != null && layout.widthDp >= 600) {
-                    CompactIconAction(icon = Icons.Filled.Dashboard, label = "Workspaces and tabs", onClick = onMenu)
+                if (onMenu != null) {
+                    CompactIconAction(icon = Icons.Filled.Menu, label = "Workspaces and tabs", onClick = onMenu)
+                } else {
+                    com.remotly.app.ui.WorkspaceNavigationButton()
                 }
                 Column(
                     modifier = Modifier
@@ -354,11 +354,6 @@ private fun TerminalTopBar(
                     DropdownMenu(expanded = menuOpen, onDismissRequest = ::closeMenu,
                         scrollState = rememberScrollState(),
                         properties = menuPopupProperties()) {
-                        if (onMenu != null && layout.widthDp < 600) {
-                            DropdownMenuItem(text = { Text("Workspaces and tabs") },
-                                leadingIcon = { Icon(Icons.Filled.Dashboard, null) },
-                                onClick = { closeMenu(); onMenu() })
-                        }
                         val sections = terminalActionSections(actions, actionGroups)
                         for ((sectionIndex, section) in sections.withIndex()) {
                             if (sectionIndex > 0) HorizontalDivider()

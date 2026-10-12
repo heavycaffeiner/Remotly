@@ -15,6 +15,7 @@ package com.remotly.app.ui.screens
 // would fight it on every attempt; it opens only from the app bar's menu
 // button, via [open] and [onClose].
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +23,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -53,7 +56,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.PermanentDrawerSheet
-import androidx.compose.material3.PermanentNavigationDrawer
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
@@ -63,8 +65,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -113,9 +115,8 @@ private fun sidebarFailureMessage(e: Throwable): String =
     if (e is HerdrError) e.detail else "herdr failed."
 
 /**
- * A [ModalNavigationDrawer] on compact widths, a [PermanentNavigationDrawer]
- * on wide ones. [content] is the screen's terminal area, laid out beside or
- * under the drawer depending on [permanent].
+ * Places the terminal beside the sidebar on wide windows and under a modal
+ * drawer on compact windows. The terminal stays mounted when the panel closes.
  *
  * [session] is only the starting point: a sidebar viewing a host with more
  * than one named herdr session can browse another one without moving the
@@ -299,34 +300,8 @@ fun HostSidebar(
         )
     }
 
-    if (permanent && open) {
-        PermanentNavigationDrawer(
-            drawerContent = {
-                PermanentDrawerSheet(modifier = Modifier.width(WideSidebarWidth)) { drawerContent() }
-            },
-            content = content,
-        )
-    } else if (permanent) {
-        // A collapsed permanent drawer leaves the terminal full width. The
-        // app bar's menu action is the explicit way to bring it back.
-        content()
-    } else {
-        val currentOnClose by rememberUpdatedState(onClose)
-        val drawerState = rememberDrawerState(
-            initialValue = if (open) DrawerValue.Open else DrawerValue.Closed,
-            confirmStateChange = { value ->
-                if (value == DrawerValue.Closed) currentOnClose()
-                true
-            },
-        )
-        LaunchedEffect(open) { if (open) drawerState.open() else drawerState.close() }
-        ModalNavigationDrawer(
-            drawerState = drawerState,
-            gesturesEnabled = false,
-            drawerContent = { ModalDrawerSheet { drawerContent() } },
-            content = content,
-        )
-    }
+    HerdrSidebarLayout(open = open, permanent = permanent, onClose = onClose,
+        sidebar = drawerContent, content = content)
 
 
     if (renameFor != null) {
@@ -417,6 +392,49 @@ private val Subject.label: String
         is Subject.Workspace -> label
         is Subject.Tab -> label
     }
+
+@Composable
+private fun HerdrSidebarLayout(
+    open: Boolean,
+    permanent: Boolean,
+    onClose: () -> Unit,
+    sidebar: @Composable () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val currentOnClose by rememberUpdatedState(onClose)
+    val currentOpen by rememberUpdatedState(open)
+    val currentPermanent by rememberUpdatedState(permanent)
+    val drawerState = rememberDrawerState(
+        initialValue = if (open && !permanent) DrawerValue.Open else DrawerValue.Closed,
+        confirmStateChange = { value ->
+            if (value == DrawerValue.Closed && currentOpen && !currentPermanent) currentOnClose()
+            true
+        },
+    )
+    LaunchedEffect(open, permanent) {
+        if (open && !permanent) drawerState.open() else drawerState.close()
+    }
+    BackHandler(enabled = open) { onClose() }
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        gesturesEnabled = false,
+        drawerContent = {
+            ModalDrawerSheet(modifier = Modifier.width(WideSidebarWidth)) {
+                if (!permanent) sidebar()
+            }
+        },
+    ) {
+        Row(Modifier.fillMaxSize()) {
+            // The terminal stays at the same composition location across every presentation.
+            Box(Modifier.width(if (permanent && open) WideSidebarWidth else 0.dp).fillMaxHeight()) {
+                if (permanent && open) {
+                    PermanentDrawerSheet(modifier = Modifier.width(WideSidebarWidth)) { sidebar() }
+                }
+            }
+            Box(Modifier.weight(1f).fillMaxHeight()) { content() }
+        }
+    }
+}
 
 @Composable
 private fun HostSidebarBody(

@@ -55,7 +55,7 @@ class TerminalTouchpadDispatchTest {
             }
             val reports = input.toString().split("\u001b[<").filter { it.isNotEmpty() }
             assertTrue("Missing wheel reports: $reports", reports.size >= 3)
-            assertTrue("Unexpected pointer reports: $reports", reports.all { it.startsWith("64;") })
+            assertTrue("Unexpected pointer reports: $reports", reports.all { it.startsWith("65;") })
             assertEquals(1, reports.distinct().size)
             assertFalse(view.hasSelection)
         }

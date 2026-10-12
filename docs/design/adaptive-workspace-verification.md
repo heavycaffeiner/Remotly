@@ -1,6 +1,6 @@
 # Adaptive workspace implementation verification
 
-Release target: v2.4.0.
+Release target: v2.4.1.
 Baseline: v2.3.3, `38f8eea`.
 
 ## Implemented
@@ -26,7 +26,7 @@ Baseline: v2.3.3, `38f8eea`.
 Completed locally:
 
 - All 634 JVM tests passed.
-- All 66 Android instrumentation tests passed together on an Android API 34 x86_64 emulator.
+- All 67 Android instrumentation tests passed together on an Android API 34 x86_64 emulator.
 - `scripts/check.sh --release` passed, including debug/release builds and APK inspection.
 - `lintDebug` passed with no errors. Remaining warnings are advisory; no lint suppressions or baselines were introduced.
 - `go vet ./...` and `go test -race ./...` passed.
@@ -48,10 +48,18 @@ The emulator initially exposed test recorder and expectation issues, undersized 
 
 ## Emulator interaction checks
 
-- Virtual uinput touchpad contacts exercised the Android InputReader, Activity and terminal paths. Repeated upward gestures moved the first visible line from 281 to 271 to 260; a downward gesture returned it to 270. No click or selection was produced.
+- Virtual uinput touchpad contacts exercised the Android InputReader, Activity and terminal paths. With the corrected direction in 2.4.1, repeated downward gestures moved the first visible line from 283 to 273 to 262; an upward gesture returned it to 272. No click or selection was produced.
 - Tablet bounds of 1280x800dp exercised sidebar hide/show, Files close/reopen, header toggle and docking to a tab. Closing the pane retained the Files tab and directory.
 - Phone bounds and a 960x480dp short window exercised navigation and terminal controls. Settings section selection and theme cards were checked at default and 200% text scale.
 - Captures are local under `/tmp/remotly-fixed-*.png`. Emulator interaction and semantic checks do not replace a physical-device visual audit.
+
+## 2.4.1 patch verification
+
+- Herdr replaces shared app navigation with one panel and one header menu button. The cross-host selector remains accessible from the title.
+- The same terminal view and native handle survive panel close/reopen, wide-to-compact transitions, and Files companion presentation changes.
+- Classified touchpad vertical travel is inverted. Ordinary mouse wheels are unchanged. Regression tests check viewport direction, remote wheel direction, Shift bypass, and Ctrl zoom.
+- A disposable live Herdr session and SSH test server exercised the workspace tree, terminal attachment, panel toggling, and wide/compact transitions. The user's default session was not changed.
+- The full 67-test device suite, 634 JVM tests, lint, release build, and APK inspection passed. Lint reported 0 errors, 26 warnings, and 1 hint.
 
 ## Build outputs
 
@@ -59,7 +67,7 @@ The emulator initially exposed test recorder and expectation issues, undersized 
 - Local release build: `app/android/app/build/outputs/apk/release/app-release-unsigned.apk`.
 - Android test APK: `app/android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk`.
 
-The source version is 2.4.0, with version code 20400. The unsigned local release APK is not distributable. The `v2.4.0` tag uses the existing GitHub workflow to produce the signed `app-release.apk`. Publication requires checking its version, native libraries, signing identity against v2.3.3, and upgrade installation.
+The source version is 2.4.1, with version code 20401. The unsigned local release APK is not distributable. The existing GitHub workflow produces the signed `app-release.apk`. Publication requires checking its version, native libraries, signing identity against v2.4.0, and upgrade installation.
 
 ## Remaining physical checks
 
@@ -69,7 +77,6 @@ Not available in this environment:
 - Bluetooth/USB keyboard, physical mouse, and trackpad hardware.
 - Current Gboard and Samsung Keyboard on physical devices.
 - API 24 to 30 runtime coverage; guarded fallbacks are lint checked but not device exercised.
-- A live Herdr server with the new shell navigation; transport/control behavior remains covered by existing tests.
 - TalkBack and a full 200% font-scale audit of every workspace and settings screen.
 
 The adaptive tests use emulator content/window constraints. They do not certify system desktop windowing or real peripheral behavior.

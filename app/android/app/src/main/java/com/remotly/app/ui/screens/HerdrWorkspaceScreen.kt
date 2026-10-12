@@ -17,6 +17,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
@@ -45,6 +47,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
@@ -174,7 +179,7 @@ fun HerdrWorkspaceScreen(
     var sessionId by remember(hostId) { mutableStateOf<String?>(null) }
     // Null lets wide screens start with their permanent sidebar visible while
     // keeping compact screens closed until the user explicitly opens them.
-    var sidebarOpen by remember { mutableStateOf<Boolean?>(null) }
+    var sidebarOpen by rememberSaveable(hostId, session) { mutableStateOf<Boolean?>(null) }
     var notice by remember { mutableStateOf<TerminalBanner?>(null) }
     var renameTabId by remember { mutableStateOf<String?>(null) }
     var renameDraft by remember { mutableStateOf("") }
@@ -439,8 +444,8 @@ fun HerdrWorkspaceScreen(
         )
     }
 
-    Box {
-        val permanent = false
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val permanent = maxWidth >= 840.dp && !workspaceActions.companionRequested
         val drawerOpen = sidebarOpen ?: permanent
         HostSidebar(
             hostId = hostId,
@@ -487,7 +492,7 @@ fun HerdrWorkspaceScreen(
                     contextMenuOpen = false
                     temporaryKeys = false
                     when {
-                        drawerOpen && !permanent -> sidebarOpen = false
+                        drawerOpen -> sidebarOpen = false
                         filesSelected && filesNavigation.goBack() -> Unit
                         filesSelected -> { filesSelected = false; sessionId?.let { SshSessions.selectTab(hostId, it) }; terminal.focus() }
                         hasSelection -> terminal.clearSelection()
@@ -587,7 +592,7 @@ fun HerdrWorkspaceScreen(
                             // it receives both taps, while a Compose modifier
                             // around it is not shown an unclaimed first tap.
                             theme = settings.terminalTheme.resolve(),
-                            touchpadGesturesEnabled = !workspaceActions.modalOpen && !contextMenuOpen && !drawerOpen &&
+                            touchpadGesturesEnabled = !workspaceActions.modalOpen && !contextMenuOpen && !(drawerOpen && !permanent) &&
                                 (workspaceActions.companionRequested || !filesSelected),
                             legacyTouchNavigationEnabled = settings.navigationGesturesEnabled,
                             onContextMenuRequested = { _, _ -> contextMenuOpen = true },

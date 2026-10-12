@@ -142,12 +142,12 @@ and `tab close`.
 
 Everything that manages a host lives in the sidebar (`HostSidebar`): its
 sessions, their workspaces, and each workspace's tabs, with rename, close, and
-new-tab on the row they belong to. Its modal panel opens from the workspace
-bar. The shared app sidebar already occupies wide windows, so a second
-permanent Herdr drawer is not stacked beside it. Drawer edge gestures are
-disabled to avoid conflicting with optional terminal navigation gestures. The sidebar is also the whole non-gesture
-path, which is why the terminal's menu no longer carries tab and workspace
-moves.
+new-tab on the row they belong to. Herdr replaces the shared app sidebar and
+rail with one host panel. The header menu toggles it beside the terminal at
+840dp and above, or over the terminal in compact windows and Files companion
+mode. The terminal stays mounted across panel changes. Cross-host navigation
+remains in the header workspace selector. Drawer edge gestures are disabled
+to avoid conflicting with optional terminal navigation gestures.
 
 What both draw comes from one store per host and session (`HerdrStore`). It
 bootstraps from `api snapshot` and then follows herdr's own events, so a
@@ -395,7 +395,9 @@ confirmation before being discarded.
 
 Mouse/trackpad wheels and Android 14 classified two-finger gestures scroll history
 or report to a remote TUI according to its mouse mode. Classified gestures bypass
-Compose's pointer cache and keep remote reports anchored to the cursor. Shift bypasses tracking for local selection and menus. Ctrl+wheel
+Compose's pointer cache and keep remote reports anchored to the cursor. Vertical
+travel is inverted for content-following two-finger scrolling. Shift bypasses
+tracking for local selection and menus. Ctrl+wheel
 changes font size. Mouse clicks focus the terminal without raising the IME.
 Transfers use shell-owned controls rather than a bottom overlay, and failures
 remain in history until explicitly cleared.

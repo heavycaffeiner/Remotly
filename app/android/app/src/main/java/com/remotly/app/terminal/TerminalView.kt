@@ -1009,7 +1009,7 @@ class TerminalView @JvmOverloads constructor(
         lastPointerScroll = signature
         // One axis per event, so a slightly diagonal swipe does not also send the other wheel.
         if (kotlin.math.abs(dy) >= kotlin.math.abs(dx)) {
-          deliverScroll(owner, touchpadScrollDelta(dy, cellHeightPx, owner), 0f, event, mods)
+          deliverScroll(owner, touchpadScrollDelta(-dy, cellHeightPx, owner), 0f, event, mods)
         } else {
           deliverScroll(owner, 0f, touchpadScrollDelta(dx, cellWidthPx, owner), event, mods)
         }

@@ -85,12 +85,13 @@ fun WorkspaceShell(nav: NavHostController, content: @Composable () -> Unit) {
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val layout = WorkspaceLayout(maxWidth.value.toInt(), maxHeight.value.toInt())
+        val shellNavigation = route != Routes.HOST_EDITOR && route != Routes.HERDR_WORKSPACE
         val rail = layout.rail
-        val sidebar = layout.sidebar && sidebarExpanded && !companion
+        val sidebar = shellNavigation && layout.sidebar && sidebarExpanded && !companion
         val actions = WorkspaceActions(
             selectWork = { selector = true },
             toggleSidebar = { sidebarExpanded = !sidebarExpanded },
-            sidebarVisible = sidebar && route != Routes.HOST_EDITOR,
+            sidebarVisible = sidebar,
             modalOpen = selector || transfers,
             openTransfers = { transfers = true },
             companionRequested = companion,
@@ -103,7 +104,7 @@ fun WorkspaceShell(nav: NavHostController, content: @Composable () -> Unit) {
         CompositionLocalProvider(LocalWorkspaceLayout provides layout, LocalWorkspaceActions provides actions) {
             Column(Modifier.fillMaxSize().safeDrawingPadding()) {
                 Row(Modifier.weight(1f).fillMaxWidth()) {
-                    if (sidebar && route != Routes.HOST_EDITOR) {
+                    if (sidebar) {
                         Column(Modifier.width(sidebarWidth.dp).fillMaxHeight()) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 TextButton(onClick = { root(Routes.HOSTS) }, modifier = Modifier.weight(1f)) {
@@ -139,7 +140,7 @@ fun WorkspaceShell(nav: NavHostController, content: @Composable () -> Unit) {
                                 CustomAccessibilityAction("Wider navigation sidebar") { sidebarWidth = (sidebarWidth + 24f).coerceAtMost(360f); true },
                             )
                         }, color = if (resizeFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)
-                    } else if (rail && !layout.sidebar && route != Routes.HOST_EDITOR) {
+                    } else if (shellNavigation && rail && !layout.sidebar) {
                         NavigationRail {
                             IconButton(onClick = { selector = true }) {
                                 Icon(Icons.Default.Menu, contentDescription = "Open workspace selector")
