@@ -78,6 +78,40 @@ class HardwareKeyboardTest {
     }
 
     @Test
+    fun liveGboardTypingReachesTheNativeEncoder() {
+        val expected = InstrumentationRegistry.getArguments().getString("gboardExpected")
+        org.junit.Assume.assumeNotNull(expected)
+        mountTerminal()
+        compose.runOnIdle { view.openKeyboard() }
+        android.util.Log.i("GboardLiveTest", "READY remotly")
+        compose.waitUntil(timeoutMillis = 90000) { recorder.input.endsWith("\r") }
+        compose.runOnIdle {
+            val text = StringBuilder()
+            for (code in recorder.input) {
+                when (code) {
+                    '\u007f', '\b' -> if (text.isNotEmpty()) text.delete(text.offsetByCodePoints(text.length, -1), text.length)
+                    '\r' -> Unit
+                    else -> text.append(code)
+                }
+            }
+            assertEquals(expected, text.toString())
+        }
+    }
+
+    @Test
+    fun toolbarNavigationInvalidatesImeReplacementRanges() {
+        if (android.os.Build.VERSION.SDK_INT < 34) return
+        mountTerminal()
+        compose.runOnIdle {
+            val connection = view.onCreateInputConnection(EditorInfo()) as TerminalInputConnection
+            connection.commitText("한", 1)
+            view.sendExtraKey("left")
+            assertFalse(connection.replaceText(0, 1, "글", 1, null))
+            assertEquals("한\u001b[D", recorder.input.toString())
+        }
+    }
+
+    @Test
     fun androidControlLookupDoesNotProvideThePrintableTextTheEncoderNeeds() {
         val key = event(KeyEvent.KEYCODE_C, mods = KeyEvent.META_CTRL_ON)
         assertTrue(key.getUnicodeChar(key.metaState) < ' '.code)

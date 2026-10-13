@@ -2,341 +2,244 @@ package com.remotly.app.terminal
 
 import android.view.KeyEvent
 
-/**
- * The composition rules, with no Android View or IME dependency.
- *
- * Kept separate from [TerminalInputConnection] so these decisions are unit
- * testable: they are the ones that were wrong, and they are the ones that
- * corrupt input when they are wrong. The connection is the thin binding that
- * calls into this.
- */
 class TerminalImeController(private val sink: TerminalSink) {
-
     var composition: CompositionState = CompositionState.NONE
         private set
-
     val isComposing: Boolean get() = !composition.isEmpty
 
-    /**
-     * Text this controller committed on the IME's behalf when Enter closed a
-     * composition, still awaiting the IME's own echo of it.
-     *
-     * Gboard and the Samsung keyboard both follow the Enter with a commitText
-     * carrying the same syllable. Sending that again would double the text.
-     */
+    // Only input sent at the current terminal cursor is editable, never terminal output.
+    private var committedText = ""
+    var documentOffset = 0
+        private set
+    private var releasedText = ""
     private var flushedText: String? = null
-    private var flushedEchoPrefix: String = ""
-    /**
-     * How many leading clusters of the preedit the terminal already has.
-     *
-     * A Korean IME reports the whole word on every keystroke, so this marks
-     * where the new text starts. Reset whenever the preedit empties or the
-     * composition ends.
-     */
-    private var committedClusters: Int = 0
+    private var flushedWord: String? = null
+    private var batchDepth = 0
+    private var compositionDirty = false
 
-    /**
-     * The text those clusters were, so a commit can be checked against it.
-     *
-     * The count alone cannot tell the IME committing the word it was showing
-     * from the user committing something else: after 한 was flushed, a commit
-     * of 글 is new input and must go out whole. Only a commit that actually
-     * begins with this text has its head skipped.
-     */
-    private var releasedText: String = ""
+    val editorComposition: CompositionState
+        get() {
+            val offset = committedText.length + releasedText.length
+            return CompositionState(committedText + releasedText + composition.text,
+                offset + composition.selectionStartUtf16, offset + composition.selectionEndUtf16)
+        }
 
-    // Nothing about committed text is tracked here, and the IME is never asked
-    // to restart. It cannot see committed text (getTextBeforeCursor reports the
-    // preedit only), so it has no record to reconcile and nothing to reset.
-    //
-    // The restart that used to follow every commit is what dropped keys. It
-    // tears down the connection, and an IME part-way through delivering a
-    // keystroke loses it. Gboard defers a commit while a key could still become
-    // something else, which is why o and u (accent popups) and the period and
-    // space (autocorrect and smart punctuation) went missing most often.
+    val composingStart: Int
+        get() = if (isComposing || releasedText.isNotEmpty()) documentOffset + committedText.length else -1
 
-    /** What should happen to a key event. */
-    enum class KeyDecision {
-        /** Forward it to the terminal. */
-        FORWARD,
+    enum class KeyDecision { FORWARD, COMMIT_THEN_FORWARD, BACKSPACE_COMPOSITION }
 
-        /**
-         * Commit the open preedit, then forward the key.
-         *
-         * Enter or Space while composing. The IME's own commit may arrive late
-         * or not at all, so the text is flushed here and the key follows it in
-         * the same batch.
-         */
-        COMMIT_THEN_FORWARD,
+    fun beginBatch() { batchDepth++ }
 
-        /**
-         * Backspace while composing: remove the last cluster of the preedit.
-         *
-         * Nothing reaches the terminal. The preedit is the app's own buffer,
-         * and the shell must not lose a character the user never committed.
-         */
-        BACKSPACE_COMPOSITION,
+    fun endBatch() {
+        if (batchDepth == 0) return
+        batchDepth--
+        if (batchDepth == 0 && compositionDirty) {
+            compositionDirty = false
+            sink.onCompositionChanged(composition)
+        }
     }
 
-    /**
-     * Takes a preedit update, releasing each Korean syllable once it is final.
-     *
-     * A Korean IME keeps the whole word in its preedit and commits it only at
-     * a space or a punctuation mark, so a shell saw nothing until then and a
-     * TUI reading keys as they arrive got one burst at the end. Releasing a
-     * syllable as the user finishes it puts each character through when it is
-     * typed, which is what a terminal expects.
-     *
-     * The last cluster is always held back. A finished-looking syllable can
-     * still change: 하 becomes 한 on the next keystroke, so committing on
-     * "looks complete" alone would send 하 and then 한 for one typed
-     * character. A syllable is final only once the IME has moved past it, so
-     * everything before the last cluster is released and the last stays in
-     * the preedit.
-     *
-     * Only Hangul is released early. Latin preedit is autocorrect and
-     * candidate selection, which must be able to rewrite what it showed.
-     */
+    private fun publish(state: CompositionState) {
+        composition = state
+        if (batchDepth == 0) sink.onCompositionChanged(state) else compositionDirty = true
+    }
+
     fun onComposingText(text: CharSequence?, newCursorPosition: Int) {
-        // A fresh composition means the IME moved on; any pending echo from
-        // the previous one is no longer coming.
         flushedText = null
-        flushedEchoPrefix = ""
+        flushedWord = null
         val next = CompositionState.of(text, newCursorPosition)
+        if (!isComposing && !next.text.startsWith(releasedText)) releasedText = ""
         val clusters = PreeditLayout.clusters(next.text)
-        // A composition opening with no preedit behind it may be the IME
-        // restarting the word it was already showing, or a new word after the
-        // last one was flushed or committed. It continues the old word only if
-        // it still carries the text that was released from it; otherwise the
-        // record describes something the terminal has moved past. Carrying it
-        // into a new word read the shorter preedit as a backspace and sent
-        // retraction keys into the shell, deleting text the user had typed.
-        if (!isComposing && !next.text.startsWith(releasedText)) {
-            committedClusters = 0
-            releasedText = ""
-        }
-        // Everything before the trailing cluster is finished and goes to the
-        // terminal; the trailing one can still change, so it stays composing.
-        // A half-typed syllable at the end (안녕ㅎ) is a cluster like any
-        // other: the ones before it are still settled, and treating the whole
-        // word as unreleasable there reset the count and resent them.
         val settled = (clusters.size - 1).coerceAtLeast(0)
-        // Latin is held whole: autocorrect and candidate selection must be
-        // able to rewrite what they showed, so nothing goes out until commit.
         val releasable = clusters.take(settled).all { CompositionState.isCompleteHangul(it.text) }
-        val ready = if (releasable) settled else committedClusters
-        val currentClusters = PreeditLayout.clusters(releasedText)
-        val targetClusters = clusters.take(ready)
+        val before = PreeditLayout.clusters(releasedText)
+        val ready = if (releasable) settled else minOf(clusters.size, before.size)
+        val target = clusters.take(ready)
         var match = 0
-        while (match < currentClusters.size && match < targetClusters.size && currentClusters[match].text == targetClusters[match].text) {
-            match++
-        }
-        val stale = currentClusters.size - match
-        val released = targetClusters.drop(match).joinToString("") { it.text }
-        committedClusters = ready
-        releasedText = targetClusters.joinToString("") { it.text }
-        val rest = clusters.drop(committedClusters).joinToString("") { it.text }
-        // The IME's offset counts from the whole word, which includes what the
-        // terminal already took, so it is rebased onto the remaining preedit.
-        // A caret the IME placed before the preedit (newCursorPosition 0) has
-        // to survive that: clamping alone would drag it to the end.
-        val consumed = next.text.length - rest.length
-        val caret = (next.selectionEndUtf16 - consumed).coerceIn(0, rest.length)
-        composition = if (rest.isEmpty()) {
-            CompositionState.NONE
-        } else {
-            CompositionState(rest, caret, caret)
-        }
-        if (next.text.isEmpty()) {
-            committedClusters = 0
-            releasedText = ""
-        }
-        // Preedit is updated before the send so a redraw triggered by it never
-        // paints text the terminal has already taken.
-        sink.onCompositionChanged(composition)
-        repeat(stale) {
-            sink.sendKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL), false)
-        }
-        if (released.isNotEmpty()) sink.sendText(released)
+        while (match < before.size && match < target.size && before[match].text == target[match].text) match++
+        val stale = before.size - match
+        val added = target.drop(match).joinToString("") { it.text }
+        releasedText = target.joinToString("") { it.text }
+        val rest = next.text.substring(releasedText.length)
+        val caret = (next.selectionEndUtf16 - releasedText.length).coerceIn(0, rest.length)
+        publish(if (rest.isEmpty()) CompositionState.NONE else CompositionState(rest, caret, caret))
+        repeat(stale) { sink.sendKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL), false) }
+        if (added.isNotEmpty()) sink.sendText(added)
+        if (next.text.isEmpty()) releasedText = ""
     }
 
-    /**
-     * Drops an open preedit without sending it.
-     *
-     * An extra key acts on the terminal, not on the text being composed, so
-     * the overlay is taken down rather than left hanging over the result.
-     */
-    fun abandonComposition() {
-        if (!isComposing) return
+    fun onCommitText(text: CharSequence?): Boolean {
+        var raw = CompositionState.sanitizeUtf16(text)
+        val pending = flushedText
+        val whole = flushedWord
         flushedText = null
-        flushedEchoPrefix = ""
-        composition = CompositionState.NONE
-        sink.onCompositionChanged(composition)
+        flushedWord = null
+        if (pending != null) {
+            if (!whole.isNullOrEmpty() && raw.startsWith(whole)) raw = raw.substring(whole.length)
+            else if (raw.startsWith(pending)) raw = raw.substring(pending.length)
+        }
+        val before = PreeditLayout.clusters(releasedText)
+        val after = PreeditLayout.clusters(raw)
+        var match = 0
+        while (match < before.size && match < after.size && before[match].text == after[match].text) match++
+        val stale = before.size - match
+        val prefix = if (match == 0) 0 else after[match - 1].let { it.startUtf16 + it.text.length }
+        releasedText = ""
+        remember(raw.substring(0, prefix))
+        publish(CompositionState.NONE)
+        repeat(stale) { sink.sendKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL), false) }
+        val remaining = raw.substring(prefix)
+        if (remaining.isEmpty()) return false
+        sendCommitted(remaining)
+        return true
     }
+
+    fun replaceText(start: Int, end: Int, text: CharSequence?, newCursorPosition: Int): Boolean {
+        if (start < 0 || end < 0) return false
+        val editor = editorComposition.text
+        val fromLong = minOf(start, end).toLong() - documentOffset
+        val toLong = maxOf(start, end).toLong() - documentOffset
+        if (fromLong < 0 || toLong > editor.length) return false
+        val from = fromLong.toInt()
+        val to = toLong.toInt()
+        if (!validBoundary(editor, from) || !validBoundary(editor, to)) return false
+        val replacement = CompositionState.sanitizeUtf16(text)
+        // Rewrites across a submitted line are not reversible terminal edits.
+        if ('\n' in replacement || '\r' in replacement) return false
+        val target = editor.substring(0, from) + replacement + editor.substring(to)
+        val caret = if (newCursorPosition > 0) from.toLong() + replacement.length + newCursorPosition - 1
+            else from.toLong() + newCursorPosition
+        if (caret.coerceIn(0, target.length.toLong()) != target.length.toLong()) return false
+        val before = PreeditLayout.clusters(committedText + releasedText)
+        val after = PreeditLayout.clusters(target)
+        var match = 0
+        while (match < before.size && match < after.size && before[match].text == after[match].text) match++
+        val deletes = before.size - match
+        if (deletes > MAX_DELETE) return false
+        val prefix = if (match == 0) 0 else after[match - 1].let { it.startUtf16 + it.text.length }
+        val added = target.substring(prefix)
+        committedText = target
+        releasedText = ""
+        flushedText = null
+        flushedWord = null
+        trimContext()
+        publish(CompositionState.NONE)
+        repeat(deletes) { sink.sendKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL), false) }
+        if (added.isNotEmpty()) sink.sendText(added)
+        return true
+    }
+
+    private fun remember(text: String) {
+        committedText += text
+        trimContext()
+    }
+
+    private fun trimContext() {
+        if (committedText.length <= MAX_CONTEXT) return
+        val limit = committedText.length - MAX_CONTEXT
+        val cut = PreeditLayout.clusters(committedText).firstOrNull { it.startUtf16 >= limit }?.startUtf16
+            ?: committedText.length
+        documentOffset += cut
+        committedText = committedText.substring(cut)
+    }
+
+    fun terminalKeySent(code: Int) {
+        when {
+            code == KeyEvent.KEYCODE_DEL && committedText.isNotEmpty() -> {
+                committedText = committedText.substring(0, PreeditLayout.clusters(committedText).last().startUtf16)
+                publish(composition)
+            }
+            isSpaceKey(code) -> {
+                remember(" ")
+                publish(composition)
+            }
+            code != KeyEvent.KEYCODE_DEL -> {
+                documentOffset += committedText.length + releasedText.length + composition.text.length
+                committedText = ""
+                releasedText = ""
+                publish(CompositionState.NONE)
+                if (!isEnterKey(code)) {
+                    flushedText = null
+                    flushedWord = null
+                }
+            }
+        }
+    }
+
+    private fun sendCommitted(text: String) {
+        var start = 0
+        for (i in text.indices) {
+            if (text[i] != '\n' && text[i] != '\r') continue
+            if (i > start) {
+                val part = text.substring(start, i)
+                remember(part)
+                sink.sendText(part)
+            }
+            documentOffset += committedText.length
+            committedText = ""
+            sink.sendKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER), false)
+            start = i + 1
+        }
+        if (start < text.length) {
+            val part = text.substring(start)
+            remember(part)
+            sink.sendText(part)
+        }
+    }
+
     fun onSelection(start: Int, end: Int) {
         if (!isComposing) return
-        val length = composition.text.length
-        composition = composition.copy(
-            selectionStartUtf16 = start.coerceIn(0, length),
-            selectionEndUtf16 = end.coerceIn(0, length),
-        )
-        sink.onCompositionChanged(composition)
+        publish(CompositionState(composition.text, boundary(composition.text, start), boundary(composition.text, end)))
     }
 
-    /** Delete only from the local preedit and return true when it handled it. */
-    fun deleteFromComposition(beforeLength: Int, afterLength: Int): Boolean {
+    fun editorSelection(start: Int, end: Int) {
+        val offset = documentOffset + committedText.length + releasedText.length
+        onSelection((start.toLong() - offset).coerceIn(0, Int.MAX_VALUE.toLong()).toInt(),
+            (end.toLong() - offset).coerceIn(0, Int.MAX_VALUE.toLong()).toInt())
+    }
+
+    fun composingRegion(start: Int, end: Int): Boolean {
+        val text = editorComposition.text
+        val from = minOf(start, end) - documentOffset
+        val to = maxOf(start, end) - documentOffset
+        if (!validBoundary(text, from) || !validBoundary(text, to) || to != text.length || from > committedText.length) return false
+        releasedText = committedText.substring(from) + releasedText
+        committedText = committedText.substring(0, from)
+        publish(composition)
+        return true
+    }
+
+    fun deleteFromComposition(beforeLength: Int, afterLength: Int, codepoints: Boolean = false): Boolean {
         if (!isComposing) return false
         val text = composition.text
-        val selectionStart = minOf(
-            composition.selectionStartUtf16,
-            composition.selectionEndUtf16,
-        )
-        val selectionEnd = maxOf(
-            composition.selectionStartUtf16,
-            composition.selectionEndUtf16,
-        )
-        val from = (selectionStart - beforeLength.coerceAtLeast(0)).coerceAtLeast(0)
-        val to = (selectionEnd + afterLength.coerceAtLeast(0)).coerceAtMost(text.length)
-        val next = text.removeRange(from, to)
-        composition = if (next.isEmpty()) {
-            CompositionState.NONE
-        } else {
-            CompositionState(next, from, from)
-        }
-        sink.onCompositionChanged(composition)
+        val start = minOf(composition.selectionStartUtf16, composition.selectionEndUtf16)
+        val end = maxOf(composition.selectionStartUtf16, composition.selectionEndUtf16)
+        var from = if (codepoints) text.offsetByCodePoints(start, -minOf(beforeLength.coerceAtLeast(0), text.codePointCount(0, start)))
+            else (start.toLong() - beforeLength.coerceAtLeast(0)).coerceAtLeast(0).toInt()
+        var to = if (codepoints) text.offsetByCodePoints(end, minOf(afterLength.coerceAtLeast(0), text.codePointCount(end, text.length)))
+            else (end.toLong() + afterLength.coerceAtLeast(0)).coerceAtMost(text.length.toLong()).toInt()
+        if (from > 0 && from < text.length && Character.isLowSurrogate(text[from])) from--
+        if (to > 0 && to < text.length && Character.isLowSurrogate(text[to])) to++
+        val remaining = text.removeRange(from, to)
+        publish(if (remaining.isEmpty()) CompositionState.NONE else CompositionState(remaining, from, from))
         return true
     }
 
-    /**
-     * Ends composition styling.
-     *
-     * Sends nothing. The cluster count goes with the preedit it described: a
-     * commit that follows carries a word this class never released, so none of
-     * it may be skipped.
-     */
-    fun onFinishComposing() {
-        if (!isComposing) return
-        composition = CompositionState.NONE
-        sink.onCompositionChanged(composition)
-    }
-
-    /**
-     * Commits text to the terminal, exactly once.
-     *
-     * Preedit is cleared before the send, so a redraw triggered by the send
-     * cannot paint a composition that no longer exists.
-     */
-    fun onCommitText(text: CharSequence?): Boolean {
-        val raw = CompositionState.sanitizeUtf16(text)
-        val pending = flushedText
-        val echoPrefix = flushedEchoPrefix
-        flushedText = null
-        flushedEchoPrefix = ""
-
-        // The IME echoing back what Enter/Space already flushed.
-        if (pending != null && (raw == pending || (echoPrefix.isNotEmpty() && raw.startsWith(echoPrefix)))) {
-            val wasOpen = isComposing
-            composition = CompositionState.NONE
-            if (wasOpen) sink.onCompositionChanged(composition)
-            return false
-        }
-
-        val currentClusters = PreeditLayout.clusters(releasedText)
-        val rawClusters = PreeditLayout.clusters(raw)
-        var match = 0
-        while (match < currentClusters.size && match < rawClusters.size && currentClusters[match].text == rawClusters[match].text) {
-            match++
-        }
-        val stale = currentClusters.size - match
-        val s = rawClusters.drop(match).joinToString("") { it.text }
-        committedClusters = 0
-        releasedText = ""
-        val wasComposing = isComposing
-        composition = CompositionState.NONE
-        if (wasComposing) sink.onCompositionChanged(composition)
-        repeat(stale) {
-            sink.sendKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL), false)
-        }
-        if (s.isEmpty()) return false
-
-        // Some IMEs commit the Enter key as literal text rather than sending a
-        // key event. Writing that straight through gives a TUI a newline
-        // character where it expected a key press, which it reads as a line
-        // continuation instead of submit. Split the run and send the newlines
-        // as real Enter keys.
-        if (s.contains('\n')) {
-            emitWithNewlinesAsEnter(s)
-            return true
-        }
-        sink.sendText(s)
-        return true
-    }
-
-    /**
-     * Removes the last grapheme cluster of the preedit.
-     *
-     * Returns false when there was nothing composing, so the caller forwards
-     * the key to the terminal instead.
-     */
     fun backspaceComposition(): Boolean {
         if (!isComposing) return false
         val text = composition.text
-        val caret = minOf(composition.selectionStartUtf16, composition.selectionEndUtf16)
-            .coerceIn(0, text.length)
-        if (caret == 0) return true
-        // Whole cluster, so a Hangul syllable or an emoji with a modifier is
-        // removed as the one unit the user sees.
-        var from = 0
-        for (c in PreeditLayout.clusters(text)) {
-            if (c.startUtf16 >= caret) break
-            from = c.startUtf16
-        }
-        val next = text.removeRange(from, caret)
-        composition = if (next.isEmpty()) {
-            CompositionState.NONE
-        } else {
-            CompositionState(next, from, from)
-        }
-        sink.onCompositionChanged(composition)
-        return true
+        val start = minOf(composition.selectionStartUtf16, composition.selectionEndUtf16)
+        val end = maxOf(composition.selectionStartUtf16, composition.selectionEndUtf16)
+        if (start != end) return deleteFromComposition(0, 0)
+        if (start == 0) return true
+        val clusters = PreeditLayout.clusters(text)
+        val from = clusters.lastOrNull { it.startUtf16 < start }?.startUtf16 ?: 0
+        val to = clusters.firstOrNull { it.startUtf16 < start && start < it.startUtf16 + it.text.length }
+            ?.let { it.startUtf16 + it.text.length } ?: start
+        return deleteFromComposition(start - from, to - start)
     }
 
-    // Sends the text around each newline, with an Enter key in place of the
-    // newline itself. Order is preserved so a pasted multi-line block arrives
-    // as it was written.
-    private fun emitWithNewlinesAsEnter(text: String) {
-        var start = 0
-        while (start <= text.length) {
-            val nl = text.indexOf('\n', start)
-            val end = if (nl < 0) text.length else nl
-            if (end > start) sink.sendText(text.substring(start, end))
-            if (nl < 0) return
-            sink.sendKey(
-                KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER),
-                composing = false,
-            )
-            start = nl + 1
-        }
-    }
-
-    /**
-     * Decides a key event.
-     *
-     * A key that reaches this connection is one the IME chose to pass through.
-     * An IME that wanted Space to pick a candidate, as Japanese and Chinese
-     * ones do, handles it internally and it never arrives here at all.
-     * Consuming Space on the way past therefore did not protect a syllable; it
-     * deleted a word separator the user had typed, which is the space that
-     * went missing after Korean input.
-     *
-     * So Space is treated exactly like Enter: the open preedit is committed
-     * and the key follows it, in that order, in one batch. A TUI that reads
-     * keys as they arrive needs both, and needs them that way round.
-     *
-     * Backspace is the one key that stays local. It edits the preedit buffer,
-     * which the app owns, so it must not also take a character off the shell's
-     * line.
-     */
     fun onKeyDown(keyCode: Int): KeyDecision = when {
         !isComposing -> KeyDecision.FORWARD
         isEnterKey(keyCode) || isSpaceKey(keyCode) -> KeyDecision.COMMIT_THEN_FORWARD
@@ -344,54 +247,49 @@ class TerminalImeController(private val sink: TerminalSink) {
         else -> KeyDecision.FORWARD
     }
 
-    /**
-     * Commits the open preedit as typed and clears composition.
-     *
-     * Used when Enter ends a composition the IME has not committed itself.
-     * Returns the text that was sent, or null when there was nothing open.
-     */
     fun flushComposition(): String? {
         if (!isComposing) return null
         val text = composition.text
-        composition = CompositionState.NONE
-        // Flushed text is user-committed to the shell and must never be retracted.
         flushedText = text
-        flushedEchoPrefix = releasedText + text
-        committedClusters = 0
+        flushedWord = releasedText + text
+        remember(releasedText + text)
         releasedText = ""
-        sink.onCompositionChanged(composition)
+        publish(CompositionState.NONE)
         sink.sendText(text)
         return text
     }
-    /**
-     * How many DEL keys a delete request should produce.
-     *
-     * Zero while composing: the IME is editing its own preedit buffer and the
-     * terminal must not also lose a character.
-     */
-    fun onDeleteSurrounding(beforeLength: Int): Int =
-        if (isComposing) 0 else beforeLength.coerceIn(0, MAX_DELETE)
 
-    /** The connection closed. Uncommitted preedit is dropped, not sent. */
-    fun onClose() {
+    fun onFinishComposing() {
+        if (isComposing) publish(CompositionState.NONE)
+    }
+
+    fun abandonComposition() {
         flushedText = null
-        committedClusters = 0
+        flushedWord = null
+        if (isComposing) publish(CompositionState.NONE)
+    }
+
+    fun onDeleteSurrounding(beforeLength: Int): Int = if (isComposing) 0 else beforeLength.coerceIn(0, MAX_DELETE)
+
+    fun onClose() {
+        committedText = ""
         releasedText = ""
-        if (!isComposing) return
-        composition = CompositionState.NONE
-        sink.onCompositionChanged(composition)
+        documentOffset = 0
+        batchDepth = 0
+        compositionDirty = false
+        abandonComposition()
     }
 
     companion object {
         const val MAX_DELETE = 64
-
+        private const val MAX_CONTEXT = 4096
         fun isSpaceKey(keyCode: Int): Boolean = keyCode == KeyEvent.KEYCODE_SPACE
-
-        fun isEnterKey(keyCode: Int): Boolean = when (keyCode) {
-            KeyEvent.KEYCODE_ENTER,
-            KeyEvent.KEYCODE_NUMPAD_ENTER,
-            -> true
-            else -> false
+        fun isEnterKey(keyCode: Int): Boolean = keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+        private fun validBoundary(text: String, offset: Int): Boolean = offset in 0..text.length &&
+            (offset == 0 || offset == text.length || !Character.isHighSurrogate(text[offset - 1]) || !Character.isLowSurrogate(text[offset]))
+        private fun boundary(text: String, offset: Int): Int {
+            val value = offset.coerceIn(0, text.length)
+            return if (validBoundary(text, value)) value else value - 1
         }
     }
 }

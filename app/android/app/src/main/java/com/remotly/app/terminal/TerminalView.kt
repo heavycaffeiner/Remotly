@@ -1370,7 +1370,8 @@ class TerminalView @JvmOverloads constructor(
   fun clearComposition() {
     val connection = inputConnection ?: return
     if (!connection.isComposing) return
-    connection.abandonComposition()
+    connection.closeSession()
+    inputConnection = null
     inputConnectionGeneration++
     val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
     imm?.restartInput(this)
@@ -1405,7 +1406,7 @@ class TerminalView @JvmOverloads constructor(
     parent?.requestDisallowInterceptTouchEvent(false)
     clearSelection()
     inputConnectionGeneration++
-    inputConnection?.abandonComposition()
+    inputConnection?.closeSession()
     inputConnection = null
     composition = CompositionState.NONE
     invalidate()
@@ -1427,6 +1428,7 @@ class TerminalView @JvmOverloads constructor(
     val encoding = extraKeyEncoding(key, inputModifier) ?: return
     consumeInputModifier()
     clearComposition()
+    inputConnection?.terminalKeySent(KeyEvent.KEYCODE_UNKNOWN)
     RemotlyTerminal.nativeSendKey(handle, encoding.key, encoding.mods, encoding.utf8, false)
     scrollToBottom()
   }
@@ -1441,6 +1443,9 @@ class TerminalView @JvmOverloads constructor(
     val producesInput = original.key != KeyMap.KEY_UNIDENTIFIED || !original.utf8.isNullOrEmpty()
     val modifier = if (producesInput) consumeInputModifier() else null
     val encoding = if (modifier == null) original else modifiedHardwareKey(original, modifier)
+    if (event.action == KeyEvent.ACTION_DOWN && producesInput) {
+      inputConnection?.terminalKeySent(if (shortcut || encoding.mods != 0) KeyEvent.KEYCODE_UNKNOWN else event.keyCode)
+    }
     RemotlyTerminal.nativeSendKey(handle, encoding.key, encoding.mods, encoding.utf8, composing && !shortcut)
     if (producesInput) scrollToBottom()
   }
@@ -1813,6 +1818,7 @@ class TerminalView @JvmOverloads constructor(
     // session's screen before the first draw.
     frame?.reset()
     images.clear()
+    inputConnection?.closeSession()
     composition = CompositionState.NONE
     inputConnectionGeneration++
     inputConnection = null
@@ -1838,6 +1844,7 @@ class TerminalView @JvmOverloads constructor(
     // session.
     removeCallbacks(accessibilityAnnounceRunnable)
     accessibilityAnnouncePosted = false
+    inputConnection?.closeSession()
     composition = CompositionState.NONE
     inputConnectionGeneration++
     inputConnection = null
@@ -2135,9 +2142,17 @@ class TerminalView @JvmOverloads constructor(
       outAttrs.imeOptions = outAttrs.imeOptions or EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
     }
 
-    val generation = ++inputConnectionGeneration
-    // Restarting the IME is asynchronous. Reject queued work from an old
-    // connection even before Android finishes replacing it.
+    val previous = inputConnection
+    val initial = previous?.editorComposition ?: CompositionState.NONE
+    val base = previous?.documentOffset ?: 0
+    outAttrs.initialSelStart = base + initial.selectionStartUtf16
+    outAttrs.initialSelEnd = base + initial.selectionEndUtf16
+    if (previous != null && previous.hasLiveSession) {
+      val connection = TerminalInputConnection(this, previous)
+      inputConnection = connection
+      return connection
+    }
+    val generation = inputConnectionGeneration
     val sink = object : TerminalSink {
       override fun sendText(text: String) {
         if (generation == inputConnectionGeneration) terminalSink.sendText(text)
@@ -2197,9 +2212,15 @@ class TerminalView @JvmOverloads constructor(
    */
   private fun updateCursorAnchor() {
     val f = frame ?: return
-    if (!isAttachedToWindow || f.cols <= 0 || f.rows <= 0) return
+    val connection = inputConnection ?: return
+    if (connection.isBatchEditing || !isAttachedToWindow || f.cols <= 0 || f.rows <= 0) return
     val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
       ?: return
+    val editor = connection.editorComposition
+    val base = connection.documentOffset
+    val start = connection.composingStart
+    val end = if (start < 0) -1 else base + editor.text.length
+    imm.updateSelection(this, base + editor.selectionStartUtf16, base + editor.selectionEndUtf16, start, end)
 
     val cellsBefore =
       PreeditLayout.cellsBefore(composition.text, composition.selectionEndUtf16)
@@ -2237,7 +2258,8 @@ class TerminalView @JvmOverloads constructor(
         localBottom,
         CursorAnchorInfo.FLAG_HAS_VISIBLE_REGION,
       )
-      .setComposingText(0, composition.text)
+      .setSelectionRange(base + editor.selectionStartUtf16, base + editor.selectionEndUtf16)
+      .apply { if (start >= 0) setComposingText(start, editor.text.substring(start - base)) }
       .build()
     imm.updateCursorAnchorInfo(this, info)
   }
