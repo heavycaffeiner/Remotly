@@ -99,6 +99,22 @@ class HardwareKeyboardTest {
     }
 
     @Test
+    fun physicalShiftBetweenVowelAndDoubleFinalKeepsBetaRange() {
+        if (android.os.Build.VERSION.SDK_INT < 34) return
+        mountTerminal()
+        compose.runOnIdle {
+            val connection = view.onCreateInputConnection(EditorInfo()) as TerminalInputConnection
+            connection.commitText("ㅇ", 1)
+            assertTrue(connection.replaceText(0, 1, "이", 1, null))
+            assertTrue(view.dispatchKeyEvent(event(KeyEvent.KEYCODE_SHIFT_LEFT, mods = KeyEvent.META_SHIFT_ON)))
+            assertTrue(connection.replaceText(0, 1, "있", 1, null))
+            assertTrue(view.dispatchKeyEvent(event(KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.ACTION_UP)))
+            assertEquals("있", connection.getTextBeforeCursor(100, 0))
+            assertFalse(connection.isClosed)
+        }
+    }
+
+    @Test
     fun toolbarNavigationInvalidatesImeReplacementRanges() {
         if (android.os.Build.VERSION.SDK_INT < 34) return
         mountTerminal()

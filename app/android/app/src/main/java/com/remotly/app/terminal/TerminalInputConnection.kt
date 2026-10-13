@@ -105,7 +105,7 @@ class TerminalInputConnection private constructor(
 
     // Called by hardware and toolbar keys that bypass InputConnection.sendKeyEvent.
     fun terminalKeySent(code: Int) {
-        if (hasLiveSession && !session.forwarding) controller.terminalKeySent(code)
+        if (hasLiveSession && !session.forwarding && !KeyEvent.isModifierKey(code)) controller.terminalKeySent(code)
     }
 
     override fun setComposingRegion(start: Int, end: Int): Boolean =
@@ -233,6 +233,7 @@ class TerminalInputConnection private constructor(
 
     override fun sendKeyEvent(event: KeyEvent): Boolean {
         if (isClosed) return event.action == KeyEvent.ACTION_UP
+        if (KeyEvent.isModifierKey(event.keyCode)) return true
         if (event.action == KeyEvent.ACTION_UP && localKeys.remove(event.keyCode)) return true
         if (event.action != KeyEvent.ACTION_DOWN) return true
         if (KeyMap.handlesBeforeIme(event.keyCode, event.metaState)) {

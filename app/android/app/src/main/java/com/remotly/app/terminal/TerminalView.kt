@@ -117,6 +117,10 @@ class TerminalView @JvmOverloads constructor(
   private var pointerTapX = 0f
   private var pointerTapY = 0f
   private var lastPointerScroll: List<Number>? = null
+  private var touchpadGestureActive = false
+  private var touchpadGestureDevice = -1
+  private var touchpadCenterX = 0f
+  private var touchpadCenterY = 0f
   private var lastPointerMotionAt = -1L
   private var lastPointerMotionX = Float.NaN
   private var lastPointerMotionY = Float.NaN
@@ -128,6 +132,8 @@ class TerminalView @JvmOverloads constructor(
     pointerSelecting = false
     pointerTapAt = 0L
     lastPointerScroll = null
+    touchpadGestureActive = false
+    touchpadGestureDevice = -1
     lastPointerMotionAt = -1L
   }
 
@@ -797,6 +803,7 @@ class TerminalView @JvmOverloads constructor(
    * does not arrive here at all.
    */
   override fun onTouchEvent(event: MotionEvent): Boolean {
+    if (event.actionMasked == MotionEvent.ACTION_SCROLL && isPhysicalPointer(event)) return handlePointerEvent(event)
     if (isTouchpadGesture(event)) return onTouchpadGesture(event)
     if (isPhysicalPointer(event)) return handlePointerEvent(event)
     if (event.eventTime < pointerButtons.acceptEventsSince) return true
@@ -972,13 +979,14 @@ class TerminalView @JvmOverloads constructor(
       event.getToolType(0) == MotionEvent.TOOL_TYPE_MOUSE
 
   override fun onGenericMotionEvent(event: MotionEvent): Boolean = when {
+    event.actionMasked == MotionEvent.ACTION_SCROLL && isPhysicalPointer(event) -> handlePointerEvent(event)
     isTouchpadGesture(event) -> onTouchpadGesture(event)
     isPhysicalPointer(event) -> handlePointerEvent(event)
     else -> super.onGenericMotionEvent(event)
   }
 
   private fun isTouchpadGesture(event: MotionEvent): Boolean =
-    isTouchpadGestureClassification(gestureClassification(event))
+    isTouchpadScrollGesture(event) || touchpadGestureActive && event.deviceId == touchpadGestureDevice
 
   private fun gestureClassification(event: MotionEvent): Int =
     if (android.os.Build.VERSION.SDK_INT >= 29) event.classification else 0
@@ -990,21 +998,39 @@ class TerminalView @JvmOverloads constructor(
     if (event.eventTime < pointerButtons.acceptEventsSince || handle == 0L ||
       !TerminalStore.isRenderer(sessionId, this)
     ) return true
+    if (event.actionMasked == MotionEvent.ACTION_DOWN || !touchpadGestureActive || touchpadGestureDevice != event.deviceId) {
+      stopFling()
+      pointerScroll.reset()
+      pointerHorizontalScroll.reset()
+      touchpadGestureActive = true
+      touchpadGestureDevice = event.deviceId
+      touchpadCenterX = (0 until event.pointerCount).map { event.getX(it) }.average().toFloat()
+      touchpadCenterY = (0 until event.pointerCount).map { event.getY(it) }.average().toFloat()
+      pointerSelecting = false
+      cancelSelectionLongPress()
+      tapDetector.onCancel()
+      scrollTracker.onCancel()
+      parent?.requestDisallowInterceptTouchEvent(true)
+    }
     when (event.actionMasked) {
-      MotionEvent.ACTION_DOWN -> {
-        stopFling()
-        pointerScroll.reset()
-        pointerHorizontalScroll.reset()
-        parent?.requestDisallowInterceptTouchEvent(true)
-      }
-      MotionEvent.ACTION_MOVE -> if (gestureClassification(event) == CLASSIFICATION_TWO_FINGER_SWIPE) {
+      MotionEvent.ACTION_MOVE -> if (gestureClassification(event) == CLASSIFICATION_TWO_FINGER_SWIPE ||
+        !isTouchpadGestureClassification(gestureClassification(event))
+      ) {
         val mods = KeyMap.modifiersOf(event.metaState)
         val owner = pointerOwner(mouseReportingActive(), mods and KeyMap.MOD_SHIFT != 0,
           mods and KeyMap.MOD_CTRL != 0)
         // Events are batched per frame and each sample carries its own travel.
-        val dx = gestureTravel(event, AXIS_GESTURE_SCROLL_X_DISTANCE)
-        val dy = gestureTravel(event, AXIS_GESTURE_SCROLL_Y_DISTANCE)
-        val signature = listOf<Number>(event.eventTime, event.deviceId, dx, dy, mods)
+        var dx = gestureTravel(event, AXIS_GESTURE_SCROLL_X_DISTANCE)
+        var dy = gestureTravel(event, AXIS_GESTURE_SCROLL_Y_DISTANCE)
+        if (dx == 0f && dy == 0f && event.isFromSource(InputDevice.SOURCE_TOUCHPAD) && event.pointerCount >= 2) {
+          val x = (0 until event.pointerCount).map { event.getX(it) }.average().toFloat()
+          val y = (0 until event.pointerCount).map { event.getY(it) }.average().toFloat()
+          dx = x - touchpadCenterX
+          dy = touchpadCenterY - y
+          touchpadCenterX = x
+          touchpadCenterY = y
+        }
+        val signature = listOf<Number>(event.eventTime, event.deviceId, event.actionMasked, event.historySize, dx, dy, mods)
         if (signature == lastPointerScroll) return true
         lastPointerScroll = signature
         // One axis per event, so a slightly diagonal swipe does not also send the other wheel.
@@ -1015,6 +1041,7 @@ class TerminalView @JvmOverloads constructor(
         }
       }
       MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+        touchpadGestureActive = false
         pointerScroll.reset()
         pointerHorizontalScroll.reset()
         parent?.requestDisallowInterceptTouchEvent(false)
@@ -1073,8 +1100,8 @@ class TerminalView @JvmOverloads constructor(
       MotionEvent.ACTION_SCROLL -> {
         stopFling()
         val owner = pointerOwner(mouseReportingActive(), shift, mods and KeyMap.MOD_CTRL != 0)
-        val delta = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
-        val horizontal = event.getAxisValue(MotionEvent.AXIS_HSCROLL)
+        val delta = gestureTravel(event, MotionEvent.AXIS_VSCROLL)
+        val horizontal = gestureTravel(event, MotionEvent.AXIS_HSCROLL)
         val signature = listOf<Number>(event.eventTime, event.deviceId, event.x, event.y, delta, horizontal, mods)
         if (signature == lastPointerScroll) return true
         lastPointerScroll = signature
@@ -1171,7 +1198,8 @@ class TerminalView @JvmOverloads constructor(
     release -> pointerButtons.pressedButton()
     event.buttonState and MotionEvent.BUTTON_SECONDARY != 0 -> 2
     event.buttonState and MotionEvent.BUTTON_TERTIARY != 0 -> 3
-    else -> MOUSE_BUTTON_LEFT
+    event.buttonState and MotionEvent.BUTTON_PRIMARY != 0 -> MOUSE_BUTTON_LEFT
+    else -> -1
   }
 
   private fun selectPointerWord(x: Float, y: Float) {
@@ -2278,6 +2306,7 @@ class TerminalView @JvmOverloads constructor(
   }
 
   override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+    if (KeyEvent.isModifierKey(keyCode)) return true
     if (handle == 0L || KeyMap.isSystemKey(keyCode)) {
       return super.onKeyDown(keyCode, event)
     }
@@ -2286,6 +2315,7 @@ class TerminalView @JvmOverloads constructor(
   }
 
   override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+    if (KeyEvent.isModifierKey(keyCode)) return true
     if (handle == 0L || KeyMap.isSystemKey(keyCode)) {
       return super.onKeyUp(keyCode, event)
     }

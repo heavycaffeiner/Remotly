@@ -61,6 +61,105 @@ class TerminalTouchpadDispatchTest {
         }
     }
 
+    @Test fun gestureStartingWithClassifiedMoveBypassesCompose() {
+        val handle = TerminalHandle()
+        val input = StringBuilder()
+        compose.activity.setContent {
+            TerminalPane(sessionKey = "touchpad-late-dispatch", fontSizeSp = 14, cursorStyle = "block",
+                onInput = { input.append(it.toString(Charsets.UTF_8)) },
+                onPtyWrite = { input.append(it.toString(Charsets.UTF_8)) },
+                onResize = { _, _ -> }, onLinkCopied = {}, onFontSizeChanged = {},
+                handle = handle, modifier = Modifier.fillMaxSize())
+        }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            val view = requireNotNull(handle.view)
+            view.feed("\u001b[?1002h\u001b[?1006h".toByteArray())
+            val location = IntArray(2)
+            view.getLocationOnScreen(location)
+            val x = location[0] + view.width / 2f
+            val y = location[1] + view.height / 2f
+            val time = SystemClock.uptimeMillis() + 10
+            dispatch(event(MotionEvent.ACTION_MOVE, time, x, y, 200f))
+            dispatch(event(MotionEvent.ACTION_UP, time + 1, x, y, 0f))
+            assertTrue(input.toString().startsWith("\u001b[<65;"))
+            assertFalse(input.toString().contains("\u001b[<0;"))
+            assertFalse(view.hasSelection)
+        }
+    }
+
+    @Test fun rawTwoPointerTouchpadGestureBypassesCompose() {
+        val handle = TerminalHandle()
+        val input = StringBuilder()
+        compose.activity.setContent {
+            TerminalPane(sessionKey = "touchpad-raw-dispatch", fontSizeSp = 14, cursorStyle = "block",
+                onInput = { input.append(it.toString(Charsets.UTF_8)) },
+                onPtyWrite = { input.append(it.toString(Charsets.UTF_8)) },
+                onResize = { _, _ -> }, onLinkCopied = {}, onFontSizeChanged = {},
+                handle = handle, modifier = Modifier.fillMaxSize())
+        }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            val view = requireNotNull(handle.view)
+            view.feed("\u001b[?1002h\u001b[?1006h".toByteArray())
+            val location = IntArray(2)
+            view.getLocationOnScreen(location)
+            val x = location[0] + view.width / 2f
+            val y = location[1] + view.height / 2f
+            val time = SystemClock.uptimeMillis() + 10
+            fun raw(action: Int, at: Long, currentY: Float): MotionEvent {
+                val properties = Array(2) { index -> MotionEvent.PointerProperties().apply {
+                    id = index; toolType = MotionEvent.TOOL_TYPE_MOUSE
+                } }
+                val coordinates = Array(2) { index -> MotionEvent.PointerCoords().apply {
+                    this.x = x + index * 20f; this.y = currentY
+                } }
+                return requireNotNull(MotionEvent.obtain(at, at, action, 2, properties, coordinates,
+                    0, 0, 1f, 1f, 1, 0, InputDevice.SOURCE_TOUCHPAD, 0))
+            }
+            dispatch(raw(MotionEvent.ACTION_DOWN, time, y))
+            dispatch(raw(MotionEvent.ACTION_MOVE, time + 1, y + 200))
+            dispatch(raw(MotionEvent.ACTION_UP, time + 2, y + 200))
+            assertTrue(input.toString().startsWith("\u001b[<64;"))
+            assertFalse(input.toString().contains("\u001b[<0;"))
+            assertFalse(view.hasSelection)
+        }
+    }
+
+    @Test fun touchpadWheelReachesTerminalThroughGenericActivityDispatch() {
+        val handle = TerminalHandle()
+        val input = StringBuilder()
+        compose.activity.setContent {
+            TerminalPane(sessionKey = "touchpad-wheel-dispatch", fontSizeSp = 14, cursorStyle = "block",
+                onInput = { input.append(it.toString(Charsets.UTF_8)) },
+                onPtyWrite = { input.append(it.toString(Charsets.UTF_8)) },
+                onResize = { _, _ -> }, onLinkCopied = {}, onFontSizeChanged = {},
+                handle = handle, modifier = Modifier.fillMaxSize())
+        }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            val view = requireNotNull(handle.view)
+            view.feed("\u001b[?1002h\u001b[?1006h".toByteArray())
+            val location = IntArray(2)
+            view.getLocationOnScreen(location)
+            val point = MotionEvent.PointerCoords().apply {
+                x = location[0] + view.width / 2f
+                y = location[1] + view.height / 2f
+                setAxisValue(MotionEvent.AXIS_VSCROLL, 0.25f)
+            }
+            val properties = MotionEvent.PointerProperties().apply { id = 0; toolType = MotionEvent.TOOL_TYPE_MOUSE }
+            val time = SystemClock.uptimeMillis() + 10
+            repeat(4) { sample ->
+                val wheel = requireNotNull(MotionEvent.obtain(time + sample, time + sample, MotionEvent.ACTION_SCROLL,
+                    1, arrayOf(properties), arrayOf(point), 0, 0, 1f, 1f, 1, 0, InputDevice.SOURCE_TOUCHPAD, 0))
+                try { assertTrue(compose.activity.dispatchGenericMotionEvent(wheel)) } finally { wheel.recycle() }
+            }
+            assertTrue(input.toString().startsWith("\u001b[<64;"))
+            assertEquals(1, input.toString().split("\u001b[<").count { it.startsWith("64;") })
+            assertFalse(view.hasSelection)
+        }
+    }
+
     private fun dispatch(event: MotionEvent) {
         try { assertTrue(compose.activity.dispatchTouchEvent(event)) } finally { event.recycle() }
     }

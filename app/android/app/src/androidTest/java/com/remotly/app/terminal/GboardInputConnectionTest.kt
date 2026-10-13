@@ -24,6 +24,43 @@ class GboardInputConnectionTest {
         override fun onCompositionChanged(state: CompositionState) = Unit
     }
 
+    @Test fun modifierPressDuringBetaInputKeepsDoubleFinalReplacementRange() {
+        if (Build.VERSION.SDK_INT < 34) return
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val sink = Recorder()
+            val connection = TerminalInputConnection(View(InstrumentationRegistry.getInstrumentation().targetContext), sink)
+            for (shift in listOf(KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_SHIFT_RIGHT)) {
+                val start = connection.documentOffset + connection.editorComposition.text.length
+                connection.commitText("ㅇ", 1)
+                assertTrue(connection.replaceText(start, start + 1, "이", 1, null))
+                assertTrue(connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, shift)))
+                connection.terminalKeySent(shift)
+                assertTrue(connection.replaceText(start, start + 1, "있", 1, null))
+                assertTrue(connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, shift)))
+            }
+            assertEquals("있있", sink.text.toString())
+            assertEquals("있있", connection.getTextBeforeCursor(100, 0))
+            connection.closeConnection()
+        }
+    }
+
+    @Test fun modifierOnlyEventsDoNotAbandonLegacyPreedit() {
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val sink = Recorder()
+            val connection = TerminalInputConnection(View(InstrumentationRegistry.getInstrumentation().targetContext), sink)
+            connection.setComposingText("이", 1)
+            for (key in listOf(KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_ALT_RIGHT)) {
+                assertTrue(connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, key)))
+                assertTrue(connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, key)))
+                assertEquals("이", connection.composition.text)
+            }
+            connection.setComposingText("있", 1)
+            connection.commitText("있", 1)
+            assertEquals("있", sink.text.toString())
+            connection.closeConnection()
+        }
+    }
+
     @Test fun betaReplacementsAndLegacyCompositionShareAnEditorDocument() {
         if (Build.VERSION.SDK_INT < 34) return
         InstrumentationRegistry.getInstrumentation().runOnMainSync {

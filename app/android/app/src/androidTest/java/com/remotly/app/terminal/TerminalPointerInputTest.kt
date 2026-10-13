@@ -239,6 +239,53 @@ class TerminalPointerInputTest {
         assertEquals("", recorder.input.toString())
     }
 
+    @Test fun unclassifiedTwoPointerTouchpadMovesScrollInBothDirections() = withTerminal { view, recorder ->
+        view.feed((1..300).joinToString("\r\n", postfix = "\r\n").toByteArray())
+        val bitmap = android.graphics.Bitmap.createBitmap(800, 480, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
+        view.draw(canvas)
+        val before = view.viewportText()
+        val time = SystemClock.uptimeMillis() + 10
+        send(view, rawPadEvent(MotionEvent.ACTION_DOWN, time, 100f))
+        send(view, rawPadEvent(MotionEvent.ACTION_MOVE, time + 1, 300f))
+        send(view, rawPadEvent(MotionEvent.ACTION_UP, time + 2, 300f))
+        view.draw(canvas)
+        val older = view.viewportText()
+        assertTrue(older.lineSequence().first().toInt() < before.lineSequence().first().toInt())
+        send(view, rawPadEvent(MotionEvent.ACTION_DOWN, time + 10, 300f))
+        send(view, rawPadEvent(MotionEvent.ACTION_MOVE, time + 11, 100f))
+        send(view, rawPadEvent(MotionEvent.ACTION_UP, time + 12, 100f))
+        view.draw(canvas)
+        assertTrue(view.viewportText().lineSequence().first().toInt() > older.lineSequence().first().toInt())
+        bitmap.recycle()
+        assertFalse(view.hasSelection)
+        assertEquals("", recorder.input.toString())
+    }
+
+    @androidx.test.filters.SdkSuppress(minSdkVersion = 34)
+    @Test fun lateClassificationDoesNotSendAFalseRemoteClick() = withTerminal { view, recorder ->
+        view.feed("\u001b[?1002h\u001b[?1006h".toByteArray())
+        val time = SystemClock.uptimeMillis() + 10
+        send(view, event(MotionEvent.ACTION_DOWN, time, buttons = 0))
+        assertEquals("", recorder.input.toString())
+        val move = touchpadEvent(MotionEvent.ACTION_MOVE, time + 1, 200f)
+        try {
+            assertTrue(view.onTouchEvent(move))
+            assertTrue(view.onGenericMotionEvent(move))
+        } finally { move.recycle() }
+        send(view, touchpadEvent(MotionEvent.ACTION_UP, time + 2))
+        assertTrue(recorder.input.toString().startsWith("\u001b[<65;"))
+        assertFalse(recorder.input.toString().contains("\u001b[<0;"))
+        assertFalse(view.hasSelection)
+    }
+
+    private fun rawPadEvent(action: Int, time: Long, y: Float): MotionEvent {
+        val properties = Array(2) { index -> MotionEvent.PointerProperties().apply { id = index; toolType = MotionEvent.TOOL_TYPE_MOUSE } }
+        val coords = Array(2) { index -> MotionEvent.PointerCoords().apply { x = 10f + index * 20f; this.y = y } }
+        return requireNotNull(MotionEvent.obtain(time, time, action, 2, properties, coords, 0, 0,
+            1f, 1f, 1, 0, InputDevice.SOURCE_TOUCHPAD, 0))
+    }
+
     @androidx.annotation.RequiresApi(34)
     private fun touchpadEvent(action: Int, time: Long, travel: Float = 0f, modifiers: Int = 0): MotionEvent {
         val properties = MotionEvent.PointerProperties().apply { id = 0; toolType = MotionEvent.TOOL_TYPE_MOUSE }
